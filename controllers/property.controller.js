@@ -566,22 +566,22 @@ const searchProperties = (req, res) => {
 // GET by slug
 const getPropertyBySlug = async (req, res) => {
   try {
-    const slugParam = req.params.slugParam; // like "307185-g-square-dynasty-by-gsquare-in-mahabalipuram"
-    const m = String(slugParam).match(/^(\d+)(?:-|$)/);
+    const slug = req.params.slug; // like "307185-g-square-dynasty-by-gsquare-in-mahabalipuram"
+    const m = String(slug).match(/^(\d+)(?:-|$)/);
     if (!m) return res.status(400).json({ success: false, message: "Invalid slug format" });
     const id = Number(m[1]);
     const property = await Property.getById(id);
     if (!property) return res.status(404).json({ success: false, message: "Property not found" });
 
     // If stored slug exists and differs, redirect to canonical slug (preserve query)
-    if (property.slug && property.slug !== slugParam) {
+    if (property.slug && property.slug !== slug) {
       const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
       return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
     }
 
     // optionally record analytics (best-effort; non-blocking)
     try {
-      await recordPropertyEvent({ property_id: id, slug: property.slug || slugParam, event_type: 'view', event_name: 'page_view', payload: { query: req.query }, req });
+      await recordPropertyEvent({ property_id: id, slug: property.slug || slug, event_type: 'view', event_name: 'page_view', payload: { query: req.query }, req });
     } catch (e) {
       console.warn("analytics error:", e && e.message);
     }

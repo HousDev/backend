@@ -44,7 +44,7 @@ router.get("/", propertyController.searchProperties);
 // get all (list/search) - keep one handler (avoid duplicate root routes)
 router.get("/", propertyController.searchProperties); // or getAllProperties based on your needs
 // get by slug (public facing)
-router.get("/page/:slugParam", propertyController.getPropertyBySlug);
+router.get("/page/:slug", propertyController.getPropertyBySlug);
 
 // migrate
 router.post("/migrate", propertyController.migratePropertyData);
