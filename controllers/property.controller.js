@@ -1,10 +1,12 @@
+// controllers/property.controller.js
 const Property = require("../models/Property");
 const MasterData = require("../models/masterModel");
 const path = require("path");
 const fs = require("fs");
-
-const db=require("../config/database")
+const { slugifyTextParts } = require("../utils/slugify");
+const db = require("../config/database");
 const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
+
 // ---------------------
 // Helper Functions
 // ---------------------
@@ -43,17 +45,17 @@ const parseNearbyPlaces = (req) => {
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
-  property_type_name: req.body.propertyType || null,
-  property_subtype_name: req.body.propertySubtype || null,
-  unit_type: req.body.unitType || null,
+  property_type_name: req.body.propertyType || req.body.property_type_name || null,
+  property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
+  unit_type: req.body.unitType || req.body.unit_type || null,
   wing: req.body.wing || null,
   unit_no: req.body.unitNo || null,
   furnishing: req.body.furnishing || null,
   parking_type: req.body.parkingType || null,
   parking_qty: req.body.parkingQty || null,
-  city_name: req.body.city || null,
+  city_name: req.body.city || req.body.city_name || null,
   location_name: req.body.location || null,
-  society_name: req.body.society || null,
+  society_name: req.body.society_name || null,
   floor: req.body.floor || null,
   total_floors: req.body.totalFloors || null,
   carpet_area: req.body.carpetArea || null,
@@ -139,13 +141,34 @@ const createProperty = async (req, res) => {
       ownershipDocPublic,
       photoPublicPaths
     );
+
+    // Insert record (returns insertId)
     const propertyId = await Property.create(propertyData);
+
+    // Build slug using id + slugified title parts
+    const titlePart = slugifyTextParts(
+      propertyData.property_type_name,
+      propertyData.unit_type,
+      propertyData.property_subtype_name,
+      propertyData.city_name
+    );
+    const slug = `${propertyId}-${titlePart}`;
+
+    // Update slug column
+    try {
+      await Property.updateSlug(propertyId, slug);
+    } catch (slugErr) {
+      // don't fail creation if slug update fails; log for investigation
+      console.warn("Failed to update slug for property:", propertyId, slugErr && slugErr.message);
+    }
 
     res.status(201).json({
       success: true,
       message: "Property created successfully",
       data: {
         id: propertyId,
+        slug,
+        url: `/buy/projects/page/${slug}`,
         uploadedFiles: {
           ownershipDoc: ownershipDocPublic ? 1 : 0,
           photos: photoPublicPaths.length,
@@ -176,7 +199,7 @@ const getAllProperties = async (req, res) => {
   }
 };
 
-// READ (single)
+// READ (single by id)
 const getProperty = async (req, res) => {
   try {
     const property = await Property.getById(req.params.id);
@@ -262,17 +285,17 @@ const updateProperty = async (req, res) => {
     // 7) Build payload (normalize)
     const propertyData = {
       seller_name: req.body.seller || null,
-      property_type_name: req.body.propertyType || null,
-      property_subtype_name: req.body.propertySubtype || null,
-      unit_type: req.body.unitType || null,
+      property_type_name: req.body.propertyType || req.body.property_type_name || null,
+      property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
+      unit_type: req.body.unitType || req.body.unit_type || null,
       wing: req.body.wing || null,
       unit_no: req.body.unitNo || null,
       furnishing: req.body.furnishing || null,
       parking_type: req.body.parkingType || null,
       parking_qty: req.body.parkingQty || null,
-      city_name: req.body.city || null,
+      city_name: req.body.city || req.body.city_name || null,
       location_name: req.body.location || null,
-      society_name: req.body.society || null,
+      society_name: req.body.society_name || null,
       floor: req.body.floor || null,
       total_floors: req.body.totalFloors || null,
       carpet_area: req.body.carpetArea || null,
@@ -300,6 +323,26 @@ const updateProperty = async (req, res) => {
     };
 
     await Property.update(id, propertyData);
+
+    // Recompute slug if any title fields present in request (optional)
+    const maybeNewTitleParts = [
+      req.body.propertyType || req.body.property_type_name,
+      req.body.unitType || req.body.unit_type,
+      req.body.propertySubtype || req.body.property_subtype_name,
+      req.body.city || req.body.city_name,
+    ].filter(Boolean);
+
+    if (maybeNewTitleParts.length) {
+      try {
+        const titlePart = slugifyTextParts(...maybeNewTitleParts);
+        const newSlug = `${id}-${titlePart}`;
+        if (newSlug !== current.slug) {
+          await Property.updateSlug(id, newSlug);
+        }
+      } catch (slugErr) {
+        console.warn("Failed to update slug after property update:", slugErr && slugErr.message);
+      }
+    }
 
     return res.json({
       success: true,
@@ -427,7 +470,6 @@ const migratePropertyData = async (req, res) => {
 };
 
 // GET /properties/search
-// GET /properties/search
 const searchProperties = (req, res) => {
   try {
     let {
@@ -521,9 +563,56 @@ const searchProperties = (req, res) => {
   }
 };
 
+// GET by slug
+const getPropertyBySlug = async (req, res) => {
+  try {
+    const slugParam = req.params.slugParam; // like "307185-g-square-dynasty-by-gsquare-in-mahabalipuram"
+    const m = String(slugParam).match(/^(\d+)(?:-|$)/);
+    if (!m) return res.status(400).json({ success: false, message: "Invalid slug format" });
+    const id = Number(m[1]);
+    const property = await Property.getById(id);
+    if (!property) return res.status(404).json({ success: false, message: "Property not found" });
 
+    // If stored slug exists and differs, redirect to canonical slug (preserve query)
+    if (property.slug && property.slug !== slugParam) {
+      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
+    }
 
+    // optionally record analytics (best-effort; non-blocking)
+    try {
+      await recordPropertyEvent({ property_id: id, slug: property.slug || slugParam, event_type: 'view', event_name: 'page_view', payload: { query: req.query }, req });
+    } catch (e) {
+      console.warn("analytics error:", e && e.message);
+    }
 
+    res.json({ success: true, data: property });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+async function recordPropertyEvent({ property_id, slug, event_type='view', event_name='page_view', payload={}, req }) {
+  const sql = `INSERT INTO property_events (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id) VALUES (?,?,?,?,?,?,?,?,?)`;
+  const vals = [
+    property_id,
+    slug,
+    event_type,
+    event_name,
+    JSON.stringify(payload || {}),
+    req.ip || null,
+    req.get('User-Agent') || null,
+    req.get('Referrer') || req.get('Referer') || null,
+    req.cookies?.session_id || null
+  ];
+  try {
+    await db.execute(sql, vals);
+  } catch (err) {
+    // non-fatal — analytics should not break page
+    console.warn("Failed to record property event:", err && err.message);
+  }
+}
 
 module.exports = {
   createProperty,
@@ -535,5 +624,6 @@ module.exports = {
   deletePhotosFromProperty,
   getMasterData,
   migratePropertyData,
-  searchProperties
+  searchProperties,
+  getPropertyBySlug,
 };

@@ -83,6 +83,7 @@ app.use("/api/masters", masterRoutes);
 app.use("/api/connected-remarks", remarkRoutes);
 app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
+app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use(
   '/uploads',
@@ -122,7 +123,8 @@ app.get("/", (req, res) => {
     documentation: "/api/health for health check",
   });
 });
-
+const slugRedirect = require('./middleware/slugRedirect');
+app.use(slugRedirect);
 // 404
 app.use("*", (req, res) => {
   res.status(404).json({ success: false, message: "Endpoint not found", path: req.originalUrl });
