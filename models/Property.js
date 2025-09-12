@@ -1,6 +1,6 @@
 // models/Property.js
 const db = require("../config/database");
-
+const { v4: uuidv4 } = require('uuid'); // npm i uuid
 // -------- helper: safe JSON ----------
 function safeJsonParse(str, defaultValue = []) {
   if (!str) return defaultValue;
@@ -341,6 +341,181 @@ class Property {
       return true;
     } catch {
       return false;
+    }
+  }
+  /* =========================
+     EVENTS / ANALYTICS
+     ========================= */
+
+  /**
+   * Record an analytics event for a property.
+   * This is a best-effort helper: it returns { success, affectedRows?, error? }.
+   *
+   * @param {object} opts
+   * @param {number|string} opts.property_id
+   * @param {string|null} opts.slug
+   * @param {string} [opts.event_type='view']
+   * @param {string} [opts.event_name='page_view']
+   * @param {object} [opts.payload={}]
+   * @param {string|null} [opts.ip=null]
+   * @param {string|null} [opts.user_agent=null]
+   * @param {string|null} [opts.referrer=null]
+   * @param {string|null} [opts.session_id=null]
+   */
+  static async recordEvent({
+    property_id,
+    slug = null,
+    event_type = "view",
+    event_name = "page_view",
+    payload = {},
+    ip = null,
+    user_agent = null,
+    referrer = null,
+    session_id = null,
+  }) {
+    try {
+      const sql = `INSERT INTO property_events (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
+      const vals = [
+        property_id,
+        slug,
+        event_type,
+        event_name,
+        JSON.stringify(payload || {}),
+        ip,
+        user_agent,
+        referrer,
+        session_id,
+      ];
+      const [result] = await db.execute(sql, vals);
+      return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
+    } catch (err) {
+      console.warn("Property.recordEvent failed:", err && err.message);
+      return { success: false, error: err && err.message };
+    }
+  
+}
+ /* =========================
+     FILTER CONTEXT helpers
+     ========================= */
+
+  /**
+   * Save a filter context and return its UUID (id).
+   * filters: object or JSON-string
+   * user_id: optional
+   */
+  static async saveFilterContext(filters, user_id = null) {
+    try {
+      const id = uuidv4();
+      const jsonFilters = typeof filters === "string" ? filters : JSON.stringify(filters || {});
+      await db.execute(
+        `INSERT INTO filter_contexts (id, filters, user_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+        [id, jsonFilters, user_id]
+      );
+      return { success: true, id };
+    } catch (err) {
+      console.warn("saveFilterContext failed:", err && err.message);
+      return { success: false, error: err && err.message };
+    }
+  }
+
+  /**
+   * Get a filter_context row by id (token)
+   */
+  static async getFilterContextById(id) {
+    try {
+      const [rows] = await db.execute(`SELECT * FROM filter_contexts WHERE id = ? LIMIT 1`, [id]);
+      return rows[0] || null;
+    } catch (err) {
+      console.warn("getFilterContextById failed:", err && err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Utility: ensureFilterToken
+   * - If tokenOrFilters is an object => create a new filter_context and return its id
+   * - If tokenOrFilters is a string => validate existence in filter_contexts and return id or null
+   */
+  static async ensureFilterToken(tokenOrFilters, user_id = null) {
+    // if nothing provided
+    if (tokenOrFilters == null) return null;
+
+    // If it's an object (filters) -> save and return id
+    if (typeof tokenOrFilters === "object") {
+      const saved = await this.saveFilterContext(tokenOrFilters, user_id);
+      return saved.success ? saved.id : null;
+    }
+
+    // if it's a string -> assume it's a token id; validate existence
+    if (typeof tokenOrFilters === "string") {
+      // small sanity check: basic uuid-ish length (36) or allow shorter ids if you use numeric tokens
+      try {
+        const ctx = await this.getFilterContextById(tokenOrFilters);
+        return ctx ? tokenOrFilters : null;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  /* =========================
+     EVENTS / ANALYTICS (updated)
+     ========================= */
+  /**
+   * Record an analytics event for a property.
+   * Accepts filterToken which can be:
+   *  - null
+   *  - a filter-token string (existing id)
+   *  - an object of filters (will be saved into filter_contexts and id returned)
+   *
+   * Returns { success, affectedRows?, insertId?, error? }
+   */
+  static async recordEvent({
+    property_id,
+    slug = null,
+    event_type = "view",
+    event_name = "page_view",
+    payload = {},
+    ip = null,
+    user_agent = null,
+    referrer = null,
+    session_id = null,
+    filterToken = null, // NEW: can be id string or filters object
+    user_id = null,     // optional: used if we create filter_context and want to attach user
+  }) {
+    try {
+      // Ensure payload is an object
+      payload = payload || {};
+
+      // If caller passed filterToken, normalize it:
+      // - if it's an object -> create filter_context row and get id
+      // - if it's a string -> validate it exists; if invalid, set null
+      // - if null/undefined -> leave as null
+      const finalFilterToken = await this.ensureFilterToken(filterToken, user_id);
+      // attach to payload explicitly (so DB holds the token ID or null)
+      payload.filterToken = finalFilterToken;
+
+      const sql = `INSERT INTO property_events
+        (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
+      const vals = [
+        property_id,
+        slug,
+        event_type,
+        event_name,
+        JSON.stringify(payload || {}),
+        ip,
+        user_agent,
+        referrer,
+        session_id,
+      ];
+      const [result] = await db.execute(sql, vals);
+      return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
+    } catch (err) {
+      console.warn("Property.recordEvent failed:", err && err.message);
+      return { success: false, error: err && err.message };
     }
   }
 }

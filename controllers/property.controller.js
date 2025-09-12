@@ -97,6 +97,38 @@ const toPublic = (f) =>
   (f.filename || path.basename(f.path)).replace(/\\/g, "/");
 
 // ---------------------
+// Filter token extractor (robust)
+// ---------------------
+/**
+ * Returns { token: string|null, key: string|null }
+ * Looks through query and body for common keys (filterToken, fltcnt, filter_token)
+ * Falls back to the first UUID-shaped value or long-ish token if present.
+ */
+function extractFilterTokenFromReq(req) {
+  const q = req.query || {};
+  if (q.filterToken) return { token: String(q.filterToken), key: "filterToken" };
+  if (q.fltcnt) return { token: String(q.fltcnt), key: "fltcnt" };
+  if (q.filter_token) return { token: String(q.filter_token), key: "filter_token" };
+
+  // heuristic search in query values for UUID-like or long token
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  for (const k of Object.keys(q)) {
+    const v = q[k];
+    if (!v) continue;
+    if (typeof v === "string" && uuidRegex.test(v)) return { token: v, key: k };
+    if (typeof v === "string" && v.length >= 20) return { token: v, key: k };
+  }
+
+  // check body as fallback
+  const b = req.body || {};
+  if (b.filterToken) return { token: String(b.filterToken), key: "filterToken" };
+  if (b.fltcnt) return { token: String(b.fltcnt), key: "fltcnt" };
+  if (b.filter_token) return { token: String(b.filter_token), key: "filter_token" };
+
+  return { token: null, key: null };
+}
+
+// ---------------------
 // Controller Functions
 // ---------------------
 
@@ -579,9 +611,43 @@ const getPropertyBySlug = async (req, res) => {
       return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
     }
 
+    // capture client metadata (respect X-Forwarded-For)
+    const xff = req.headers["x-forwarded-for"];
+    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
+    const userAgent = req.get("User-Agent") || null;
+    const referrer = req.get("Referrer") || req.get("Referer") || null;
+    const sessionId = req.cookies?.session_id || null;
+
+    // extract filter token (so visits with fltcnt or other keys are captured)
+    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
+
     // optionally record analytics (best-effort; non-blocking)
     try {
-      await recordPropertyEvent({ property_id: id, slug: property.slug || slug, event_type: 'view', event_name: 'page_view', payload: { query: req.query }, req });
+      // Build a small payload copy (avoid circular/non-serializable values)
+      const safePayload = {
+        query: req.query || {},
+        filterToken: extractedFilterToken,
+        filterParamKey: filterParamKey,
+      };
+
+      // call model method (Property.recordEvent) and PASS filterToken so it can be validated/saved
+      const _evtResult = await Property.recordEvent({
+        property_id: id,
+        slug: property.slug || slug,
+        event_type: "view",
+        event_name: "page_view",
+        payload: safePayload,
+        ip: ip || null,
+        user_agent: userAgent || null,
+        referrer: referrer || null,
+        session_id: sessionId || null,
+        filterToken: extractedFilterToken,
+        user_id: req.user?.id ?? null,
+      });
+
+      if (!(_evtResult && _evtResult.success)) {
+        console.warn("analytics not saved:", _evtResult && _evtResult.error);
+      }
     } catch (e) {
       console.warn("analytics error:", e && e.message);
     }
@@ -593,26 +659,107 @@ const getPropertyBySlug = async (req, res) => {
   }
 };
 
-async function recordPropertyEvent({ property_id, slug, event_type='view', event_name='page_view', payload={}, req }) {
-  const sql = `INSERT INTO property_events (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id) VALUES (?,?,?,?,?,?,?,?,?)`;
-  const vals = [
-    property_id,
-    slug,
-    event_type,
-    event_name,
-    JSON.stringify(payload || {}),
-    req.ip || null,
-    req.get('User-Agent') || null,
-    req.get('Referrer') || req.get('Referer') || null,
-    req.cookies?.session_id || null
-  ];
+const recordEventHandler = async (req, res) => {
   try {
-    await db.execute(sql, vals);
+    const idRaw = req.params.id;
+    const propertyId = Number(idRaw);
+    if (!propertyId || Number.isNaN(propertyId)) {
+      return res.status(400).json({ success: false, message: "Missing or invalid property id" });
+    }
+
+    const {
+      event_type = "custom",
+      event_name = "unknown",
+      payload = {},
+      slug = null,
+    } = req.body || {};
+
+    // robust extraction of token (supports filterToken, fltcnt, etc.)
+    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
+
+    // capture client metadata (respect X-Forwarded-For)
+    const xff = req.headers["x-forwarded-for"];
+    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
+    const userAgent = req.get("User-Agent") || null;
+    const referrer = req.get("Referrer") || req.get("Referer") || null;
+    const sessionId = req.cookies?.session_id || null;
+
+    // merge token into payload for easier querying later
+    const mergedPayload = {
+      ...payload,
+      filterToken: extractedFilterToken,
+      filterParamKey,
+      recorded_from: "api",
+    };
+
+    // call model method (best-effort) and PASS filterToken so ensureFilterToken runs
+    const result = await Property.recordEvent({
+      property_id: propertyId,
+      slug: slug || null,
+      event_type,
+      event_name,
+      payload: mergedPayload,
+      ip,
+      user_agent: userAgent,
+      referrer,
+      session_id: sessionId,
+      filterToken: extractedFilterToken,
+      user_id: req.user?.id ?? null,
+    });
+
+    // respond success; include whether analytics saved for debugging
+    return res.json({
+      success: true,
+      message: "Event recorded (best-effort)",
+      analyticsSaved: !!(result && result.success),
+      metadata: {
+        propertyId,
+        event_type,
+        event_name,
+        filterParamKey,
+        filterTokenPresent: !!extractedFilterToken
+      },
+    });
   } catch (err) {
-    // non-fatal — analytics should not break page
-    console.warn("Failed to record property event:", err && err.message);
+    console.error("recordEventHandler failed:", err);
+    // Do not leak internal error details, but return a 500
+    return res.status(500).json({ success: false, message: "Server error" });
   }
-}
+};
+
+// ---------------------
+// FILTER CONTEXT Handlers
+// ---------------------
+
+// POST /api/filters  -> body: { filters: object | JSON-string, user_id?: number }
+const saveFilterContextHandler = async (req, res) => {
+  try {
+    const { filters, user_id = null } = req.body;
+    if (!filters || (typeof filters !== "object" && typeof filters !== "string")) {
+      return res.status(400).json({ success: false, message: "filters (object or JSON-string) required" });
+    }
+    const result = await Property.saveFilterContext(filters, user_id);
+    if (!result || !result.success) return res.status(500).json({ success: false, message: "Failed to save filter context", error: result?.error });
+    return res.json({ success: true, id: result.id });
+  } catch (err) {
+    console.error("saveFilterContextHandler error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// GET /api/filters/:id  -> debug / fetch filter context
+const getFilterContextHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ success: false, message: "id required" });
+    const ctx = await Property.getFilterContextById(id);
+    if (!ctx) return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true, context: ctx });
+  } catch (err) {
+    console.error("getFilterContextHandler error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 
 module.exports = {
   createProperty,
@@ -626,4 +773,7 @@ module.exports = {
   migratePropertyData,
   searchProperties,
   getPropertyBySlug,
+  recordEventHandler,
+  saveFilterContextHandler,
+  getFilterContextHandler
 };
