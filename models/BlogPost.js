@@ -39,19 +39,65 @@ function mapRow(row) {
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    slug: row.slug,
   };
+}
+
+/**
+ * Convert a string to a URL-friendly slug.
+ * Lowercase, replace non-alphanum with -, collapse dashes, trim.
+ */
+function slugify(text) {
+  if (!text) return "";
+  return String(text)
+    .toLowerCase()
+    .normalize("NFKD") // separate accents
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, "-");
+}
+
+/**
+ * Ensure the slug is unique in the blog_posts table.
+ * If conflict, append -1, -2, ... until unique.
+ * excludeId (optional) excludes a specific row id (useful on update).
+ */
+async function ensureUniqueSlug(baseSlug, excludeId = null) {
+  if (!baseSlug) baseSlug = String(Date.now());
+  let slug = baseSlug;
+  let i = 1;
+
+  while (true) {
+    const sql =
+      "SELECT id FROM blog_posts WHERE slug = ?" +
+      (excludeId ? " AND id != ?" : "");
+    const params = excludeId ? [slug, excludeId] : [slug];
+    const [rows] = await db.execute(sql, params);
+    if (!rows || rows.length === 0) {
+      return slug;
+    }
+    slug = `${baseSlug}-${i++}`;
+  }
 }
 
 class BlogPost {
   static async create(payload) {
     const tagsJson = JSON.stringify(payload.tags ?? []);
+    const now = new Date();
+    const createdAt = formatDateTime(now);
+    const updatedAt = createdAt;
     const publishedAt =
       payload.status === "published" ? formatDateTime(new Date()) : null;
 
+    // Determine slug: use provided slug if any, otherwise generate from title.
+    const baseSlug = slugify(payload.slug ?? payload.title ?? "");
+    const slug = await ensureUniqueSlug(baseSlug);
+
     const [result] = await db.execute(
       `INSERT INTO blog_posts
-       (title, content, excerpt, author, category, tags, featured, featured_image, seo_title, seo_description, status, published_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (title, content, excerpt, author, category, tags, featured, featured_image, seo_title, seo_description, status, published_at, created_at, updated_at, slug)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         payload.title,
         payload.content,
@@ -65,6 +111,9 @@ class BlogPost {
         payload.seoDescription || null,
         payload.status || "draft",
         publishedAt,
+        createdAt,
+        updatedAt,
+        slug,
       ]
     );
     return result.insertId;
@@ -107,18 +156,28 @@ class BlogPost {
     if (!rows[0]) return null;
     return mapRow(rows[0]);
   }
+  // Find post by slug
+  static async findBySlug(slug) {
+    if (!slug) return null;
+    const [rows] = await db.execute("SELECT * FROM blog_posts WHERE slug = ?", [slug]);
+    if (!rows || !rows[0]) return null;
+    return mapRow(rows[0]);
+  }
 
   static async update(id, payload) {
     const existing = await this.findById(id);
     if (!existing) return 0;
 
+    // Decide tags
     const tagsJson = JSON.stringify(payload.tags ?? existing.tags);
 
+    // Featured image fallback
     const featuredImage =
       payload.featuredImage !== undefined
         ? payload.featuredImage
         : existing.featuredImage;
 
+    // PublishedAt logic: if status becomes published and wasn't published before, set now
     const publishedAt =
       payload.status === "published" && !existing.publishedAt
         ? formatDateTime(new Date())
@@ -126,11 +185,26 @@ class BlogPost {
         ? formatDateTime(new Date(payload.publishedAt))
         : existing.publishedAt;
 
+    // Slug logic:
+    // - If payload.slug provided (even empty string), use sanitized payload.slug
+    // - Else if payload.title provided and different from existing.title, regenerate from title
+    // - Else keep existing.slug
+    let newSlug;
+    if (payload.slug !== undefined && payload.slug !== null) {
+      const base = slugify(payload.slug || payload.title || existing.title || "");
+      newSlug = await ensureUniqueSlug(base, id);
+    } else if (payload.title && payload.title !== existing.title) {
+      const base = slugify(payload.title);
+      newSlug = await ensureUniqueSlug(base, id);
+    } else {
+      newSlug = existing.slug;
+    }
+
     const [result] = await db.execute(
       `UPDATE blog_posts SET
         title = ?, content = ?, excerpt = ?, author = ?, category = ?,
         tags = ?, featured = ?, featured_image = ?, seo_title = ?, seo_description = ?,
-        status = ?, published_at = ?, updated_at = CURRENT_TIMESTAMP
+        status = ?, published_at = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         payload.title ?? existing.title,
@@ -151,6 +225,7 @@ class BlogPost {
         payload.seoDescription ?? existing.seoDescription,
         payload.status ?? existing.status,
         publishedAt,
+        newSlug,
         id,
       ]
     );
@@ -183,3 +258,4 @@ class BlogPost {
 }
 
 module.exports = BlogPost;
+  

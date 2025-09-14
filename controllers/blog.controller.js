@@ -195,7 +195,21 @@ const deletePost = async (req, res) => {
   }
 };
 
-// Removed addInlineImages and deleteInlineImages handlers
+// add near other handlers (e.g., getPost)
+const getPostBySlug = async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    if (!slug) return res.status(400).json({ success: false, message: "Slug required" });
+
+    const post = await BlogPost.findBySlug(slug);
+    if (!post) return res.status(404).json({ success: false, message: "Not found" });
+
+    res.json({ success: true, data: post });
+  } catch (err) {
+    console.error("Get by slug error", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 
 module.exports = {
   listPosts,
@@ -203,4 +217,5 @@ module.exports = {
   createPost,
   updatePost,
   deletePost,
+  getPostBySlug,
 };

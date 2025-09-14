@@ -29,5 +29,7 @@ router.put(
 
 // delete post
 router.delete("/delete/:id", ctrl.deletePost);
+router.get("/:slug", ctrl.getPostBySlug);
+
 
 module.exports = router;
