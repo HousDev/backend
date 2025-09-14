@@ -32,7 +32,7 @@ function mapRow(row) {
     tags: safeParseJsonArray(row.tags),
     featured: !!row.featured,
     featuredImage: row.featured_image || null,
-    inlineImages: safeParseJsonArray(row.inline_images),
+    // inlineImages removed intentionally
     seoTitle: row.seo_title || null,
     seoDescription: row.seo_description || null,
     status: row.status,
@@ -45,17 +45,13 @@ function mapRow(row) {
 class BlogPost {
   static async create(payload) {
     const tagsJson = JSON.stringify(payload.tags ?? []);
-    const inlineJson =
-      payload.inlineImages && payload.inlineImages.length
-        ? JSON.stringify(payload.inlineImages)
-        : null;
     const publishedAt =
       payload.status === "published" ? formatDateTime(new Date()) : null;
 
     const [result] = await db.execute(
       `INSERT INTO blog_posts
-       (title, content, excerpt, author, category, tags, featured, featured_image, inline_images, seo_title, seo_description, status, published_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (title, content, excerpt, author, category, tags, featured, featured_image, seo_title, seo_description, status, published_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         payload.title,
         payload.content,
@@ -65,7 +61,6 @@ class BlogPost {
         tagsJson,
         payload.featured ? 1 : 0,
         payload.featuredImage || null,
-        inlineJson,
         payload.seoTitle || null,
         payload.seoDescription || null,
         payload.status || "draft",
@@ -99,11 +94,7 @@ class BlogPost {
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
-    // IMPORTANT: inline the validated numeric limit/offset to avoid driver/server prepared-statement issues
     const sql = `SELECT * FROM blog_posts ${whereSql} ORDER BY published_at DESC, created_at DESC LIMIT ${limitNum} OFFSET ${offset}`;
-
-    // debug log (optional) - remove or comment out in production
-    // console.log('findAll SQL:', sql, 'VALUES:', vals);
 
     const [rows] = await db.execute(sql, vals);
     return rows.map(mapRow);
@@ -122,18 +113,12 @@ class BlogPost {
     if (!existing) return 0;
 
     const tagsJson = JSON.stringify(payload.tags ?? existing.tags);
-    // Inline images: if payload.inlineImages === undefined -> keep existing; if provided -> set to provided array (can be [])
-    const inlineJson =
-      payload.inlineImages === undefined
-        ? JSON.stringify(existing.inlineImages)
-        : payload.inlineImages && payload.inlineImages.length
-        ? JSON.stringify(payload.inlineImages)
-        : null;
 
     const featuredImage =
       payload.featuredImage !== undefined
         ? payload.featuredImage
         : existing.featuredImage;
+
     const publishedAt =
       payload.status === "published" && !existing.publishedAt
         ? formatDateTime(new Date())
@@ -144,7 +129,7 @@ class BlogPost {
     const [result] = await db.execute(
       `UPDATE blog_posts SET
         title = ?, content = ?, excerpt = ?, author = ?, category = ?,
-        tags = ?, featured = ?, featured_image = ?, inline_images = ?, seo_title = ?, seo_description = ?,
+        tags = ?, featured = ?, featured_image = ?, seo_title = ?, seo_description = ?,
         status = ?, published_at = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
@@ -162,7 +147,6 @@ class BlogPost {
           ? 1
           : 0,
         featuredImage,
-        inlineJson,
         payload.seoTitle ?? existing.seoTitle,
         payload.seoDescription ?? existing.seoDescription,
         payload.status ?? existing.status,
@@ -180,38 +164,7 @@ class BlogPost {
     return result.affectedRows;
   }
 
-  static async addInlineImages(postId, imageUrls = []) {
-    if (!Array.isArray(imageUrls) || imageUrls.length === 0)
-      return { affected: 0, inlineImages: [] };
-    const p = await this.findById(postId);
-    if (!p) return { affected: 0, inlineImages: [] };
-    const current = Array.isArray(p.inlineImages)
-      ? p.inlineImages
-      : safeParseJsonArray(p.inline_images);
-    const merged = [...current, ...imageUrls];
-    const [res] = await db.execute(
-      "UPDATE blog_posts SET inline_images = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [JSON.stringify(merged), postId]
-    );
-    return { affected: res.affectedRows, inlineImages: merged };
-  }
-
-  static async deleteSpecificInlineImages(postId, imagesToDelete = []) {
-    if (!Array.isArray(imagesToDelete) || imagesToDelete.length === 0)
-      return { affected: 0, inlineImages: [] };
-    const p = await this.findById(postId);
-    if (!p) return { affected: 0, inlineImages: [] };
-    const current = Array.isArray(p.inlineImages)
-      ? p.inlineImages
-      : safeParseJsonArray(p.inline_images);
-    const remaining = current.filter((img) => !imagesToDelete.includes(img));
-    const [res] = await db.execute(
-      "UPDATE blog_posts SET inline_images = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [remaining.length ? JSON.stringify(remaining) : null, postId]
-    );
-    return { affected: res.affectedRows, inlineImages: remaining };
-  }
-
+  // Removed addInlineImages and deleteSpecificInlineImages methods
   static async getFeatured(limit = 5) {
     const [rows] = await db.execute(
       "SELECT * FROM blog_posts WHERE featured = 1 ORDER BY published_at DESC LIMIT ?",
