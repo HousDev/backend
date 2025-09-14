@@ -139,13 +139,7 @@ async function hasRecentView(propertyId, sessionId, dedupeKey, minutes = 1, ip =
     const cutoffDate = new Date(Date.now() - Number(minutes || 1) * 60 * 1000);
     const cutoffStr = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
 
-    console.log('[hasRecentView] params ->', {
-      propertyId,
-      sessionId: sessionId ? sessionId.slice(0, 8) + '...' : null,
-      dedupeKey: dedupeKey ? dedupeKey.slice(0, 8) + '...' : 'null',
-      minutes,
-      cutoffStr,
-    });
+  
 
     // Priority logic:
     // 1. If sessionId exists, check for same session + property (most important)
@@ -169,10 +163,8 @@ async function hasRecentView(propertyId, sessionId, dedupeKey, minutes = 1, ip =
     const [rows] = await db.execute(sql, params);
 
     const found = Array.isArray(rows) && rows.length > 0;
-    console.log('[hasRecentView] found recent view =', found);
     return found;
   } catch (err) {
-    console.error('Views.hasRecentView failed:', err && err.message);
     // fail-open so that analytics DB issues don't break page loads
     return false;
   }
@@ -252,13 +244,11 @@ async function recordView(payload = {}) {
         meta = { ...meta, totals };
       } catch (totErr) {
         // don't fail because of totals fetch — just log
-        console.warn("[Views.recordView] failed to fetch totals after insert:", totErr && totErr.message ? totErr.message : totErr);
       }
     }
 
     return { inserted: true, meta };
   } catch (err) {
-    console.error("Views.recordView failed:", err && err.stack ? err.stack : err);
     return { inserted: false, error: err && err.message ? err.message : String(err) };
   }
 }

@@ -142,6 +142,7 @@ function extractFilterTokenFromReq(req) {
 // ---------------------
 
 // CREATE
+// controller (e.g., controllers/propertyController.js)
 const createProperty = async (req, res) => {
   console.log("=== DEBUG: File Upload ===");
   console.log("CT:", req.headers["content-type"]);
@@ -170,7 +171,7 @@ const createProperty = async (req, res) => {
   }
 
   try {
-    // Convert multer file objects to PUBLIC paths
+    // Convert multer file objects to PUBLIC paths (keep your existing toPublic implementation)
     const ownershipDocPublic = req.files?.ownershipDoc?.[0]
       ? toPublic(req.files.ownershipDoc[0])
       : null;
@@ -186,14 +187,26 @@ const createProperty = async (req, res) => {
     // Insert record (returns insertId)
     const propertyId = await Property.create(propertyData);
 
-    // Build slug using id + slugified title parts
+    // normalize values (avoid undefined)
+    const propertyType = propertyData.property_type_name || "";
+    const unitType = propertyData.unit_type || "";
+    const propertySubtype = propertyData.property_subtype_name || "";
+    const locationName = propertyData.location_name || ""; // e.g., andheri
+    const cityName = propertyData.city_name || ""; // e.g., mumbai
+
+    // Use the new signature: slugifyTextParts(id, propertyType, unitType, propertySubtype, location, city)
     const titlePart = slugifyTextParts(
-      propertyData.property_type_name,
-      propertyData.unit_type,
-      propertyData.property_subtype_name,
-      propertyData.city_name
+      propertyId,
+      propertyType,
+      unitType,
+      propertySubtype,
+      locationName,
+      cityName
     );
-    const slug = `${propertyId}-${titlePart}`;
+
+    // If your slugify already prefixes id, ensure you don't double-prefix.
+    // The function as provided includes id in the joined string, so use returned value directly:
+    const slug = titlePart; // already contains id at start per new implementation
 
     // Update slug column
     try {
@@ -213,7 +226,7 @@ const createProperty = async (req, res) => {
       data: {
         id: propertyId,
         slug,
-        url: `/buy/projects/page/${slug}`,
+        url: `/properties/${slug}`,
         uploadedFiles: {
           ownershipDoc: ownershipDocPublic ? 1 : 0,
           photos: photoPublicPaths.length,
@@ -713,11 +726,7 @@ const getPropertyBySlug = async (req, res) => {
         minutes_window: 1440, // 24 hours window for same session
       });
 
-      if (!(_evtResult && _evtResult.success)) {
-        console.warn("analytics not saved:", _evtResult && _evtResult.error);
-      } else {
-        console.log(`Page view recorded for property ${id}, session: ${sessionId.slice(0,8)}...`);
-      }
+     
     } catch (e) {
       console.warn("analytics error:", e && e.message);
     }

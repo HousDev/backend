@@ -389,7 +389,6 @@ class Property {
       const [result] = await db.execute(sql, vals);
       return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
     } catch (err) {
-      console.warn("Property.recordEvent failed:", err && err.message);
       return { success: false, error: err && err.message };
     }
   
@@ -413,7 +412,6 @@ class Property {
       );
       return { success: true, id };
     } catch (err) {
-      console.warn("saveFilterContext failed:", err && err.message);
       return { success: false, error: err && err.message };
     }
   }
@@ -426,7 +424,6 @@ class Property {
       const [rows] = await db.execute(`SELECT * FROM filter_contexts WHERE id = ? LIMIT 1`, [id]);
       return rows[0] || null;
     } catch (err) {
-      console.warn("getFilterContextById failed:", err && err.message);
       return null;
     }
   }
@@ -517,7 +514,6 @@ static async recordEvent({
       );
       
       if (hasRecent) {
-        console.log(`[recordEvent] Skipping duplicate view for property ${property_id}, session: ${session_id ? session_id.slice(0,8) + '...' : 'none'}`);
         return { success: true, affectedRows: 0, insertId: null, duplicate: true };
       }
     }
@@ -541,7 +537,6 @@ static async recordEvent({
     ];
 
     const [result] = await db.execute(sql, vals);
-    console.log(`[recordEvent] Inserted ${event_type} for property ${property_id}, session: ${session_id ? session_id.slice(0,8) + '...' : 'none'}`);
     
     return { 
       success: true, 
@@ -550,7 +545,6 @@ static async recordEvent({
       duplicate: false
     };
   } catch (err) {
-    console.warn("Property.recordEvent failed:", err && err.message);
     return { success: false, error: err && err.message };
   }
   
@@ -590,7 +584,6 @@ async function recordPropertyViewHandler(req, res) {
     };
 
     if (!Views || typeof Views.recordView !== 'function') {
-      console.error('[recordPropertyViewHandler] Views.recordView missing - Views keys:', Views ? Object.keys(Views) : '(no Views)');
       return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
     }
 
@@ -614,7 +607,6 @@ async function recordPropertyViewHandler(req, res) {
       session_id: sessionId.slice(0,8) + '...' // Return partial session ID for debugging
     });
   } catch (err) {
-    console.error('recordPropertyViewHandler failed:', err && err.stack ? err.stack : err);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 }
