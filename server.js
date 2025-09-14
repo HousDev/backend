@@ -28,6 +28,8 @@ const systemSettingsRoutes = require("./routes/systemSettings.routes");
 const templateRoutes = require("./routes/templateRoutes");
 
 const templateContentRoutes = require("./routes/template.routes");
+
+const blogRoutes =require("./routes/blog.routes")
 const app = express();
 
 // Security
@@ -113,6 +115,8 @@ app.use("/api/templates", templateRoutes);
 
 // for TemplateContentAI
 app.use("/api/ai", templateContentRoutes);
+
+app.use("/api/blog-posts", blogRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
