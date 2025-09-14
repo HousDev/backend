@@ -1,3 +1,4 @@
+
 // routes/blog.routes.js
 const express = require("express");
 const router = express.Router();
@@ -10,41 +11,23 @@ router.get("/get-all", ctrl.listPosts);
 // get single
 router.get("/get/:id", ctrl.getPost);
 
-// create (supports featuredImage + inlineImages)
+// create (supports only featuredImage now)
 router.post(
   "/",
-  uploadBlog.fields([
-    { name: "featuredImage", maxCount: 1 },
-    { name: "inlineImages", maxCount: 20 }, // change maxCount as needed
-  ]),
+  uploadBlog.single("featuredImage"),
   handleUploadErrors,
   ctrl.createPost
 );
 
-// update
+// update (supports only featuredImage)
 router.put(
   "/update/:id",
-  uploadBlog.fields([
-    { name: "featuredImage", maxCount: 1 },
-    { name: "inlineImages", maxCount: 20 },
-  ]),
+  uploadBlog.single("featuredImage"),
   handleUploadErrors,
   ctrl.updatePost
 );
+
 // delete post
 router.delete("/delete/:id", ctrl.deletePost);
-
-// append inline images only
-router.post(
-  "/:id/inline-images",
-  uploadBlog.array("inlineImages", 20),
-  handleUploadErrors,
-  ctrl.addInlineImages
-);
-
-// delete selected inline images
-router.post("/:id/inline-images/delete", ctrl.deleteInlineImages);
-
-
 
 module.exports = router;

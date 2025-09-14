@@ -11,7 +11,6 @@ const ensureDir = (dir) => {
   }
 };
 
-// Common storage generator
 const makeStorage = (folder) =>
   multer.diskStorage({
     destination: (req, file, cb) => {
@@ -27,9 +26,7 @@ const makeStorage = (folder) =>
     },
   });
 
-// ------------------ existing filters & uploaders ------------------ //
-
-// Property uploads (ownershipDoc + photos)
+// existing filters & uploaders kept...
 const propertyFileFilter = (req, file, cb) => {
   if (file.fieldname === "ownershipDoc") {
     if (
@@ -52,10 +49,9 @@ const upload = multer({
   fileFilter: propertyFileFilter,
 });
 
-// System settings uploads (logo + favicon)
 const uploadSystem = multer({
   storage: makeStorage("system"),
-  limits: { fileSize: 5 * 1024 * 1024 }, // logos usually smaller
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (
       ["image/png", "image/x-icon", "image/jpeg", "image/jpg"].includes(
@@ -67,10 +63,9 @@ const uploadSystem = multer({
   },
 });
 
-// Avatar uploads (profile pictures)
 const uploadAvatar = multer({
   storage: makeStorage("avatars"),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (["image/jpeg", "image/png", "image/jpg", "image/gif"].includes(file.mimetype)) {
       cb(null, true);
@@ -80,29 +75,23 @@ const uploadAvatar = multer({
   },
 });
 
-// ------------------ NEW: Blog uploads ------------------ //
-// Goals: accept featuredImage (single) and inline images (multiple).
-// - featuredImage: single file field 'featuredImage' (max 8MB)
-// - inlineImages: multiple files field 'inlineImages' (max 5 files, 5MB each)
-
+// ------------------ BLOG (inline images removed) ------------------ //
 const allowedImageMimes = ["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif"];
 
 const blogFileFilter = (req, file, cb) => {
-  // for featuredImage and inlineImages only images allowed
-  if (["featuredImage", "inlineImages"].includes(file.fieldname)) {
+  // only 'featuredImage' expected for blog uploads
+  if (file.fieldname === "featuredImage") {
     if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for blog images"));
+    else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for featured image"));
   } else {
-    // fallback allow other fields (if any)
     cb(null, true);
   }
 };
 
-// uploader for blog files stored under uploads/blog
+// storage: uploads/blog
 const uploadBlog = multer({
   storage: makeStorage("blog"),
   limits: {
-    // per-file limit enforced by multer config; for arrays, multer uses same limit for each file
     fileSize: 8 * 1024 * 1024 // 8 MB per file (featuredImage)
   },
   fileFilter: blogFileFilter,
@@ -133,7 +122,7 @@ const handleUploadErrors = (err, req, res, next) => {
 module.exports = {
   upload,
   uploadSystem,
-  uploadAvatar, // ✅ existing
-  uploadBlog,   // ✅ newly added for blog featured / inline images
+  uploadAvatar,
+  uploadBlog,   // NOTE: now used for single('featuredImage')
   handleUploadErrors,
 };
