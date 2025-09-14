@@ -1,10 +1,14 @@
+// controllers/property.controller.js
 const Property = require("../models/Property");
 const MasterData = require("../models/masterModel");
 const path = require("path");
 const fs = require("fs");
-
-const db=require("../config/database")
+const { slugifyTextParts } = require("../utils/slugify");
+const db = require("../config/database");
 const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
+const Views = require("../models/views.model");
+const { getOrCreateSessionId } = require('../utils/sessionUtils');
+const cookieParser = require('cookie-parser');
 // ---------------------
 // Helper Functions
 // ---------------------
@@ -43,17 +47,19 @@ const parseNearbyPlaces = (req) => {
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
-  property_type_name: req.body.propertyType || null,
-  property_subtype_name: req.body.propertySubtype || null,
-  unit_type: req.body.unitType || null,
+  property_type_name:
+    req.body.propertyType || req.body.property_type_name || null,
+  property_subtype_name:
+    req.body.propertySubtype || req.body.property_subtype_name || null,
+  unit_type: req.body.unitType || req.body.unit_type || null,
   wing: req.body.wing || null,
   unit_no: req.body.unitNo || null,
   furnishing: req.body.furnishing || null,
   parking_type: req.body.parkingType || null,
   parking_qty: req.body.parkingQty || null,
-  city_name: req.body.city || null,
+  city_name: req.body.city || req.body.city_name || null,
   location_name: req.body.location || null,
-  society_name: req.body.society || null,
+  society_name: req.body.society_name || null,
   floor: req.body.floor || null,
   total_floors: req.body.totalFloors || null,
   carpet_area: req.body.carpetArea || null,
@@ -95,10 +101,48 @@ const toPublic = (f) =>
   (f.filename || path.basename(f.path)).replace(/\\/g, "/");
 
 // ---------------------
+// Filter token extractor (robust)
+// ---------------------
+/**
+ * Returns { token: string|null, key: string|null }
+ * Looks through query and body for common keys (filterToken, fltcnt, filter_token)
+ * Falls back to the first UUID-shaped value or long-ish token if present.
+ */
+function extractFilterTokenFromReq(req) {
+  const q = req.query || {};
+  if (q.filterToken)
+    return { token: String(q.filterToken), key: "filterToken" };
+  if (q.fltcnt) return { token: String(q.fltcnt), key: "fltcnt" };
+  if (q.filter_token)
+    return { token: String(q.filter_token), key: "filter_token" };
+
+  // heuristic search in query values for UUID-like or long token
+  const uuidRegex =
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  for (const k of Object.keys(q)) {
+    const v = q[k];
+    if (!v) continue;
+    if (typeof v === "string" && uuidRegex.test(v)) return { token: v, key: k };
+    if (typeof v === "string" && v.length >= 20) return { token: v, key: k };
+  }
+
+  // check body as fallback
+  const b = req.body || {};
+  if (b.filterToken)
+    return { token: String(b.filterToken), key: "filterToken" };
+  if (b.fltcnt) return { token: String(b.fltcnt), key: "fltcnt" };
+  if (b.filter_token)
+    return { token: String(b.filter_token), key: "filter_token" };
+
+  return { token: null, key: null };
+}
+
+// ---------------------
 // Controller Functions
 // ---------------------
 
 // CREATE
+// controller (e.g., controllers/propertyController.js)
 const createProperty = async (req, res) => {
   console.log("=== DEBUG: File Upload ===");
   console.log("CT:", req.headers["content-type"]);
@@ -127,7 +171,7 @@ const createProperty = async (req, res) => {
   }
 
   try {
-    // Convert multer file objects to PUBLIC paths
+    // Convert multer file objects to PUBLIC paths (keep your existing toPublic implementation)
     const ownershipDocPublic = req.files?.ownershipDoc?.[0]
       ? toPublic(req.files.ownershipDoc[0])
       : null;
@@ -139,13 +183,50 @@ const createProperty = async (req, res) => {
       ownershipDocPublic,
       photoPublicPaths
     );
+
+    // Insert record (returns insertId)
     const propertyId = await Property.create(propertyData);
+
+    // normalize values (avoid undefined)
+    const propertyType = propertyData.property_type_name || "";
+    const unitType = propertyData.unit_type || "";
+    const propertySubtype = propertyData.property_subtype_name || "";
+    const locationName = propertyData.location_name || ""; // e.g., andheri
+    const cityName = propertyData.city_name || ""; // e.g., mumbai
+
+    // Use the new signature: slugifyTextParts(id, propertyType, unitType, propertySubtype, location, city)
+    const titlePart = slugifyTextParts(
+      propertyId,
+      propertyType,
+      unitType,
+      propertySubtype,
+      locationName,
+      cityName
+    );
+
+    // If your slugify already prefixes id, ensure you don't double-prefix.
+    // The function as provided includes id in the joined string, so use returned value directly:
+    const slug = titlePart; // already contains id at start per new implementation
+
+    // Update slug column
+    try {
+      await Property.updateSlug(propertyId, slug);
+    } catch (slugErr) {
+      // don't fail creation if slug update fails; log for investigation
+      console.warn(
+        "Failed to update slug for property:",
+        propertyId,
+        slugErr && slugErr.message
+      );
+    }
 
     res.status(201).json({
       success: true,
       message: "Property created successfully",
       data: {
         id: propertyId,
+        slug,
+        url: `/properties/${slug}`,
         uploadedFiles: {
           ownershipDoc: ownershipDocPublic ? 1 : 0,
           photos: photoPublicPaths.length,
@@ -176,7 +257,7 @@ const getAllProperties = async (req, res) => {
   }
 };
 
-// READ (single)
+// READ (single by id)
 const getProperty = async (req, res) => {
   try {
     const property = await Property.getById(req.params.id);
@@ -262,17 +343,19 @@ const updateProperty = async (req, res) => {
     // 7) Build payload (normalize)
     const propertyData = {
       seller_name: req.body.seller || null,
-      property_type_name: req.body.propertyType || null,
-      property_subtype_name: req.body.propertySubtype || null,
-      unit_type: req.body.unitType || null,
+      property_type_name:
+        req.body.propertyType || req.body.property_type_name || null,
+      property_subtype_name:
+        req.body.propertySubtype || req.body.property_subtype_name || null,
+      unit_type: req.body.unitType || req.body.unit_type || null,
       wing: req.body.wing || null,
       unit_no: req.body.unitNo || null,
       furnishing: req.body.furnishing || null,
       parking_type: req.body.parkingType || null,
       parking_qty: req.body.parkingQty || null,
-      city_name: req.body.city || null,
+      city_name: req.body.city || req.body.city_name || null,
       location_name: req.body.location || null,
-      society_name: req.body.society || null,
+      society_name: req.body.society_name || null,
       floor: req.body.floor || null,
       total_floors: req.body.totalFloors || null,
       carpet_area: req.body.carpetArea || null,
@@ -300,6 +383,29 @@ const updateProperty = async (req, res) => {
     };
 
     await Property.update(id, propertyData);
+
+    // Recompute slug if any title fields present in request (optional)
+    const maybeNewTitleParts = [
+      req.body.propertyType || req.body.property_type_name,
+      req.body.unitType || req.body.unit_type,
+      req.body.propertySubtype || req.body.property_subtype_name,
+      req.body.city || req.body.city_name,
+    ].filter(Boolean);
+
+    if (maybeNewTitleParts.length) {
+      try {
+        const titlePart = slugifyTextParts(...maybeNewTitleParts);
+        const newSlug = `${id}-${titlePart}`;
+        if (newSlug !== current.slug) {
+          await Property.updateSlug(id, newSlug);
+        }
+      } catch (slugErr) {
+        console.warn(
+          "Failed to update slug after property update:",
+          slugErr && slugErr.message
+        );
+      }
+    }
 
     return res.json({
       success: true,
@@ -427,7 +533,6 @@ const migratePropertyData = async (req, res) => {
 };
 
 // GET /properties/search
-// GET /properties/search
 const searchProperties = (req, res) => {
   try {
     let {
@@ -436,27 +541,54 @@ const searchProperties = (req, res) => {
       budget_min,
       budget_max,
       sort,
-      propertyType,   // single value e.g. "apartment"
-      unitTypes,      // comma list e.g. "1bhk,2bhk"
+      propertyType, // single value e.g. "apartment"
+      unitTypes, // comma list e.g. "1bhk,2bhk"
       furnishing,
       possession,
     } = req.query;
 
-    const minP = budget_min !== undefined && budget_min !== "" ? Number(budget_min) : undefined;
-    const maxP = budget_max !== undefined && budget_max !== "" ? Number(budget_max) : undefined;
+    const minP =
+      budget_min !== undefined && budget_min !== ""
+        ? Number(budget_min)
+        : undefined;
+    const maxP =
+      budget_max !== undefined && budget_max !== ""
+        ? Number(budget_max)
+        : undefined;
 
     const filters = [];
     const values = [];
 
-    if (city)      { filters.push("LOWER(city) LIKE ?");      values.push(`%${city.toLowerCase()}%`); }
-    if (location)  { filters.push("LOWER(location) LIKE ?");  values.push(`%${location.toLowerCase()}%`); }
-    if (!Number.isNaN(minP)) { filters.push("price >= ?"); values.push(minP); }
-    if (!Number.isNaN(maxP)) { filters.push("price <= ?"); values.push(maxP); }
+    if (city) {
+      filters.push("LOWER(city) LIKE ?");
+      values.push(`%${city.toLowerCase()}%`);
+    }
+    if (location) {
+      filters.push("LOWER(location) LIKE ?");
+      values.push(`%${location.toLowerCase()}%`);
+    }
+    if (!Number.isNaN(minP)) {
+      filters.push("price >= ?");
+      values.push(minP);
+    }
+    if (!Number.isNaN(maxP)) {
+      filters.push("price <= ?");
+      values.push(maxP);
+    }
 
     // 👇 CHANGE: use property_type instead of unit_type
-    if (propertyType) { filters.push("LOWER(property_type) = ?"); values.push(propertyType.toLowerCase()); }
-    if (furnishing)   { filters.push("LOWER(furnishing) = ?");    values.push(furnishing.toLowerCase()); }
-    if (possession)   { filters.push("LOWER(possession) = ?");    values.push(possession.toLowerCase()); }
+    if (propertyType) {
+      filters.push("LOWER(property_type) = ?");
+      values.push(propertyType.toLowerCase());
+    }
+    if (furnishing) {
+      filters.push("LOWER(furnishing) = ?");
+      values.push(furnishing.toLowerCase());
+    }
+    if (possession) {
+      filters.push("LOWER(possession) = ?");
+      values.push(possession.toLowerCase());
+    }
 
     // If you intend "unitTypes" to be the BHK like 1bhk/2bhk, map it to the actual column (e.g. bedrooms or bhk)
     if (unitTypes) {
@@ -469,7 +601,9 @@ const searchProperties = (req, res) => {
       // If you store numeric bedrooms, convert "1bhk" => 1, etc.
       // Example if you have a text column `bhk_label`:
       if (typesArray.length > 0) {
-        filters.push(`LOWER(bhk_label) IN (${typesArray.map(() => "?").join(",")})`);
+        filters.push(
+          `LOWER(bhk_label) IN (${typesArray.map(() => "?").join(",")})`
+        );
         values.push(...typesArray);
       }
     }
@@ -480,8 +614,12 @@ const searchProperties = (req, res) => {
 
     if (sort) {
       switch (sort) {
-        case "low_to_high": sql += " ORDER BY price ASC"; break;
-        case "high_to_low": sql += " ORDER BY price DESC"; break;
+        case "low_to_high":
+          sql += " ORDER BY price ASC";
+          break;
+        case "high_to_low":
+          sql += " ORDER BY price DESC";
+          break;
         case "medium":
           if (whereClause) {
             sql = `
@@ -501,8 +639,11 @@ const searchProperties = (req, res) => {
             finalValues = [];
           }
           break;
-        case "newest": sql += " ORDER BY created_at DESC"; break;
-        default: sql += " ORDER BY price ASC";
+        case "newest":
+          sql += " ORDER BY created_at DESC";
+          break;
+        default:
+          sql += " ORDER BY price ASC";
       }
     } else {
       sql += " ORDER BY price ASC";
@@ -521,9 +662,216 @@ const searchProperties = (req, res) => {
   }
 };
 
+// GET by slug
+const getPropertyBySlug = async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const m = String(slug).match(/^(\d+)(?:-|$)/);
+    if (!m)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid slug format" });
+    
+    const id = Number(m[1]);
+    const property = await Property.getById(id);
+    if (!property)
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
+
+    // If stored slug exists and differs, redirect to canonical slug (preserve query)
+    if (property.slug && property.slug !== slug) {
+      const qs = req.url.includes("?")
+        ? req.url.slice(req.url.indexOf("?"))
+        : "";
+      return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
+    }
+
+    // Capture client metadata (respect X-Forwarded-For)
+    const xff = req.headers["x-forwarded-for"];
+    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
+    const userAgent = req.get("User-Agent") || null;
+    const referrer = req.get("Referrer") || req.get("Referer") || null;
+    
+    // *** GENERATE SESSION ID ***
+    const sessionId = getOrCreateSessionId(req, res);
+
+    // Extract filter token (so visits with fltcnt or other keys are captured)
+    const { token: extractedFilterToken, key: filterParamKey } =
+      extractFilterTokenFromReq(req);
+
+    // *** RECORD VIEW ONLY ONCE PER SESSION ***
+    try {
+      // Build a small payload copy (avoid circular/non-serializable values)
+      const safePayload = {
+        query: req.query || {},
+        filterToken: extractedFilterToken,
+        filterParamKey: filterParamKey,
+      };
+
+      // Record view with session-based deduplication
+      const _evtResult = await Property.recordEvent({
+        property_id: id,
+        slug: property.slug || slug,
+        event_type: "view",
+        event_name: "page_view",
+        payload: safePayload,
+        ip,
+        user_agent: userAgent,
+        referrer,
+        session_id: sessionId, // Now properly set
+        filterToken: extractedFilterToken,
+        user_id: req.user?.id ?? null,
+        dedupe_key: sessionId, // Use sessionId as dedupe key for same-session detection
+        minutes_window: 1440, // 24 hours window for same session
+      });
+
+     
+    } catch (e) {
+      console.warn("analytics error:", e && e.message);
+    }
+
+    res.json({ success: true, data: property });
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: error.message });
+  }
+};
 
 
+async function recordEventHandler(req, res) {
+  try {
+    // parse / validate property id
+    const idRaw = req.params.id;
+    const propertyId = idRaw
+      ? Number(String(idRaw).replace(/[^0-9]/g, ""))
+      : null;
+    if (!propertyId || Number.isNaN(propertyId)) {
+      // If you accept slug-only, handle accordingly — here we require numeric id
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing or invalid property id" });
+    }
 
+    // Compose payload safely from request body + request metadata
+    const {
+      source = req.body.source ?? "client",
+      path = req.body.path ?? (typeof req !== "undefined" && req.path) ?? null,
+      referrer = req.body.referrer ?? (req.get ? req.get("Referer") : null),
+      slug = req.query.slug ?? req.body.slug ?? null,
+      dedupe_key = req.body.dedupe_key ?? req.body.dedupeKey ?? null,
+      session_id = req.body.session_id ?? req.body.sessionId ?? null,
+      minutes_window = Number(
+        req.body.minutes_window ?? req.body.windowMinutes ?? 1
+      ),
+      // any other custom fields...
+    } = req.body || {};
+
+    // include request-level metadata
+    const ip = req.ip || req.headers["x-forwarded-for"] || null;
+    const userAgent = req.get
+      ? req.get("User-Agent") || null
+      : (req.headers && req.headers["user-agent"]) || null;
+
+    // Build canonical payload for model
+    const payload = {
+      property_id: propertyId,
+      slug: slug,
+      source,
+      path,
+      referrer,
+      dedupe_key,
+      session_id,
+      ip,
+      user_agent: userAgent,
+      minutes_window,
+      event_type: "view",
+    };
+
+    // Ensure Views.recordView exists
+    if (!Views || typeof Views.recordView !== "function") {
+      console.error(
+        "[recordEventHandler] Views.recordView not available",
+        Object.keys(Views || {})
+      );
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Server misconfiguration (views model)",
+        });
+    }
+
+    // Attempt to record (model should itself handle dedupe)
+    const result = await Views.recordView(payload);
+    // result { inserted: true/false, meta: {...} } as per suggested model
+    return res.json({
+      success: true,
+      recorded: !!result.inserted,
+      meta: result.meta || {},
+    });
+  } catch (err) {
+    // robust error handling and logging (avoid referencing undeclared vars)
+    console.error(
+      "recordEventHandler failed:",
+      err && err.stack ? err.stack : err
+    );
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+// ---------------------
+// FILTER CONTEXT Handlers
+// ---------------------
+
+// POST /api/filters  -> body: { filters: object | JSON-string, user_id?: number }
+const saveFilterContextHandler = async (req, res) => {
+  try {
+    const { filters, user_id = null } = req.body;
+    if (
+      !filters ||
+      (typeof filters !== "object" && typeof filters !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "filters (object or JSON-string) required",
+        });
+    }
+    const result = await Property.saveFilterContext(filters, user_id);
+    if (!result || !result.success)
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Failed to save filter context",
+          error: result?.error,
+        });
+    return res.json({ success: true, id: result.id });
+  } catch (err) {
+    console.error("saveFilterContextHandler error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// GET /api/filters/:id  -> debug / fetch filter context
+const getFilterContextHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id)
+      return res.status(400).json({ success: false, message: "id required" });
+    const ctx = await Property.getFilterContextById(id);
+    if (!ctx)
+      return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true, context: ctx });
+  } catch (err) {
+    console.error("getFilterContextHandler error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 
 module.exports = {
   createProperty,
@@ -535,5 +883,9 @@ module.exports = {
   deletePhotosFromProperty,
   getMasterData,
   migratePropertyData,
-  searchProperties
+  searchProperties,
+  getPropertyBySlug,
+  recordEventHandler,
+  saveFilterContextHandler,
+  getFilterContextHandler,
 };

@@ -4,6 +4,8 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
+const cookieParser = require("cookie-parser");
+
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const path = require("path");
@@ -14,23 +16,17 @@ const leadRoutes = require("./routes/lead.routes");
 const remarkRoutes = require("./routes/connectedRemarkRoutes");
 const propertyRoutes = require("./routes/property.routes");
 const propertyStatusRoutes = require("./routes/propertyStatus.routes");
-
 const aiRoutes = require("./routes/description.routes");
-
 const bulkOperationsRoutes = require("./routes/bulkOperations.routes");
-
 const clientLeadNotificationRoutes = require("./routes/clientLeadNotificationRoutes");
-
-
-
 const systemSettingsRoutes = require("./routes/systemSettings.routes");
-
 const templateRoutes = require("./routes/templateRoutes");
-
 const templateContentRoutes = require("./routes/template.routes");
-
+const viewsRoutes = require("./routes/views.routes");
 const blogRoutes =require("./routes/blog.routes")
+
 const app = express();
+
 
 // Security
 app.use(helmet());
@@ -38,6 +34,8 @@ app.use(helmet());
 // Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(cookieParser()); 
+
 
 // CORS
 const corsOptions = {
@@ -74,7 +72,7 @@ app.get("/api/health", (req, res) => {
     version: "1.0.0",
   });
 });
-
+app.set('trust proxy', true);
 // API routes
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/leads", leadRoutes);
@@ -85,6 +83,7 @@ app.use("/api/masters", masterRoutes);
 app.use("/api/connected-remarks", remarkRoutes);
 app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
+app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use(
   '/uploads',
@@ -99,24 +98,17 @@ app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
 app.use("/api/razorpay-integration",require("./routes/razorpayRoutes"))
 const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
-
 app.use("/api/ai", aiRoutes); // <-- new line
-
 app.use("/api/status-update", propertyStatusRoutes);
 app.use("/api/bulk-operations", bulkOperationsRoutes);
 app.use("/api/client-lead-notifications", clientLeadNotificationRoutes);
-
 app.use("/api/system-settings", systemSettingsRoutes);
-
-
 app.use("/api/sms-integration", smsIntegrationRoutes);
-
 app.use("/api/templates", templateRoutes);
-
-// for TemplateContentAI
 app.use("/api/ai", templateContentRoutes);
-
+app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
+
 // Root
 app.get("/", (req, res) => {
   res.json({
@@ -126,6 +118,12 @@ app.get("/", (req, res) => {
     documentation: "/api/health for health check",
   });
 });
+const slugRedirect = require('./middleware/slugRedirect');
+
+
+app.use(slugRedirect);
+
+
 
 // 404
 app.use("*", (req, res) => {

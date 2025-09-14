@@ -41,6 +41,20 @@ router.delete("/delete/:id", propertyController.deleteProperty);
 router.post("/migrate", propertyController.migratePropertyData);
 
 router.get("/", propertyController.searchProperties);
+// get all (list/search) - keep one handler (avoid duplicate root routes)
+router.get("/", propertyController.searchProperties); // or getAllProperties based on your needs
+// get by slug (public facing)
+router.get("/page/:slug", propertyController.getPropertyBySlug);
 
+
+// migrate
+router.post("/migrate", propertyController.migratePropertyData);
+router.post("/:id/event", propertyController.recordEventHandler);
+
+// create filter context
+router.post("/filters", propertyController.saveFilterContextHandler);
+
+// get filter context by id (debug)
+router.get("/filters/:id", propertyController.getFilterContextHandler);
 
 module.exports = router;
