@@ -23,6 +23,8 @@ const systemSettingsRoutes = require("./routes/systemSettings.routes");
 const templateRoutes = require("./routes/templateRoutes");
 const templateContentRoutes = require("./routes/template.routes");
 const viewsRoutes = require("./routes/views.routes");
+const blogRoutes =require("./routes/blog.routes")
+
 const app = express();
 
 
@@ -105,6 +107,8 @@ app.use("/api/sms-integration", smsIntegrationRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
+app.use("/api/blog-posts", blogRoutes);
+
 // Root
 app.get("/", (req, res) => {
   res.json({
