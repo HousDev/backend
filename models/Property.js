@@ -472,51 +472,150 @@ class Property {
    *
    * Returns { success, affectedRows?, insertId?, error? }
    */
-  static async recordEvent({
-    property_id,
-    slug = null,
-    event_type = "view",
-    event_name = "page_view",
-    payload = {},
-    ip = null,
-    user_agent = null,
-    referrer = null,
-    session_id = null,
-    filterToken = null, // NEW: can be id string or filters object
-    user_id = null,     // optional: used if we create filter_context and want to attach user
-  }) {
-    try {
-      // Ensure payload is an object
-      payload = payload || {};
 
-      // If caller passed filterToken, normalize it:
-      // - if it's an object -> create filter_context row and get id
-      // - if it's a string -> validate it exists; if invalid, set null
-      // - if null/undefined -> leave as null
-      const finalFilterToken = await this.ensureFilterToken(filterToken, user_id);
-      // attach to payload explicitly (so DB holds the token ID or null)
-      payload.filterToken = finalFilterToken;
+// models/property.model.js - UPDATED recordEvent method
+static async recordEvent({
+  property_id,
+  slug = null,
+  event_type = "view",
+  event_name = "page_view",
+  payload = {},
+  ip = null,
+  user_agent = null,
+  referrer = null,
+  session_id = null,
+  filterToken = null,
+  dedupe_key = null,
+  user_id = null,
+  minutes_window = 1, // Default 1 minute for views, can be longer for sessions
+}) {
+  try {
+    // ensure payload is object
+    payload = payload || {};
+    
+    // Normalize/ensure filterToken: if object => create filter_context and get id
+    const finalFilterToken = await this.ensureFilterToken(filterToken, user_id);
+    
+    // For views, prioritize session_id as dedupe_key if available
+    // This ensures same session doesn't record multiple views
+    const finalDedupeKey = dedupe_key || session_id || finalFilterToken || payload.dedupe_key || null;
+    
+    // attach finalFilterToken to payload for completeness
+    payload.filterToken = finalFilterToken;
+    if (finalDedupeKey) payload.dedupe_key = finalDedupeKey;
 
-      const sql = `INSERT INTO property_events
-        (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
-      const vals = [
-        property_id,
-        slug,
-        event_type,
-        event_name,
-        JSON.stringify(payload || {}),
+    // *** CHECK FOR RECENT VIEW BEFORE INSERTING ***
+    if (event_type === 'view' && property_id) {
+      const Views = require('./views.model');
+      const hasRecent = await Views.hasRecentView(
+        property_id, 
+        session_id, 
+        finalDedupeKey, 
+        minutes_window,
         ip,
-        user_agent,
-        referrer,
-        session_id,
-      ];
-      const [result] = await db.execute(sql, vals);
-      return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
-    } catch (err) {
-      console.warn("Property.recordEvent failed:", err && err.message);
-      return { success: false, error: err && err.message };
+        user_agent
+      );
+      
+      if (hasRecent) {
+        console.log(`[recordEvent] Skipping duplicate view for property ${property_id}, session: ${session_id ? session_id.slice(0,8) + '...' : 'none'}`);
+        return { success: true, affectedRows: 0, insertId: null, duplicate: true };
+      }
     }
+    
+    // Insert into property_events with dedicated dedupe_key column
+    const sql = `INSERT INTO property_events
+      (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, dedupe_key, created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
+
+    const vals = [
+      property_id,
+      slug,
+      event_type,
+      event_name,
+      JSON.stringify(payload || {}),
+      ip,
+      user_agent,
+      referrer,
+      session_id,
+      finalDedupeKey,
+    ];
+
+    const [result] = await db.execute(sql, vals);
+    console.log(`[recordEvent] Inserted ${event_type} for property ${property_id}, session: ${session_id ? session_id.slice(0,8) + '...' : 'none'}`);
+    
+    return { 
+      success: true, 
+      affectedRows: result.affectedRows, 
+      insertId: result.insertId,
+      duplicate: false
+    };
+  } catch (err) {
+    console.warn("Property.recordEvent failed:", err && err.message);
+    return { success: false, error: err && err.message };
+  }
+  
+}
+
+}
+async function recordPropertyViewHandler(req, res) {
+  try {
+    const idRaw = req.params.id;
+    const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, '')) : null;
+
+    if (!propertyId || Number.isNaN(propertyId)) {
+      return res.status(400).json({ success: false, message: 'Missing or invalid property id' });
+    }
+
+    // Get session ID from middleware
+    const sessionId = req.sessionId;
+
+    // safe header parsing
+    const ip = getClientIp(req);
+    const userAgent = req.get ? (req.get('User-Agent') || null) : (req.headers && req.headers['user-agent']) || null;
+    const referrer = req.get ? (req.get('Referrer') || req.get('Referer') || null) : (req.headers && (req.headers.referer || req.headers.referrer)) || null;
+
+    // canonical payload for model
+    const payload = {
+      property_id: propertyId,
+      slug: req.body?.slug ?? null,
+      dedupe_key: sessionId, // Use session ID as primary dedupe key
+      session_id: sessionId,
+      source: req.body?.source ?? 'api',
+      path: (req.body?.path ?? (req.originalUrl || req.path)) || null,
+      referrer,
+      ip,
+      user_agent: userAgent,
+      minutes_window: 1440, // 24 hour window for session deduplication
+      event_type: 'view',
+    };
+
+    if (!Views || typeof Views.recordView !== 'function') {
+      console.error('[recordPropertyViewHandler] Views.recordView missing - Views keys:', Views ? Object.keys(Views) : '(no Views)');
+      return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
+    }
+
+    const result = await Views.recordView(payload);
+    // normalize result
+    const recorded = !!(result && result.inserted);
+    const deduped = result?.meta?.deduped || false;
+    
+    // Log for debugging
+    if (recorded) {
+      console.log(`[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+    } else {
+      console.log(`[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+    }
+    
+    return res.json({ 
+      success: true, 
+      recorded, 
+      meta: result?.meta ?? {}, 
+      deduped,
+      session_id: sessionId.slice(0,8) + '...' // Return partial session ID for debugging
+    });
+  } catch (err) {
+    console.error('recordPropertyViewHandler failed:', err && err.stack ? err.stack : err);
+    return res.status(500).json({ success: false, message: 'Server error' });
   }
 }
 

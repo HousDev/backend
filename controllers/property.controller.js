@@ -6,7 +6,9 @@ const fs = require("fs");
 const { slugifyTextParts } = require("../utils/slugify");
 const db = require("../config/database");
 const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
-
+const Views = require("../models/views.model");
+const { getOrCreateSessionId } = require('../utils/sessionUtils');
+const cookieParser = require('cookie-parser');
 // ---------------------
 // Helper Functions
 // ---------------------
@@ -45,8 +47,10 @@ const parseNearbyPlaces = (req) => {
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
-  property_type_name: req.body.propertyType || req.body.property_type_name || null,
-  property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
+  property_type_name:
+    req.body.propertyType || req.body.property_type_name || null,
+  property_subtype_name:
+    req.body.propertySubtype || req.body.property_subtype_name || null,
   unit_type: req.body.unitType || req.body.unit_type || null,
   wing: req.body.wing || null,
   unit_no: req.body.unitNo || null,
@@ -106,12 +110,15 @@ const toPublic = (f) =>
  */
 function extractFilterTokenFromReq(req) {
   const q = req.query || {};
-  if (q.filterToken) return { token: String(q.filterToken), key: "filterToken" };
+  if (q.filterToken)
+    return { token: String(q.filterToken), key: "filterToken" };
   if (q.fltcnt) return { token: String(q.fltcnt), key: "fltcnt" };
-  if (q.filter_token) return { token: String(q.filter_token), key: "filter_token" };
+  if (q.filter_token)
+    return { token: String(q.filter_token), key: "filter_token" };
 
   // heuristic search in query values for UUID-like or long token
-  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  const uuidRegex =
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
   for (const k of Object.keys(q)) {
     const v = q[k];
     if (!v) continue;
@@ -121,9 +128,11 @@ function extractFilterTokenFromReq(req) {
 
   // check body as fallback
   const b = req.body || {};
-  if (b.filterToken) return { token: String(b.filterToken), key: "filterToken" };
+  if (b.filterToken)
+    return { token: String(b.filterToken), key: "filterToken" };
   if (b.fltcnt) return { token: String(b.fltcnt), key: "fltcnt" };
-  if (b.filter_token) return { token: String(b.filter_token), key: "filter_token" };
+  if (b.filter_token)
+    return { token: String(b.filter_token), key: "filter_token" };
 
   return { token: null, key: null };
 }
@@ -191,7 +200,11 @@ const createProperty = async (req, res) => {
       await Property.updateSlug(propertyId, slug);
     } catch (slugErr) {
       // don't fail creation if slug update fails; log for investigation
-      console.warn("Failed to update slug for property:", propertyId, slugErr && slugErr.message);
+      console.warn(
+        "Failed to update slug for property:",
+        propertyId,
+        slugErr && slugErr.message
+      );
     }
 
     res.status(201).json({
@@ -317,8 +330,10 @@ const updateProperty = async (req, res) => {
     // 7) Build payload (normalize)
     const propertyData = {
       seller_name: req.body.seller || null,
-      property_type_name: req.body.propertyType || req.body.property_type_name || null,
-      property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
+      property_type_name:
+        req.body.propertyType || req.body.property_type_name || null,
+      property_subtype_name:
+        req.body.propertySubtype || req.body.property_subtype_name || null,
       unit_type: req.body.unitType || req.body.unit_type || null,
       wing: req.body.wing || null,
       unit_no: req.body.unitNo || null,
@@ -372,7 +387,10 @@ const updateProperty = async (req, res) => {
           await Property.updateSlug(id, newSlug);
         }
       } catch (slugErr) {
-        console.warn("Failed to update slug after property update:", slugErr && slugErr.message);
+        console.warn(
+          "Failed to update slug after property update:",
+          slugErr && slugErr.message
+        );
       }
     }
 
@@ -510,27 +528,54 @@ const searchProperties = (req, res) => {
       budget_min,
       budget_max,
       sort,
-      propertyType,   // single value e.g. "apartment"
-      unitTypes,      // comma list e.g. "1bhk,2bhk"
+      propertyType, // single value e.g. "apartment"
+      unitTypes, // comma list e.g. "1bhk,2bhk"
       furnishing,
       possession,
     } = req.query;
 
-    const minP = budget_min !== undefined && budget_min !== "" ? Number(budget_min) : undefined;
-    const maxP = budget_max !== undefined && budget_max !== "" ? Number(budget_max) : undefined;
+    const minP =
+      budget_min !== undefined && budget_min !== ""
+        ? Number(budget_min)
+        : undefined;
+    const maxP =
+      budget_max !== undefined && budget_max !== ""
+        ? Number(budget_max)
+        : undefined;
 
     const filters = [];
     const values = [];
 
-    if (city)      { filters.push("LOWER(city) LIKE ?");      values.push(`%${city.toLowerCase()}%`); }
-    if (location)  { filters.push("LOWER(location) LIKE ?");  values.push(`%${location.toLowerCase()}%`); }
-    if (!Number.isNaN(minP)) { filters.push("price >= ?"); values.push(minP); }
-    if (!Number.isNaN(maxP)) { filters.push("price <= ?"); values.push(maxP); }
+    if (city) {
+      filters.push("LOWER(city) LIKE ?");
+      values.push(`%${city.toLowerCase()}%`);
+    }
+    if (location) {
+      filters.push("LOWER(location) LIKE ?");
+      values.push(`%${location.toLowerCase()}%`);
+    }
+    if (!Number.isNaN(minP)) {
+      filters.push("price >= ?");
+      values.push(minP);
+    }
+    if (!Number.isNaN(maxP)) {
+      filters.push("price <= ?");
+      values.push(maxP);
+    }
 
     // 👇 CHANGE: use property_type instead of unit_type
-    if (propertyType) { filters.push("LOWER(property_type) = ?"); values.push(propertyType.toLowerCase()); }
-    if (furnishing)   { filters.push("LOWER(furnishing) = ?");    values.push(furnishing.toLowerCase()); }
-    if (possession)   { filters.push("LOWER(possession) = ?");    values.push(possession.toLowerCase()); }
+    if (propertyType) {
+      filters.push("LOWER(property_type) = ?");
+      values.push(propertyType.toLowerCase());
+    }
+    if (furnishing) {
+      filters.push("LOWER(furnishing) = ?");
+      values.push(furnishing.toLowerCase());
+    }
+    if (possession) {
+      filters.push("LOWER(possession) = ?");
+      values.push(possession.toLowerCase());
+    }
 
     // If you intend "unitTypes" to be the BHK like 1bhk/2bhk, map it to the actual column (e.g. bedrooms or bhk)
     if (unitTypes) {
@@ -543,7 +588,9 @@ const searchProperties = (req, res) => {
       // If you store numeric bedrooms, convert "1bhk" => 1, etc.
       // Example if you have a text column `bhk_label`:
       if (typesArray.length > 0) {
-        filters.push(`LOWER(bhk_label) IN (${typesArray.map(() => "?").join(",")})`);
+        filters.push(
+          `LOWER(bhk_label) IN (${typesArray.map(() => "?").join(",")})`
+        );
         values.push(...typesArray);
       }
     }
@@ -554,8 +601,12 @@ const searchProperties = (req, res) => {
 
     if (sort) {
       switch (sort) {
-        case "low_to_high": sql += " ORDER BY price ASC"; break;
-        case "high_to_low": sql += " ORDER BY price DESC"; break;
+        case "low_to_high":
+          sql += " ORDER BY price ASC";
+          break;
+        case "high_to_low":
+          sql += " ORDER BY price DESC";
+          break;
         case "medium":
           if (whereClause) {
             sql = `
@@ -575,8 +626,11 @@ const searchProperties = (req, res) => {
             finalValues = [];
           }
           break;
-        case "newest": sql += " ORDER BY created_at DESC"; break;
-        default: sql += " ORDER BY price ASC";
+        case "newest":
+          sql += " ORDER BY created_at DESC";
+          break;
+        default:
+          sql += " ORDER BY price ASC";
       }
     } else {
       sql += " ORDER BY price ASC";
@@ -598,30 +652,42 @@ const searchProperties = (req, res) => {
 // GET by slug
 const getPropertyBySlug = async (req, res) => {
   try {
-    const slug = req.params.slug; // like "307185-g-square-dynasty-by-gsquare-in-mahabalipuram"
+    const slug = req.params.slug;
     const m = String(slug).match(/^(\d+)(?:-|$)/);
-    if (!m) return res.status(400).json({ success: false, message: "Invalid slug format" });
+    if (!m)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid slug format" });
+    
     const id = Number(m[1]);
     const property = await Property.getById(id);
-    if (!property) return res.status(404).json({ success: false, message: "Property not found" });
+    if (!property)
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
 
     // If stored slug exists and differs, redirect to canonical slug (preserve query)
     if (property.slug && property.slug !== slug) {
-      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const qs = req.url.includes("?")
+        ? req.url.slice(req.url.indexOf("?"))
+        : "";
       return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
     }
 
-    // capture client metadata (respect X-Forwarded-For)
+    // Capture client metadata (respect X-Forwarded-For)
     const xff = req.headers["x-forwarded-for"];
     const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
     const userAgent = req.get("User-Agent") || null;
     const referrer = req.get("Referrer") || req.get("Referer") || null;
-    const sessionId = req.cookies?.session_id || null;
+    
+    // *** GENERATE SESSION ID ***
+    const sessionId = getOrCreateSessionId(req, res);
 
-    // extract filter token (so visits with fltcnt or other keys are captured)
-    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
+    // Extract filter token (so visits with fltcnt or other keys are captured)
+    const { token: extractedFilterToken, key: filterParamKey } =
+      extractFilterTokenFromReq(req);
 
-    // optionally record analytics (best-effort; non-blocking)
+    // *** RECORD VIEW ONLY ONCE PER SESSION ***
     try {
       // Build a small payload copy (avoid circular/non-serializable values)
       const safePayload = {
@@ -630,23 +696,27 @@ const getPropertyBySlug = async (req, res) => {
         filterParamKey: filterParamKey,
       };
 
-      // call model method (Property.recordEvent) and PASS filterToken so it can be validated/saved
+      // Record view with session-based deduplication
       const _evtResult = await Property.recordEvent({
         property_id: id,
         slug: property.slug || slug,
         event_type: "view",
         event_name: "page_view",
         payload: safePayload,
-        ip: ip || null,
-        user_agent: userAgent || null,
-        referrer: referrer || null,
-        session_id: sessionId || null,
+        ip,
+        user_agent: userAgent,
+        referrer,
+        session_id: sessionId, // Now properly set
         filterToken: extractedFilterToken,
         user_id: req.user?.id ?? null,
+        dedupe_key: sessionId, // Use sessionId as dedupe key for same-session detection
+        minutes_window: 1440, // 24 hours window for same session
       });
 
       if (!(_evtResult && _evtResult.success)) {
         console.warn("analytics not saved:", _evtResult && _evtResult.error);
+      } else {
+        console.log(`Page view recorded for property ${id}, session: ${sessionId.slice(0,8)}...`);
       }
     } catch (e) {
       console.warn("analytics error:", e && e.message);
@@ -655,77 +725,93 @@ const getPropertyBySlug = async (req, res) => {
     res.json({ success: true, data: property });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: error.message });
   }
 };
 
-const recordEventHandler = async (req, res) => {
+
+async function recordEventHandler(req, res) {
   try {
+    // parse / validate property id
     const idRaw = req.params.id;
-    const propertyId = Number(idRaw);
+    const propertyId = idRaw
+      ? Number(String(idRaw).replace(/[^0-9]/g, ""))
+      : null;
     if (!propertyId || Number.isNaN(propertyId)) {
-      return res.status(400).json({ success: false, message: "Missing or invalid property id" });
+      // If you accept slug-only, handle accordingly — here we require numeric id
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing or invalid property id" });
     }
 
+    // Compose payload safely from request body + request metadata
     const {
-      event_type = "custom",
-      event_name = "unknown",
-      payload = {},
-      slug = null,
+      source = req.body.source ?? "client",
+      path = req.body.path ?? (typeof req !== "undefined" && req.path) ?? null,
+      referrer = req.body.referrer ?? (req.get ? req.get("Referer") : null),
+      slug = req.query.slug ?? req.body.slug ?? null,
+      dedupe_key = req.body.dedupe_key ?? req.body.dedupeKey ?? null,
+      session_id = req.body.session_id ?? req.body.sessionId ?? null,
+      minutes_window = Number(
+        req.body.minutes_window ?? req.body.windowMinutes ?? 1
+      ),
+      // any other custom fields...
     } = req.body || {};
 
-    // robust extraction of token (supports filterToken, fltcnt, etc.)
-    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
+    // include request-level metadata
+    const ip = req.ip || req.headers["x-forwarded-for"] || null;
+    const userAgent = req.get
+      ? req.get("User-Agent") || null
+      : (req.headers && req.headers["user-agent"]) || null;
 
-    // capture client metadata (respect X-Forwarded-For)
-    const xff = req.headers["x-forwarded-for"];
-    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
-    const userAgent = req.get("User-Agent") || null;
-    const referrer = req.get("Referrer") || req.get("Referer") || null;
-    const sessionId = req.cookies?.session_id || null;
-
-    // merge token into payload for easier querying later
-    const mergedPayload = {
-      ...payload,
-      filterToken: extractedFilterToken,
-      filterParamKey,
-      recorded_from: "api",
-    };
-
-    // call model method (best-effort) and PASS filterToken so ensureFilterToken runs
-    const result = await Property.recordEvent({
+    // Build canonical payload for model
+    const payload = {
       property_id: propertyId,
-      slug: slug || null,
-      event_type,
-      event_name,
-      payload: mergedPayload,
+      slug: slug,
+      source,
+      path,
+      referrer,
+      dedupe_key,
+      session_id,
       ip,
       user_agent: userAgent,
-      referrer,
-      session_id: sessionId,
-      filterToken: extractedFilterToken,
-      user_id: req.user?.id ?? null,
-    });
+      minutes_window,
+      event_type: "view",
+    };
 
-    // respond success; include whether analytics saved for debugging
+    // Ensure Views.recordView exists
+    if (!Views || typeof Views.recordView !== "function") {
+      console.error(
+        "[recordEventHandler] Views.recordView not available",
+        Object.keys(Views || {})
+      );
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Server misconfiguration (views model)",
+        });
+    }
+
+    // Attempt to record (model should itself handle dedupe)
+    const result = await Views.recordView(payload);
+    // result { inserted: true/false, meta: {...} } as per suggested model
     return res.json({
       success: true,
-      message: "Event recorded (best-effort)",
-      analyticsSaved: !!(result && result.success),
-      metadata: {
-        propertyId,
-        event_type,
-        event_name,
-        filterParamKey,
-        filterTokenPresent: !!extractedFilterToken
-      },
+      recorded: !!result.inserted,
+      meta: result.meta || {},
     });
   } catch (err) {
-    console.error("recordEventHandler failed:", err);
-    // Do not leak internal error details, but return a 500
+    // robust error handling and logging (avoid referencing undeclared vars)
+    console.error(
+      "recordEventHandler failed:",
+      err && err.stack ? err.stack : err
+    );
     return res.status(500).json({ success: false, message: "Server error" });
   }
-};
+}
 
 // ---------------------
 // FILTER CONTEXT Handlers
@@ -735,11 +821,26 @@ const recordEventHandler = async (req, res) => {
 const saveFilterContextHandler = async (req, res) => {
   try {
     const { filters, user_id = null } = req.body;
-    if (!filters || (typeof filters !== "object" && typeof filters !== "string")) {
-      return res.status(400).json({ success: false, message: "filters (object or JSON-string) required" });
+    if (
+      !filters ||
+      (typeof filters !== "object" && typeof filters !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "filters (object or JSON-string) required",
+        });
     }
     const result = await Property.saveFilterContext(filters, user_id);
-    if (!result || !result.success) return res.status(500).json({ success: false, message: "Failed to save filter context", error: result?.error });
+    if (!result || !result.success)
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Failed to save filter context",
+          error: result?.error,
+        });
     return res.json({ success: true, id: result.id });
   } catch (err) {
     console.error("saveFilterContextHandler error:", err);
@@ -751,9 +852,11 @@ const saveFilterContextHandler = async (req, res) => {
 const getFilterContextHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) return res.status(400).json({ success: false, message: "id required" });
+    if (!id)
+      return res.status(400).json({ success: false, message: "id required" });
     const ctx = await Property.getFilterContextById(id);
-    if (!ctx) return res.status(404).json({ success: false, message: "Not found" });
+    if (!ctx)
+      return res.status(404).json({ success: false, message: "Not found" });
     return res.json({ success: true, context: ctx });
   } catch (err) {
     console.error("getFilterContextHandler error:", err);
@@ -775,5 +878,5 @@ module.exports = {
   getPropertyBySlug,
   recordEventHandler,
   saveFilterContextHandler,
-  getFilterContextHandler
+  getFilterContextHandler,
 };
