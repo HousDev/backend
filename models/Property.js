@@ -26,7 +26,7 @@ class Property {
   static async create(data) {
     const [result] = await db.execute(
       `INSERT INTO my_properties
-       (seller_name, property_type_name, property_subtype_name,
+       (seller_name, seller_id, assigned_to, property_type_name, property_subtype_name,
         unit_type, wing, unit_no, furnishing,
         parking_type, parking_qty, city_name, location_name, society_name,
         floor, total_floors, carpet_area, builtup_area, budget,
@@ -36,9 +36,11 @@ class Property {
         selling_rights, ownership_doc_path,
         photos, amenities, furnishing_items, nearby_places,
         description, is_public, publication_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)`,
       [
         data.seller_name || null,
+        data.seller_id || null,
+        data.assigned_to || null,
         data.property_type_name || null,
         data.property_subtype_name || null,
         data.unit_type || null,
@@ -126,7 +128,7 @@ class Property {
 
     const [result] = await db.execute(
       `UPDATE my_properties SET
-        seller_name = ?, property_type_name = ?, property_subtype_name = ?,
+        seller_name = ?, seller_id = ?, assigned_to = ?, property_type_name = ?, property_subtype_name = ?,
         unit_type = ?, wing = ?, unit_no = ?, furnishing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
         floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,
@@ -141,6 +143,8 @@ class Property {
        WHERE id = ?`,
       [
         data.seller_name || null,
+        data.seller_id || null,
+        data.assigned_to || null,
         data.property_type_name || null,
         data.property_subtype_name || null,
         data.unit_type || null,
