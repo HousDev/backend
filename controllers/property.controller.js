@@ -47,6 +47,8 @@ const parseNearbyPlaces = (req) => {
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
+  seller_id: req.body.seller_id || null,
+  assigned_to:  req.body.assigned_to || null,
   property_type_name:
     req.body.propertyType || req.body.property_type_name || null,
   property_subtype_name:
