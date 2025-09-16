@@ -24,7 +24,7 @@ const templateRoutes = require("./routes/templateRoutes");
 const templateContentRoutes = require("./routes/template.routes");
 const viewsRoutes = require("./routes/views.routes");
 const blogRoutes =require("./routes/blog.routes")
-
+const contactRoutes = require("./routes/contactRoutes");
 const app = express();
 
 
@@ -108,6 +108,7 @@ app.use("/api/templates", templateRoutes);
 app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
+app.use("/api/contact", contactRoutes);
 
 // Root
 app.get("/", (req, res) => {
