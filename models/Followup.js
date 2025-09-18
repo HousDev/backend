@@ -37,21 +37,35 @@ class Followup {
         scheduledDate || null,
         completedDate || null,
         createdBy || null,
-        null, // updated_by create के time null रहेगा
+        null, // updated_by on create remains null
         priority || null,
       ]
     );
 
     const followup = await this.findById(id);
 
-    // साथ में Lead भी update
-    const Lead = require("./Lead");
-    await Lead.update(leadId, {
-      status,
-      stage,
-      priority,
-      updated_by: createdBy,
-    });
+    // साथ में Lead भी update करो (status/stage/priority/updated_by) — existing pattern follow करते हुए
+    if (leadId) {
+      const Lead = require("./Lead");
+      await Lead.update(leadId, {
+        status,
+        stage,
+        priority,
+        updated_by: createdBy,
+      });
+
+      // और client_leads की last_contact fields को भी अपडेट करो
+      // हम यहाँ direct DB UPDATE कर रहे हैं ताकि last_contact = NOW() ठीक से DB में रहे
+      await db.execute(
+        `UPDATE client_leads
+         SET last_contact = NOW(),
+             last_contact_by = ?,
+             updated_by = ?,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [createdBy || null, createdBy || null, leadId]
+      );
+    }
 
     return followup;
   }
@@ -179,7 +193,7 @@ class Followup {
         remark,
         customRemark,
         nextAction,
-        scheduledDate,
+        scheduledDate || null,
         completedDate || null,
         priority || null,
         updatedBy || null,
@@ -189,14 +203,27 @@ class Followup {
 
     const followup = await this.findById(id);
 
-    // Lead भी update करो
-    const Lead = require("./Lead");
-    await Lead.update(followup.leadId, {
-      status,
-      stage,
-      priority,
-      updated_by: updatedBy,
-    });
+    // Lead भी update करो (status/stage/priority/updated_by) — existing pattern
+    if (followup && followup.leadId) {
+      const Lead = require("./Lead");
+      await Lead.update(followup.leadId, {
+        status,
+        stage,
+        priority,
+        updated_by: updatedBy,
+      });
+
+      // और client_leads की last_contact fields को भी अपडेट करो (updated time = NOW())
+      await db.execute(
+        `UPDATE client_leads
+         SET last_contact = NOW(),
+             last_contact_by = ?,
+             updated_by = ?,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [updatedBy || null, updatedBy || null, followup.leadId]
+      );
+    }
 
     return followup;
   }

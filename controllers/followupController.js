@@ -16,13 +16,13 @@ const createFollowup = async (req, res) => {
       scheduledDate,
       completedDate,
       createdBy,
-      priority   // 👈 this is for client_leads, not followups
+      priority // for client_leads
     } = req.body;
 
     const id = uuidv4();
     const createdByValue = Number.isInteger(createdBy) ? createdBy : 1;
 
-    // 1️⃣ Insert into followups (❌ priority हटा दिया गया)
+    // 1️⃣ Insert into followups
     await db.query(
       `INSERT INTO followups 
        (id, lead_id, type, status, stage, remark, customRemark, next_action, 
@@ -44,13 +44,15 @@ const createFollowup = async (req, res) => {
       ]
     );
 
-    // 2️⃣ Update client_leads (priority यहीं handle होगी)
-    if (leadId && (status || stage || priority)) {
+    // 2️⃣ Update client_leads: status/stage/priority + last_contact fields
+    if (leadId) {
       await db.query(
         `UPDATE client_leads 
          SET status = COALESCE(?, status), 
              stage = COALESCE(?, stage), 
              priority = COALESCE(?, priority),
+             last_contact = NOW(),
+             last_contact_by = ?,
              updated_by = ?,
              updated_at = NOW()
          WHERE id = ?`,
@@ -59,12 +61,13 @@ const createFollowup = async (req, res) => {
           stage ?? null,
           priority ?? null,
           createdByValue,
+          createdByValue,
           leadId
         ]
       );
     }
 
-    // 3️⃣ Return followup (priority client_leads से join कर सकते हैं अगर चाहिए तो)
+    // 3️⃣ Return followup (with lead priority)
     const [rows] = await db.query(
       `SELECT 
         f.id,
@@ -85,7 +88,9 @@ const createFollowup = async (req, res) => {
         uu.last_name as updatedByLastName,
         f.created_at as createdAt,
         f.updated_at as updatedAt,
-        l.priority as leadPriority   -- 👈 lead से priority आ जाएगी
+        l.priority as leadPriority,
+        l.last_contact as leadLastContact,
+        l.last_contact_by as leadLastContactBy
        FROM followups f
        LEFT JOIN users cu ON cu.id = f.created_by
        LEFT JOIN users uu ON uu.id = f.updated_by
@@ -126,7 +131,7 @@ const updateFollowup = async (req, res) => {
       ? toMySQLDateTime(body.completedDate)
       : null;
 
-    // 1️⃣ Update followup (❌ priority नहीं)
+    // 1️⃣ Update followup
     const [result] = await db.query(
       `UPDATE followups 
        SET type = ?, status = ?, stage = ?, remark = ?, customRemark = ?, next_action = ?, 
@@ -171,7 +176,9 @@ const updateFollowup = async (req, res) => {
         uu.last_name as updatedByLastName,
         f.created_at as createdAt,
         f.updated_at as updatedAt,
-        l.priority as leadPriority
+        l.priority as leadPriority,
+        l.last_contact as leadLastContact,
+        l.last_contact_by as leadLastContactBy
        FROM followups f
        LEFT JOIN users cu ON cu.id = f.created_by
        LEFT JOIN users uu ON uu.id = f.updated_by
@@ -182,24 +189,43 @@ const updateFollowup = async (req, res) => {
 
     const updatedFollowup = updatedRows[0];
 
-    // 3️⃣ Update lead
-    if (updatedFollowup && (status || stage || body.priority)) {
-      await db.query(
-        `UPDATE client_leads 
-         SET status = COALESCE(?, status), 
-             stage = COALESCE(?, stage), 
-             priority = COALESCE(?, priority),
-             updated_by = ?,
-             updated_at = NOW()
-         WHERE id = ?`,
-        [
-          status ?? null,
-          stage ?? null,
-          body.priority ?? null,
-          updatedBy,
-          updatedFollowup.leadId
-        ]
-      );
+    // 3️⃣ Update lead: status/stage/priority + last_contact fields
+    if (updatedFollowup && updatedFollowup.leadId) {
+      // if any of status/stage/priority provided in body -> update them, else still update last_contact
+      const shouldUpdateLeadFields = (status !== null) || (stage !== null) || (body.priority !== undefined);
+
+      if (shouldUpdateLeadFields) {
+        await db.query(
+          `UPDATE client_leads 
+           SET status = COALESCE(?, status), 
+               stage = COALESCE(?, stage), 
+               priority = COALESCE(?, priority),
+               last_contact = NOW(),
+               last_contact_by = ?,
+               updated_by = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [
+            status ?? null,
+            stage ?? null,
+            body.priority ?? null,
+            updatedBy,
+            updatedBy,
+            updatedFollowup.leadId
+          ]
+        );
+      } else {
+        // Even if no lead field changed, refresh last_contact and last_contact_by because followup was updated
+        await db.query(
+          `UPDATE client_leads
+           SET last_contact = NOW(),
+               last_contact_by = ?,
+               updated_by = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [updatedBy, updatedBy, updatedFollowup.leadId]
+        );
+      }
     }
 
     res.json({
@@ -211,6 +237,8 @@ const updateFollowup = async (req, res) => {
     res.status(500).json({ error: "Failed to update followup", details: err.message });
   }
 };
+
+/* ================== GET / DELETE / OTHER HELPERS ================== */
 
 // Get All Followups
 const getFollowups = async (req, res) => {
@@ -271,9 +299,6 @@ const getFollowupById = async (req, res) => {
   }
 };
 
-
-
-
 // Delete Followup
 const deleteFollowup = async (req, res) => {
   try {
@@ -286,7 +311,6 @@ const deleteFollowup = async (req, res) => {
     console.error("Delete Followup Error:", err);
     res.status(500).json({ error: "Failed to delete followup", details: err.message });
   }
-  
 };
 
 const getFollowupsByLeadId = async (req, res) => {
@@ -321,17 +345,12 @@ const getFollowupsByLeadId = async (req, res) => {
       [leadId]
     );
 
-    // ✅ अगर कोई followups नहीं है तो भी 200 के साथ empty array भेजो
     return res.json({ success: true, data: rows || [] });
-
   } catch (err) {
     console.error("Get Followups By LeadId Error:", err);
     res.status(500).json({ error: "Failed to fetch followups", details: err.message });
   }
 };
-
-
-
 
 const getFollowupsCountByLeadId = async (req, res) => {
   try {
@@ -348,7 +367,6 @@ const getFollowupsCountByLeadId = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch followups count", details: err.message });
   }
 };
-
 
 module.exports = {
   createFollowup,
