@@ -535,6 +535,7 @@ const migratePropertyData = async (req, res) => {
 };
 
 // GET /properties/search
+// GET /properties/search
 const searchProperties = (req, res) => {
   try {
     let {
@@ -543,10 +544,21 @@ const searchProperties = (req, res) => {
       budget_min,
       budget_max,
       sort,
-      propertyType, // single value e.g. "apartment"
-      unitTypes, // comma list e.g. "1bhk,2bhk"
+      propertyType,
+      propertySubtype,
+      unitTypes,
+      unitType,
       furnishing,
       possession,
+      featured,
+      verified,
+      min_rating,
+      parking,
+      floor_min,
+      floor_max,
+      bathrooms,
+      bedrooms,
+      filter_token,
     } = req.query;
 
     const minP =
@@ -561,14 +573,45 @@ const searchProperties = (req, res) => {
     const filters = [];
     const values = [];
 
+    // city (keep as partial match)
     if (city) {
       filters.push("LOWER(city) LIKE ?");
-      values.push(`%${city.toLowerCase()}%`);
+      values.push(`%${String(city).toLowerCase()}%`);
     }
+
+    // --------- LOCATION: support CSV or repeated params; use OR of LIKEs ---------
+    // req.query.location may be:
+    // - "Baner" OR
+    // - "Baner,Koregaon Park" OR
+    // - an array like ['Baner','Koregaon Park'] depending on client
     if (location) {
-      filters.push("LOWER(location) LIKE ?");
-      values.push(`%${location.toLowerCase()}%`);
+      // Normalize: if it's array use it, else split on comma
+      let locArr = [];
+      if (Array.isArray(location)) {
+        locArr = location.map((s) => String(s).trim()).filter(Boolean);
+      } else {
+        // decode and split by comma; some clients may pass encoded commas
+        const raw = String(location);
+        locArr = raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      if (locArr.length === 1) {
+        // single location: do a partial match (handles "Baner" and "Baner, Pune")
+        filters.push("LOWER(location) LIKE ?");
+        values.push(`%${locArr[0].toLowerCase()}%`);
+      } else if (locArr.length > 1) {
+        // multiple locations: create an OR group of LIKEs
+        // e.g. (LOWER(location) LIKE ? OR LOWER(location) LIKE ?)
+        const likePlaceholders = locArr.map(() => "LOWER(location) LIKE ?").join(" OR ");
+        filters.push(`(${likePlaceholders})`);
+        locArr.forEach((l) => values.push(`%${l.toLowerCase()}%`));
+      }
     }
+
+    // price range
     if (!Number.isNaN(minP)) {
       filters.push("price >= ?");
       values.push(minP);
@@ -578,42 +621,138 @@ const searchProperties = (req, res) => {
       values.push(maxP);
     }
 
-    // 👇 CHANGE: use property_type instead of unit_type
+    // propertyType (CSV allowed) - exact match on property_type column (case-insensitive)
     if (propertyType) {
-      filters.push("LOWER(property_type) = ?");
-      values.push(propertyType.toLowerCase());
-    }
-    if (furnishing) {
-      filters.push("LOWER(furnishing) = ?");
-      values.push(furnishing.toLowerCase());
-    }
-    if (possession) {
-      filters.push("LOWER(possession) = ?");
-      values.push(possession.toLowerCase());
-    }
-
-    // If you intend "unitTypes" to be the BHK like 1bhk/2bhk, map it to the actual column (e.g. bedrooms or bhk)
-    if (unitTypes) {
-      const typesArray = String(unitTypes)
+      const arr = String(propertyType)
         .split(",")
-        .map((t) => t.trim().toLowerCase())
+        .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-
-      // 👉 pick the right column: e.g. `bhk_label` or `bedrooms`
-      // If you store numeric bedrooms, convert "1bhk" => 1, etc.
-      // Example if you have a text column `bhk_label`:
-      if (typesArray.length > 0) {
-        filters.push(
-          `LOWER(bhk_label) IN (${typesArray.map(() => "?").join(",")})`
-        );
-        values.push(...typesArray);
+      if (arr.length === 1) {
+        filters.push("LOWER(property_type) = ?");
+        values.push(arr[0]);
+      } else if (arr.length > 1) {
+        filters.push(`LOWER(property_type) IN (${arr.map(() => "?").join(",")})`);
+        values.push(...arr);
       }
     }
 
+    // propertySubtype (CSV allowed)
+    if (propertySubtype) {
+      const arr = String(propertySubtype)
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (arr.length === 1) {
+        filters.push("LOWER(property_subtype) = ?");
+        values.push(arr[0]);
+      } else if (arr.length > 1) {
+        filters.push(
+          `LOWER(property_subtype) IN (${arr.map(() => "?").join(",")})`
+        );
+        values.push(...arr);
+      }
+    }
+
+    // unitType(s) (legacy)
+    const unitInput = unitType || unitTypes;
+    if (unitInput) {
+      const arr = String(unitInput)
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (arr.length === 1) {
+        filters.push("LOWER(unit_type) = ?");
+        values.push(arr[0]);
+      } else if (arr.length > 1) {
+        filters.push(`LOWER(unit_type) IN (${arr.map(() => "?").join(",")})`);
+        values.push(...arr);
+      }
+    }
+
+    if (furnishing) {
+      filters.push("LOWER(furnishing) = ?");
+      values.push(String(furnishing).toLowerCase());
+    }
+    if (possession) {
+      filters.push("LOWER(possession) = ?");
+      values.push(String(possession).toLowerCase());
+    }
+
+    // featured (0/1)
+    if (featured !== undefined) {
+      filters.push("featured = ?");
+      values.push(String(featured) === "1" || featured === true ? 1 : 0);
+    }
+
+    // verified (0/1)
+    if (verified !== undefined) {
+      filters.push("verified = ?");
+      values.push(String(verified) === "1" || verified === true ? 1 : 0);
+    }
+
+    // min_rating
+    if (min_rating !== undefined && min_rating !== "") {
+      filters.push("rating >= ?");
+      values.push(Number(min_rating));
+    }
+
+    // parking
+    if (parking) {
+      if (String(parking).toLowerCase() === "any") {
+        filters.push("(parking_2w > 0 OR parking_4w > 0)");
+      } else if (String(parking).toLowerCase() === "2w") {
+        filters.push("parking_2w > 0");
+      } else if (String(parking).toLowerCase() === "4w") {
+        filters.push("parking_4w > 0");
+      } else if (!isNaN(parking)) {
+        filters.push("parking >= ?");
+        values.push(Number(parking));
+      }
+    }
+
+    // floor range
+    if (floor_min !== undefined && floor_min !== "") {
+      filters.push("floor >= ?");
+      values.push(Number(floor_min));
+    }
+    if (floor_max !== undefined && floor_max !== "") {
+      filters.push("floor <= ?");
+      values.push(Number(floor_max));
+    }
+
+    // bathrooms
+    if (bathrooms !== undefined && bathrooms !== "") {
+      filters.push("bathrooms >= ?");
+      values.push(Number(bathrooms));
+    }
+
+    // bedrooms (single or list)
+    if (bedrooms) {
+      const arr = String(bedrooms)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (arr.length === 1) {
+        filters.push("bedrooms = ?");
+        values.push(Number(arr[0]));
+      } else if (arr.length > 1) {
+        filters.push(`bedrooms IN (${arr.map(() => "?").join(",")})`);
+        values.push(...arr.map((n) => Number(n)));
+      }
+    }
+
+    // filter_token (if applicable)
+    if (filter_token) {
+      filters.push("filter_token = ?");
+      values.push(String(filter_token));
+    }
+
+    // build SQL
     const whereClause = filters.length ? " WHERE " + filters.join(" AND ") : "";
     let sql = `SELECT * FROM properties${whereClause}`;
     let finalValues = [...values];
 
+    // sorting
     if (sort) {
       switch (sort) {
         case "low_to_high":
@@ -624,6 +763,7 @@ const searchProperties = (req, res) => {
           break;
         case "medium":
           if (whereClause) {
+            // note: we use the same whereClause twice so duplicate params
             sql = `
               SELECT * FROM properties
               ${whereClause}
@@ -631,8 +771,7 @@ const searchProperties = (req, res) => {
                 SELECT AVG(price) FROM properties ${whereClause}
               )) ASC
             `;
-            // duplicate values once for the subquery
-            finalValues = [...values, ...values];
+            finalValues = [...values, ...values]; // duplicate for inner SELECT
           } else {
             sql = `
               SELECT * FROM properties
@@ -651,6 +790,7 @@ const searchProperties = (req, res) => {
       sql += " ORDER BY price ASC";
     }
 
+    // execute
     db.query(sql, finalValues, (err, results) => {
       if (err) {
         console.error("DB error:", err, { sql, finalValues });
@@ -663,6 +803,9 @@ const searchProperties = (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
+
+
 
 // GET by slug
 const getPropertyBySlug = async (req, res) => {
