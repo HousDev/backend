@@ -92,7 +92,8 @@ app.use(
 );
 // Static files (IMPORTANT)
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-app.use("/api",require("./routes/buyerTransferRoute"))
+app.use("/api", require("./routes/buyerTransferRoute"))
+app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers",require("./routes/sellerRoutes"))
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
