@@ -57,43 +57,49 @@ function safeStringify(val) {
 // Helper to get requirements from form data or build from individual fields
 function getRequirementsFromOverrides(overrides, lead) {
   // If requirements object is directly provided from form, use it
-  if (overrides.requirements && typeof overrides.requirements === 'object') {
+  if (overrides.requirements && typeof overrides.requirements === "object") {
     return overrides.requirements;
   }
-  
+
   // Fallback: build from individual fields (for backward compatibility)
   const requirements = {};
-  
+
   // Property type and subtype
   if (overrides.property_type || lead.property_type) {
     requirements.propertyType = overrides.property_type || lead.property_type;
   }
   if (overrides.property_subtype || lead.property_subtype) {
-    requirements.property_subtype = overrides.property_subtype || lead.property_subtype;
+    requirements.property_subtype =
+      overrides.property_subtype || lead.property_subtype;
   }
-  
+
   // Unit types - handle array format
-  const unitTypes = overrides.preferred_unit_type || lead.preferred_unit_type || [];
+  const unitTypes =
+    overrides.preferred_unit_type || lead.preferred_unit_type || [];
   if (Array.isArray(unitTypes) && unitTypes.length > 0) {
     requirements.unitTypes = unitTypes;
   }
-  
+
   // Preferred locations - handle array format
-  const preferredLocations = overrides.preferred_location || lead.preferred_location || [];
+  const preferredLocations =
+    overrides.preferred_location || lead.preferred_location || [];
   if (Array.isArray(preferredLocations) && preferredLocations.length > 0) {
     requirements.preferredLocations = preferredLocations;
   }
-  
+
   // Nearby locations - handle string or array
   const nearbyLocations = overrides.nearbylocations || lead.nearbylocations;
   if (nearbyLocations) {
-    if (typeof nearbyLocations === 'string') {
-      requirements.nearbylocations = nearbyLocations.split(',').map(s => s.trim()).filter(s => s);
+    if (typeof nearbyLocations === "string") {
+      requirements.nearbylocations = nearbyLocations
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s);
     } else if (Array.isArray(nearbyLocations)) {
       requirements.nearbylocations = nearbyLocations;
     }
   }
-  
+
   return Object.keys(requirements).length > 0 ? requirements : {};
 }
 
@@ -121,8 +127,12 @@ async function transferToBuyer(req, res) {
     await conn.beginTransaction();
 
     // 2) load lead
-    const [leadRows] = await conn.query("SELECT * FROM client_leads WHERE id = ? LIMIT 1", [leadId]);
-    const lead = Array.isArray(leadRows) && leadRows.length ? leadRows[0] : null;
+    const [leadRows] = await conn.query(
+      "SELECT * FROM client_leads WHERE id = ? LIMIT 1",
+      [leadId]
+    );
+    const lead =
+      Array.isArray(leadRows) && leadRows.length ? leadRows[0] : null;
     if (!lead) {
       await conn.rollback();
       conn.release();
@@ -130,84 +140,113 @@ async function transferToBuyer(req, res) {
     }
 
     // 3) load followups for this lead
-    const [followupRows] = await conn.query("SELECT * FROM followups WHERE lead_id = ?", [leadId]);
+    const [followupRows] = await conn.query(
+      "SELECT * FROM followups WHERE lead_id = ?",
+      [leadId]
+    );
     const followups = Array.isArray(followupRows) ? followupRows : [];
 
     // 4) prepare buyer payload (merge lead fields + overrides from form)
     const nowSql = toSqlDateTime(new Date().toISOString());
-    
+
     // Get requirements object from form data or build from individual fields
     const requirements = getRequirementsFromOverrides(overrides, lead);
-    
-  
 
     const buyerPayload = {
       // Basic info
       salutation: overrides.salutation ?? lead.salutation ?? "Mr.",
       name: overrides.name ?? lead.name ?? null,
       phone: overrides.phone ?? lead.phone ?? null,
-      whatsapp_number: overrides.whatsapp_number ?? lead.whatsapp_number ?? null,
+      whatsapp_number:
+        overrides.whatsapp_number ?? lead.whatsapp_number ?? null,
       email: overrides.email ?? lead.email ?? null,
       state: overrides.state ?? lead.state ?? null,
       city: overrides.city ?? lead.city ?? null,
       location: overrides.location ?? lead.location ?? null,
-      
+
       // Lead mapping - use the buyer_lead_* fields
       buyer_lead_priority: overrides.priority ?? lead.priority ?? null,
       buyer_lead_source: overrides.lead_source ?? lead.lead_source ?? null,
       buyer_lead_stage: overrides.stage ?? lead.stage ?? null,
       buyer_lead_status: overrides.status ?? lead.status ?? null,
-      
+
       // Budget (store individual fields)
       budget_min: Number(overrides.budget_min ?? lead.budget_min ?? 0) || 0,
       budget_max: Number(overrides.budget_max ?? lead.budget_max ?? 0) || 0,
-      
+
       // Store requirements as JSON string
       requirements: safeStringify(requirements),
-      
-     
-      
+
       // Other fields
-      is_active: overrides.is_active != null ? (overrides.is_active ? 1 : 0) : 1,
+      is_active:
+        overrides.is_active != null ? (overrides.is_active ? 1 : 0) : 1,
       created_at: toSqlDateTime(overrides.created_at) ?? nowSql,
       updated_at: toSqlDateTime(overrides.updated_at) ?? nowSql,
       lead_id: String(lead.id),
       lead_type: overrides.lead_type ?? lead.lead_type ?? null,
-      assigned_executive: asIntOrNull(overrides.assigned_executive ?? lead.assigned_executive) ?? null,
-      created_by: asIntOrNull(createdBy ?? overrides.created_by ?? lead.created_by) ?? null,
-      updated_by: asIntOrNull(createdBy ?? overrides.updated_by ?? lead.updated_by) ?? null,
-      last_contact: toSqlDateTime(overrides.last_contact ?? lead.last_contact) ?? null,
-      last_contact_by: asIntOrNull(overrides.last_contact_by ?? lead.last_contact_by) ?? null,
+      assigned_executive:
+        asIntOrNull(overrides.assigned_executive ?? lead.assigned_executive) ??
+        null,
+      created_by:
+        asIntOrNull(createdBy ?? overrides.created_by ?? lead.created_by) ??
+        null,
+      updated_by:
+        asIntOrNull(createdBy ?? overrides.updated_by ?? lead.updated_by) ??
+        null,
+      last_contact:
+        toSqlDateTime(overrides.last_contact ?? lead.last_contact) ?? null,
+      last_contact_by:
+        asIntOrNull(overrides.last_contact_by ?? lead.last_contact_by) ?? null,
       remark: overrides.remark ?? lead.remark ?? null,
-      
+
       // Handle nearbylocations - only if not already in requirements
-      nearbylocations: !requirements.nearbylocations ? 
-        ((typeof (overrides.nearbylocations ?? lead.nearbylocations) === "object")
+      nearbylocations: !requirements.nearbylocations
+        ? typeof (overrides.nearbylocations ?? lead.nearbylocations) ===
+          "object"
           ? safeStringify(overrides.nearbylocations ?? lead.nearbylocations)
-          : (overrides.nearbylocations ?? lead.nearbylocations ?? null)) : null,
+          : overrides.nearbylocations ?? lead.nearbylocations ?? null
+        : null,
     };
 
     // 5) insert buyer - dynamic insert using keys that are defined
-    const insertCols = Object.keys(buyerPayload).filter((k) => buyerPayload[k] !== undefined);
+    const insertCols = Object.keys(buyerPayload).filter(
+      (k) => buyerPayload[k] !== undefined
+    );
     const insertPlaceholders = insertCols.map(() => "?").join(", ");
     const insertValues = insertCols.map((k) => buyerPayload[k]);
 
-    const insertSql = `INSERT INTO buyers (${insertCols.join(", ")}) VALUES (${insertPlaceholders})`;
+    const insertSql = `INSERT INTO buyers (${insertCols.join(
+      ", "
+    )}) VALUES (${insertPlaceholders})`;
     const [insertResult] = await conn.query(insertSql, insertValues);
 
     // MySQL returns insertId
-    const buyerId = insertResult && (insertResult.insertId || (Array.isArray(insertResult) && insertResult[0] && insertResult[0].insertId)) ? (insertResult.insertId || insertResult[0].insertId) : null;
+    const buyerId =
+      insertResult &&
+      (insertResult.insertId ||
+        (Array.isArray(insertResult) &&
+          insertResult[0] &&
+          insertResult[0].insertId))
+        ? insertResult.insertId || insertResult[0].insertId
+        : null;
 
     // If insertId not found, attempt to lookup by lead_id or recent created_at
     let createdBuyer = null;
     if (buyerId) {
-      const [brows] = await conn.query("SELECT * FROM buyers WHERE id = ? LIMIT 1", [buyerId]);
+      const [brows] = await conn.query(
+        "SELECT * FROM buyers WHERE id = ? LIMIT 1",
+        [buyerId]
+      );
       if (Array.isArray(brows) && brows.length) createdBuyer = brows[0];
     }
     if (!createdBuyer) {
       // fallback: get last buyer for this lead
-      const [maybeRows] = await conn.query("SELECT * FROM buyers WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1", [lead.id]);
-      if (Array.isArray(maybeRows) && maybeRows.length) createdBuyer = maybeRows[0];
+      const [maybeRows] = await conn.query(
+        "SELECT * FROM buyers WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1",
+        [lead.id]
+      );
+      if (Array.isArray(maybeRows) && maybeRows.length)
+        createdBuyer = maybeRows[0];
     }
     if (!createdBuyer) {
       throw new Error("Failed to determine created buyer after insert");
@@ -220,8 +259,14 @@ async function transferToBuyer(req, res) {
 
     // 6) map followups -> buyer_followups (prepare array of rows)
     const buyerFollowupsToInsert = (followups || []).map((fu) => {
-      const scheduleDateTime = fu.scheduled_date ?? fu.scheduledDate ?? fu.scheduled_at ?? fu.scheduledAt ?? null;
-      const completedDate = fu.completed_date ?? fu.completedDate ?? fu.completed_at ?? null;
+      const scheduleDateTime =
+        fu.scheduled_date ??
+        fu.scheduledDate ??
+        fu.scheduled_at ??
+        fu.scheduledAt ??
+        null;
+      const completedDate =
+        fu.completed_date ?? fu.completedDate ?? fu.completed_at ?? null;
 
       return {
         buyer_id: createdBuyerId,
@@ -237,22 +282,32 @@ async function transferToBuyer(req, res) {
         schedule_date: toSqlDate(scheduleDateTime) ?? null,
         schedule_time: toSqlTime(scheduleDateTime) ?? null,
         priority: fu.priority ?? "Medium",
-        created_by: asIntOrNull(fu.created_by) ?? asIntOrNull(createdBy) ?? null,
-        updated_by: asIntOrNull(fu.updated_by) ?? asIntOrNull(createdBy) ?? null,
+        created_by:
+          asIntOrNull(fu.created_by) ?? asIntOrNull(createdBy) ?? null,
+        updated_by:
+          asIntOrNull(fu.updated_by) ?? asIntOrNull(createdBy) ?? null,
         created_at: toSqlDateTime(fu.created_at) ?? nowSql,
         updated_at: toSqlDateTime(fu.updated_at) ?? nowSql,
+        transferred_from_lead: 1, // mark that this followup row came from a lead transfer
+        transferred_at: nowSql,
+        transferred_by: asIntOrNull(createdBy) ?? null,
+        transfer_type: "lead_transfer",
       };
     });
 
     if (buyerFollowupsToInsert.length > 0) {
       // Build multi-row insert
       const columns = Object.keys(buyerFollowupsToInsert[0]);
-      const valuePlaceholders = buyerFollowupsToInsert.map(() => `(${columns.map(() => "?").join(", ")})`).join(", ");
+      const valuePlaceholders = buyerFollowupsToInsert
+        .map(() => `(${columns.map(() => "?").join(", ")})`)
+        .join(", ");
       const values = [];
       buyerFollowupsToInsert.forEach((row) => {
         columns.forEach((c) => values.push(row[c]));
       });
-      const insertFollowupsSql = `INSERT INTO buyer_followups (${columns.join(", ")}) VALUES ${valuePlaceholders}`;
+      const insertFollowupsSql = `INSERT INTO buyer_followups (${columns.join(
+        ", "
+      )}) VALUES ${valuePlaceholders}`;
       await conn.query(insertFollowupsSql, values);
     }
 
@@ -272,7 +327,8 @@ async function transferToBuyer(req, res) {
     `;
     const leadStatus = overrides.status ?? lead.status ?? null;
     const leadStage = overrides.stage ?? lead.stage ?? null;
-    const updatedByForLead = asIntOrNull(createdBy ?? overrides.updated_by ?? lead.updated_by) ?? null;
+    const updatedByForLead =
+      asIntOrNull(createdBy ?? overrides.updated_by ?? lead.updated_by) ?? null;
     const nowForSql = toSqlDateTime(new Date().toISOString());
     await conn.query(leadUpdateSql, [
       leadStatus,
@@ -291,7 +347,11 @@ async function transferToBuyer(req, res) {
         SET transferred_to_buyer = 1, is_listed = 0, updated_at = ?, updated_by = ?
         WHERE lead_id = ?
       `;
-      await conn.query(followupUpdateSql, [nowForSql, asIntOrNull(createdBy) ?? null, leadId]);
+      await conn.query(followupUpdateSql, [
+        nowForSql,
+        asIntOrNull(createdBy) ?? null,
+        leadId,
+      ]);
     }
 
     // commit & release
@@ -304,7 +364,6 @@ async function transferToBuyer(req, res) {
       buyer: createdBuyer,
       transferred_followups_count: buyerFollowupsToInsert.length,
       requirements: requirements,
-     
     });
   } catch (err) {
     console.error("transferToBuyer error:", err);
@@ -316,7 +375,12 @@ async function transferToBuyer(req, res) {
     } catch (rbErr) {
       console.error("Rollback error:", rbErr);
     }
-    return res.status(500).json({ error: "Transfer failed", details: (err && err.message) || String(err) });
+    return res
+      .status(500)
+      .json({
+        error: "Transfer failed",
+        details: (err && err.message) || String(err),
+      });
   }
 }
 
