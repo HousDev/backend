@@ -256,7 +256,9 @@ async function transferToBuyer(req, res) {
     if (!Number.isFinite(createdBuyerId)) {
       throw new Error("Created buyer id is not a valid integer");
     }
-
+// compute default exec (prefer overrides, then lead)
+const defaultExecForFollowups =
+  asIntOrNull(overrides.assigned_executive ?? lead.assigned_executive) ?? null;
     // 6) map followups -> buyer_followups (prepare array of rows)
     const buyerFollowupsToInsert = (followups || []).map((fu) => {
       const scheduleDateTime =
@@ -264,10 +266,15 @@ async function transferToBuyer(req, res) {
         fu.scheduledDate ??
         fu.scheduled_at ??
         fu.scheduledAt ??
+        fu.assigned_executive ??
         null;
       const completedDate =
         fu.completed_date ?? fu.completedDate ?? fu.completed_at ?? null;
-
+ const assignedExec =
+    asIntOrNull(fu.assigned_executive) ??
+    defaultExecForFollowups ??
+    asIntOrNull(createdBy) ??
+    null;
       return {
         buyer_id: createdBuyerId,
         lead_id: fu.lead_id ?? lead.id ?? null,
@@ -287,6 +294,7 @@ async function transferToBuyer(req, res) {
         updated_by:
           asIntOrNull(fu.updated_by) ?? asIntOrNull(createdBy) ?? null,
         created_at: toSqlDateTime(fu.created_at) ?? nowSql,
+        assigned_executive:assignedExec,
         updated_at: toSqlDateTime(fu.updated_at) ?? nowSql,
         transferred_from_lead: 1, // mark that this followup row came from a lead transfer
         transferred_at: nowSql,

@@ -27,6 +27,8 @@ function mapRow(row) {
     scheduleTime: row.schedule_time,
     priority: row.priority,
 
+     assignedExecutive: row.assigned_executive ?? null,
+    assignedExecutiveName: row.assigned_executive_name ?? null,
     // transfer-related columns
     transferredFromLead: Boolean(row.transferred_from_lead === 1 || row.transferred_from_lead === '1'),
     transferredAt: row.transferred_at,
@@ -44,46 +46,101 @@ function mapRow(row) {
   };
 }
 
-
-
 class BuyerFollowup {
-  static async create(payload) {
-    const now = formatDateTime(new Date());
-    const sql = `
-      INSERT INTO buyer_followups
-      (buyer_id, lead_id, followup_id, followup_type, buyer_lead_stage, buyer_lead_status,
-       remark, custom_remark, next_action, completed_date, schedule_date, schedule_time,
-       priority, created_by, updated_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const [result] = await db.execute(sql, [
-      payload.buyerId ?? null,
-      payload.leadId ?? null,
-      payload.followupId ?? null,
-      payload.followupType ?? null,
-      payload.buyerLeadStage ?? null,
-      payload.buyerLeadStatus ?? null,
-      payload.remark ?? null,
-      payload.customRemark ?? null,
-      payload.nextAction ?? null,
-      payload.completedDate ?? null,
-      payload.scheduleDate ?? null,
-      payload.scheduleTime ?? null,
-      payload.priority ?? "Medium",
-      payload.createdBy ?? null,
-      payload.updatedBy ?? null,
-      now,
-      now,
-    ]);
-    return result.insertId;
+ static async create(payload) {
+  // helper: convert value (Date | ISO string | mysql-format string) to mysql DATETIME 'YYYY-MM-DD HH:MM:SS'
+  const normalizeToMysqlDatetime = (val) => {
+    if (!val && val !== 0) return null;
+    // if already looks like mysql DATETIME (YYYY-mm-dd HH:MM:SS)
+    if (typeof val === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(val)) return val;
+    // if ISO string or other string parseable by Date
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return null;
+    return formatDateTime(d);
+  };
+
+  const nowFormatted = formatDateTime(new Date());
+
+  // Accept both snake_case and camelCase from payload (robust)
+  const buyerId = payload.buyer_id ?? payload.buyerId ?? null;
+  const leadId = payload.lead_id ?? payload.leadId ?? null;
+  const followupId = payload.followup_id ?? payload.followupId ?? null;
+  const followupType = payload.followup_type ?? payload.followupType ?? null;
+  const buyerLeadStage = payload.buyer_lead_stage ?? payload.buyerLeadStage ?? null;
+  const buyerLeadStatus = payload.buyer_lead_status ?? payload.buyerLeadStatus ?? null;
+  const remark = payload.remark ?? null;
+  const customRemark = payload.custom_remark ?? payload.customRemark ?? null;
+  const nextAction = payload.next_action ?? payload.nextAction ?? null;
+  const completedDate = normalizeToMysqlDatetime(payload.completed_date ?? payload.completedDate ?? null);
+  const scheduleDate = payload.schedule_date ?? payload.scheduleDate ?? null; // date only (YYYY-MM-DD) is fine
+  const scheduleTime = payload.schedule_time ?? payload.scheduleTime ?? null; // HH:MM is fine
+  const priority = payload.priority ?? "Medium";
+  const createdBy = payload.created_by ?? payload.createdBy ?? null;
+  const updatedBy = payload.updated_by ?? payload.updatedBy ?? null;
+
+  // Normalize created_at / updated_at to mysql datetime; fallback to nowFormatted
+  const createdAtRaw = payload.created_at ?? payload.createdAt ?? null;
+  const updatedAtRaw = payload.updated_at ?? payload.updatedAt ?? null;
+  const createdAt = normalizeToMysqlDatetime(createdAtRaw) ?? nowFormatted;
+  const updatedAt = normalizeToMysqlDatetime(updatedAtRaw) ?? nowFormatted;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[BuyerFollowup.create] normalized values:", {
+      buyerId,
+      leadId,
+      followupId,
+      followupType,
+      buyerLeadStage,
+      buyerLeadStatus,
+      remark,
+      customRemark,
+      nextAction,
+      completedDate,
+      scheduleDate,
+      scheduleTime,
+      priority,
+      createdBy,
+      updatedBy,
+      createdAt,
+      updatedAt,
+    });
   }
+
+  const sql = `
+    INSERT INTO buyer_followups
+    (buyer_id, lead_id, followup_id, followup_type, buyer_lead_stage, buyer_lead_status,
+     remark, custom_remark, next_action, completed_date, schedule_date, schedule_time,
+     priority, created_by, updated_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const [result] = await db.execute(sql, [
+    buyerId,
+    leadId,
+    followupId,
+    followupType,
+    buyerLeadStage,
+    buyerLeadStatus,
+    remark,
+    customRemark,
+    nextAction,
+    completedDate,
+    scheduleDate,
+    scheduleTime,
+    priority,
+    createdBy,
+    updatedBy,
+    createdAt,
+    updatedAt,
+  ]);
+  return result.insertId;
+}
+
 
   /**
    * findAll - fetch followups with optional buyerId, pagination via page+limit
    * @param {Object} opts - { buyerId, page, limit }
    */
-// Replace your findAll with this:
-static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
+ static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
   const pageInt = Number.isFinite(Number(page)) ? Math.max(1, parseInt(page, 10)) : 1;
   const limitInt = Number.isFinite(Number(limit)) ? Math.max(1, parseInt(limit, 10)) : 20;
   const offset = Math.max(0, (pageInt - 1) * limitInt);
@@ -108,11 +165,18 @@ static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
         NULLIF(CONCAT(TRIM(tb.first_name), ' ', TRIM(tb.last_name)), ' '),
         tb.username,
         tb.email
-      ) AS transferred_by_name
+      ) AS transferred_by_name,
+      -- assigned executive friendly name
+      COALESCE(
+        NULLIF(CONCAT(TRIM(ae.first_name), ' ', TRIM(ae.last_name)), ' '),
+        ae.username,
+        ae.email
+      ) AS assigned_executive_name
     FROM buyer_followups bf
     LEFT JOIN users cu ON cu.id = bf.created_by
     LEFT JOIN users uu ON uu.id = bf.updated_by
     LEFT JOIN users tb ON tb.id = bf.transferred_by
+    LEFT JOIN users ae ON ae.id = bf.assigned_executive
     ${hasBuyerId ? "WHERE bf.buyer_id = ?" : ""}
     ORDER BY bf.schedule_date DESC, bf.schedule_time DESC
     LIMIT ${limitInt} OFFSET ${offset}
@@ -136,10 +200,6 @@ static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
   }
 }
 
-
-
-
-// Replace your findById with this:
 static async findById(id) {
   const sql = `
     SELECT bf.*,
@@ -157,11 +217,17 @@ static async findById(id) {
         NULLIF(CONCAT(TRIM(tb.first_name), ' ', TRIM(tb.last_name)), ' '),
         tb.username,
         tb.email
-      ) AS transferred_by_name
+      ) AS transferred_by_name,
+      COALESCE(
+        NULLIF(CONCAT(TRIM(ae.first_name), ' ', TRIM(ae.last_name)), ' '),
+        ae.username,
+        ae.email
+      ) AS assigned_executive_name
     FROM buyer_followups bf
     LEFT JOIN users cu ON cu.id = bf.created_by
     LEFT JOIN users uu ON uu.id = bf.updated_by
     LEFT JOIN users tb ON tb.id = bf.transferred_by
+    LEFT JOIN users ae ON ae.id = bf.assigned_executive
     WHERE bf.id = ?
     LIMIT 1
   `;
@@ -172,36 +238,83 @@ static async findById(id) {
 }
 
 
-  static async update(id, payload) {
-    const existing = await this.findById(id);
-    if (!existing) return 0;
+static async update(id, payload) {
+  const existing = await this.findById(id);
+  if (!existing) return 0;
 
-    const sql = `
-      UPDATE buyer_followups SET
-        followup_type = ?, buyer_lead_stage = ?, buyer_lead_status = ?, remark = ?,
-        custom_remark = ?, next_action = ?, completed_date = ?,
-        schedule_date = ?, schedule_time = ?, priority = ?, updated_by = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `;
+  // helper: convert to MySQL date/datetime format
+  const normalizeToMysqlDatetime = (val) => {
+    if (!val) return null;
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return null;
+    return formatDateTime(d); // YYYY-MM-DD HH:MM:SS
+  };
 
-    const [res] = await db.execute(sql, [
-      payload.followupType ?? existing.followupType,
-      payload.buyerLeadStage ?? existing.buyerLeadStage,
-      payload.buyerLeadStatus ?? existing.buyerLeadStatus,
-      payload.remark ?? existing.remark,
-      payload.customRemark ?? existing.customRemark,
-      payload.nextAction ?? existing.nextAction,
-      payload.completedDate ?? existing.completedDate,
-      payload.scheduleDate ?? existing.scheduleDate,
-      payload.scheduleTime ?? existing.scheduleTime,
-      payload.priority ?? existing.priority,
-      payload.updatedBy ?? existing.updatedBy,
-      id,
-    ]);
+  const normalizeToMysqlDate = (val) => {
+    if (!val) return null;
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return null;
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
 
-    return res.affectedRows;
+  // normalize fields
+  const followupType = payload.followup_type ?? payload.followupType ?? existing.followupType;
+  const buyerLeadStage = payload.buyer_lead_stage ?? payload.buyerLeadStage ?? existing.buyerLeadStage;
+  const buyerLeadStatus = payload.buyer_lead_status ?? payload.buyerLeadStatus ?? existing.buyerLeadStatus;
+  const remark = payload.remark ?? existing.remark;
+  const customRemark = payload.custom_remark ?? payload.customRemark ?? existing.customRemark;
+  const nextAction = payload.next_action ?? payload.nextAction ?? existing.nextAction;
+  const completedDate = normalizeToMysqlDatetime(payload.completed_date ?? payload.completedDate ?? existing.completedDate);
+  const scheduleDate = normalizeToMysqlDate(payload.schedule_date ?? payload.scheduleDate ?? existing.scheduleDate);
+  const scheduleTime = payload.schedule_time ?? payload.scheduleTime ?? existing.scheduleTime;
+  const priority = payload.priority ?? existing.priority;
+  const updatedBy = payload.updated_by ?? payload.updatedBy ?? existing.updatedBy;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[BuyerFollowup.update] bound vals:", {
+      followupType,
+      buyerLeadStage,
+      buyerLeadStatus,
+      remark,
+      customRemark,
+      nextAction,
+      completedDate,
+      scheduleDate,
+      scheduleTime,
+      priority,
+      updatedBy,
+    });
   }
+
+  const sql = `
+    UPDATE buyer_followups SET
+      followup_type = ?, buyer_lead_stage = ?, buyer_lead_status = ?, remark = ?,
+      custom_remark = ?, next_action = ?, completed_date = ?,
+      schedule_date = ?, schedule_time = ?, priority = ?, updated_by = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `;
+
+  const [res] = await db.execute(sql, [
+    followupType,
+    buyerLeadStage,
+    buyerLeadStatus,
+    remark,
+    customRemark,
+    nextAction,
+    completedDate,
+    scheduleDate,
+    scheduleTime,
+    priority,
+    updatedBy,
+    id,
+  ]);
+
+  return res.affectedRows;
+}
+
+
 
   static async delete(id) {
     const [res] = await db.execute("DELETE FROM buyer_followups WHERE id = ?", [id]);
