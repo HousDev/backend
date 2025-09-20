@@ -26,12 +26,25 @@ function mapRow(row) {
     scheduleDate: row.schedule_date,
     scheduleTime: row.schedule_time,
     priority: row.priority,
+
+    // transfer-related columns
+    transferredFromLead: Boolean(row.transferred_from_lead === 1 || row.transferred_from_lead === '1'),
+    transferredAt: row.transferred_at,
+    transferredBy: row.transferred_by,
+    transferType: row.transfer_type,
+    transferredByName: row.transferred_by_name ?? null,
+
+    // audit
     createdBy: row.created_by,
     updatedBy: row.updated_by,
+    createdByName: row.created_by_name ?? null,
+    updatedByName: row.updated_by_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
+
+
 
 class BuyerFollowup {
   static async create(payload) {
@@ -69,36 +82,53 @@ class BuyerFollowup {
    * findAll - fetch followups with optional buyerId, pagination via page+limit
    * @param {Object} opts - { buyerId, page, limit }
    */
+// Replace your findAll with this:
 static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
-  // sanitize / coerce inputs
   const pageInt = Number.isFinite(Number(page)) ? Math.max(1, parseInt(page, 10)) : 1;
   const limitInt = Number.isFinite(Number(limit)) ? Math.max(1, parseInt(limit, 10)) : 20;
   const offset = Math.max(0, (pageInt - 1) * limitInt);
 
   const hasBuyerId = buyerId !== undefined && buyerId !== null && String(buyerId).trim() !== "";
 
-  // Build SQL with LIMIT/OFFSET inlined (only numeric values inserted)
-  let sql = "SELECT * FROM buyer_followups";
-  const vals = [];
-  if (hasBuyerId) {
-    sql += " WHERE buyer_id = ?";
-    vals.push(buyerId);
-  }
+  const sql = `
+    SELECT bf.*,
+      -- creator / updater friendly names (first + last, else username, else email)
+      COALESCE(
+        NULLIF(CONCAT(TRIM(cu.first_name), ' ', TRIM(cu.last_name)), ' '),
+        cu.username,
+        cu.email
+      ) AS created_by_name,
+      COALESCE(
+        NULLIF(CONCAT(TRIM(uu.first_name), ' ', TRIM(uu.last_name)), ' '),
+        uu.username,
+        uu.email
+      ) AS updated_by_name,
+      -- transferred_by friendly name
+      COALESCE(
+        NULLIF(CONCAT(TRIM(tb.first_name), ' ', TRIM(tb.last_name)), ' '),
+        tb.username,
+        tb.email
+      ) AS transferred_by_name
+    FROM buyer_followups bf
+    LEFT JOIN users cu ON cu.id = bf.created_by
+    LEFT JOIN users uu ON uu.id = bf.updated_by
+    LEFT JOIN users tb ON tb.id = bf.transferred_by
+    ${hasBuyerId ? "WHERE bf.buyer_id = ?" : ""}
+    ORDER BY bf.schedule_date DESC, bf.schedule_time DESC
+    LIMIT ${limitInt} OFFSET ${offset}
+  `;
 
-  // Inline validated integers for LIMIT/OFFSET to avoid driver issues binding them
-  sql += ` ORDER BY schedule_date DESC, schedule_time DESC LIMIT ${limitInt} OFFSET ${offset}`;
+  const vals = hasBuyerId ? [buyerId] : [];
 
-  // DEBUG: log SQL + vals (only in non-prod or while debugging)
   if (process.env.NODE_ENV !== "production") {
     console.debug("[BuyerFollowup.findAll] SQL:", sql);
-    console.debug("[BuyerFollowup.findAll] vals:", vals.map(v => ({ value: v, type: typeof v })));
+    console.debug("[BuyerFollowup.findAll] vals:", vals);
   }
 
   try {
     const [rows] = await db.execute(sql, vals);
     return Array.isArray(rows) ? rows.map(mapRow) : [];
   } catch (err) {
-    // additional debug log before rethrowing
     console.error("[BuyerFollowup.findAll] execute error:", err);
     console.error("[BuyerFollowup.findAll] final SQL:", sql);
     console.error("[BuyerFollowup.findAll] bound vals:", vals);
@@ -107,11 +137,40 @@ static async findAll({ buyerId, page = 1, limit = 20 } = {}) {
 }
 
 
-  static async findById(id) {
-    const [rows] = await db.execute("SELECT * FROM buyer_followups WHERE id = ?", [id]);
-    if (!rows || !rows[0]) return null;
-    return mapRow(rows[0]);
-  }
+
+
+// Replace your findById with this:
+static async findById(id) {
+  const sql = `
+    SELECT bf.*,
+      COALESCE(
+        NULLIF(CONCAT(TRIM(cu.first_name), ' ', TRIM(cu.last_name)), ' '),
+        cu.username,
+        cu.email
+      ) AS created_by_name,
+      COALESCE(
+        NULLIF(CONCAT(TRIM(uu.first_name), ' ', TRIM(uu.last_name)), ' '),
+        uu.username,
+        uu.email
+      ) AS updated_by_name,
+      COALESCE(
+        NULLIF(CONCAT(TRIM(tb.first_name), ' ', TRIM(tb.last_name)), ' '),
+        tb.username,
+        tb.email
+      ) AS transferred_by_name
+    FROM buyer_followups bf
+    LEFT JOIN users cu ON cu.id = bf.created_by
+    LEFT JOIN users uu ON uu.id = bf.updated_by
+    LEFT JOIN users tb ON tb.id = bf.transferred_by
+    WHERE bf.id = ?
+    LIMIT 1
+  `;
+
+  const [rows] = await db.execute(sql, [id]);
+  if (!rows || !rows[0]) return null;
+  return mapRow(rows[0]);
+}
+
 
   static async update(id, payload) {
     const existing = await this.findById(id);
