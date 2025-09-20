@@ -27,6 +27,7 @@ const blogRoutes =require("./routes/blog.routes")
 const contactRoutes = require("./routes/contactRoutes");
 const app = express();
 
+const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 
 // Security
 app.use(helmet());
@@ -91,7 +92,7 @@ app.use(
 );
 // Static files (IMPORTANT)
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
+app.use("/api",require("./routes/buyerTransferRoute"))
 app.use("/api/sellers",require("./routes/sellerRoutes"))
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
@@ -109,7 +110,7 @@ app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
-
+app.use("/api/buyer-followups", buyerFollowupRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
