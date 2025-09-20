@@ -1,10 +1,633 @@
+// // models/Property.js
+// const db = require("../config/database");
+// const { v4: uuidv4 } = require('uuid'); // npm i uuid
+// // -------- helper: safe JSON ----------
+// function safeJsonParse(str, defaultValue = []) {
+//   if (!str) return defaultValue;
+//   if (typeof str !== "string") return Array.isArray(str) ? str : defaultValue;
+//   try {
+//     const parsed = JSON.parse(str);
+//     return Array.isArray(parsed) ? parsed : defaultValue;
+//   } catch {
+//     if (str.includes(",")) {
+//       return str
+//         .split(",")
+//         .map((s) => s.trim())
+//         .filter(Boolean);
+//     }
+//     return [str];
+//   }
+// }
+
+// class Property {
+//   /* =========================
+//      CREATE
+//      ========================= */
+//   static async create(data) {
+//     const [result] = await db.execute(
+//       `INSERT INTO my_properties
+//        (seller_name, seller_id, assigned_to, property_type_name, property_subtype_name,
+//         unit_type, wing, unit_no, furnishing,
+//         parking_type, parking_qty, city_name, location_name, society_name,
+//         floor, total_floors, carpet_area, builtup_area, budget,
+//         address, status, lead_source,
+//         possession_month, possession_year,
+//         purchase_month, purchase_year,
+//         selling_rights, ownership_doc_path,
+//         photos, amenities, furnishing_items, nearby_places,
+//         description, is_public, publication_date)
+//        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)`,
+//       [
+//         data.seller_name || null,
+//         data.seller_id || null,
+//         data.assigned_to || null,
+//         data.property_type_name || null,
+//         data.property_subtype_name || null,
+//         data.unit_type || null,
+//         data.wing || null,
+//         data.unit_no || null,
+//         data.furnishing || null,
+//         data.parking_type || null,
+//         data.parking_qty || null,
+//         data.city_name || null,
+//         data.location_name || null,
+//         data.society_name || null,
+//         data.floor || null,
+//         data.total_floors || null,
+//         data.carpet_area || null,
+//         data.builtup_area || null,
+//         data.budget || null,
+//         data.address || null,
+//         data.status || null,
+//         data.lead_source || null,
+//         data.possession_month || null,
+//         data.possession_year || null,
+//         data.purchase_month || null,
+//         data.purchase_year || null,
+//         data.selling_rights || null,
+//         data.ownership_doc_path || null,
+//         data.photos ? JSON.stringify(data.photos) : null,
+//         data.amenities ? JSON.stringify(data.amenities) : null,
+//         data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
+//         data.nearby_places ? JSON.stringify(data.nearby_places) : null,
+//         data.description || null,
+//         typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : 0,
+//         data.publication_date || null,
+//       ]
+//     );
+//     return result.insertId;
+//   }
+
+//   static async updateSlug(id, slug) {
+//     const [r] = await db.execute(
+//       "UPDATE my_properties SET slug = ? WHERE id = ?",
+//       [slug, id]
+//     );
+//     return r.affectedRows;
+//   }
+
+//   /* =========================
+//      READ
+//      ========================= */
+//   static async getAll() {
+//     const [rows] = await db.execute(
+//       "SELECT * FROM my_properties ORDER BY created_at DESC"
+//     );
+//     return rows.map((row) => {
+//       row.photos = safeJsonParse(row.photos, []);
+//       row.amenities = safeJsonParse(row.amenities, []);
+//       row.furnishing_items = safeJsonParse(row.furnishing_items, []);
+//       row.nearby_places = safeJsonParse(row.nearby_places, []);
+//       return row;
+//     });
+//   }
+
+//   static async getById(id) {
+//     const [rows] = await db.execute(
+//       "SELECT * FROM my_properties WHERE id = ?",
+//       [id]
+//     );
+//     const property = rows[0];
+//     if (!property) return null;
+//     property.photos = safeJsonParse(property.photos, []);
+//     property.amenities = safeJsonParse(property.amenities, []);
+//     property.furnishing_items = safeJsonParse(property.furnishing_items, []);
+//     property.nearby_places = safeJsonParse(property.nearby_places, []);
+//     return property;
+//   }
+
+//   /* =========================
+//      UPDATE (full-row)
+//      ========================= */
+//   static async update(id, data) {
+//     const existing = await this.getById(id);
+//     let updatedPhotos = data.photos || [];
+//     if (data.appendPhotos && existing?.photos) {
+//       updatedPhotos = [...existing.photos, ...updatedPhotos];
+//     }
+
+//     const [result] = await db.execute(
+//       `UPDATE my_properties SET
+//         seller_name = ?, seller_id = ?, assigned_to = ?, property_type_name = ?, property_subtype_name = ?,
+//         unit_type = ?, wing = ?, unit_no = ?, furnishing = ?,
+//         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
+//         floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,
+//         address = ?, status = ?, lead_source = ?,
+//         possession_month = ?, possession_year = ?,
+//         purchase_month = ?, purchase_year = ?,
+//         selling_rights = ?, ownership_doc_path = ?,
+//         photos = ?, amenities = ?, furnishing_items = ?, nearby_places = ?,
+//         description = ?, is_public = COALESCE(?, is_public),
+//         publication_date = COALESCE(?, publication_date),
+//         updated_at = CURRENT_TIMESTAMP
+//        WHERE id = ?`,
+//       [
+//         data.seller_name || null,
+//         data.seller_id || null,
+//         data.assigned_to || null,
+//         data.property_type_name || null,
+//         data.property_subtype_name || null,
+//         data.unit_type || null,
+//         data.wing || null,
+//         data.unit_no || null,
+//         data.furnishing || null,
+//         data.parking_type || null,
+//         data.parking_qty || null,
+//         data.city_name || null,
+//         data.location_name || null,
+//         data.society_name || null,
+//         data.floor || null,
+//         data.total_floors || null,
+//         data.carpet_area || null,
+//         data.builtup_area || null,
+//         data.budget || null,
+//         data.address || null,
+//         data.status || null,
+//         data.lead_source || null,
+//         data.possession_month || null,
+//         data.possession_year || null,
+//         data.purchase_month || null,
+//         data.purchase_year || null,
+//         data.selling_rights || null,
+//         data.ownership_doc_path || null,
+//         updatedPhotos.length ? JSON.stringify(updatedPhotos) : null,
+//         data.amenities ? JSON.stringify(data.amenities) : null,
+//         data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
+//         data.nearby_places ? JSON.stringify(data.nearby_places) : null,
+//         data.description || null,
+//         typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : null,
+//         data.publication_date || null,
+//         id,
+//       ]
+//     );
+//     return result.affectedRows;
+//   }
+
+//   /* =========================
+//      DELETE
+//      ========================= */
+//   static async delete(id) {
+//     const [result] = await db.execute(
+//       "DELETE FROM my_properties WHERE id = ?",
+//       [id]
+//     );
+//     return result.affectedRows;
+//   }
+
+//   /* =========================
+//      PHOTOS utils
+//      ========================= */
+//   static async addPhotos(propertyId, photoPaths) {
+//     const existing = await this.getById(propertyId);
+//     const current = existing ? existing.photos : [];
+//     const merged = [...current, ...photoPaths];
+//     const [res] = await db.execute(
+//       "UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+//       [JSON.stringify(merged), propertyId]
+//     );
+//     return res.affectedRows;
+//   }
+
+//   static async getPhotos(propertyId) {
+//     const p = await this.getById(propertyId);
+//     return p ? p.photos : [];
+//   }
+
+//   static async deletePhotos(propertyId) {
+//     const [res] = await db.execute(
+//       "UPDATE my_properties SET photos = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+//       [propertyId]
+//     );
+//     return res.affectedRows;
+//   }
+
+//   static async deleteSpecificPhotos(propertyId, photosToDelete) {
+//     const p = await this.getById(propertyId);
+//     if (!p || !p.photos) return 0;
+//     const remaining = p.photos.filter((ph) => !photosToDelete.includes(ph));
+//     const [res] = await db.execute(
+//       "UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+//       [remaining.length ? JSON.stringify(remaining) : null, propertyId]
+//     );
+//     return res.affectedRows;
+//   }
+
+//   /* =========================
+//      MIGRATION helper
+//      ========================= */
+//   static async migrateData() {
+//     const [rows] = await db.execute(
+//       "SELECT id, amenities, furnishing_items, nearby_places, photos FROM my_properties"
+//     );
+//     for (const row of rows) {
+//       const updates = {};
+//       const fix = (v, wrap) => {
+//         try {
+//           JSON.parse(v);
+//           return null;
+//         } catch {
+//           return wrap;
+//         }
+//       };
+//       if (row.amenities && fix(row.amenities, JSON.stringify([row.amenities])))
+//         updates.amenities = JSON.stringify([row.amenities]);
+//       if (
+//         row.furnishing_items &&
+//         fix(row.furnishing_items, JSON.stringify([row.furnishing_items]))
+//       )
+//         updates.furnishing_items = JSON.stringify([row.furnishing_items]);
+//       if (
+//         row.nearby_places &&
+//         fix(row.nearby_places, JSON.stringify([{ name: row.nearby_places }]))
+//       )
+//         updates.nearby_places = JSON.stringify([{ name: row.nearby_places }]);
+//       if (row.photos && fix(row.photos, JSON.stringify([row.photos])))
+//         updates.photos = JSON.stringify([row.photos]);
+
+//       if (Object.keys(updates).length) {
+//         const setClause = Object.keys(updates)
+//           .map((k) => `${k} = ?`)
+//           .join(", ");
+//         const values = [...Object.values(updates), row.id];
+//         await db.execute(
+//           `UPDATE my_properties SET ${setClause} WHERE id = ?`,
+//           values
+//         );
+//       }
+//     }
+//   }
+
+//   /* =========================
+//      BULK operations (fast)
+//      ========================= */
+
+//   static async bulkUpdateStatus(propertyIds = [], status) {
+//     if (!propertyIds.length) return { affected: 0 };
+//     const placeholders = propertyIds.map(() => "?").join(",");
+//     const [res] = await db.execute(
+//       `UPDATE my_properties
+//          SET status = ?, updated_at = CURRENT_TIMESTAMP
+//        WHERE id IN (${placeholders})`,
+//       [status, ...propertyIds]
+//     );
+//     return { affected: res.affectedRows };
+//   }
+
+//   static async bulkMarkPublic(propertyIds = [], isPublic) {
+//     if (!propertyIds.length) return { affected: 0 };
+//     const placeholders = propertyIds.map(() => "?").join(",");
+//     const [res] = await db.execute(
+//       `UPDATE my_properties
+//          SET is_public = ?,
+//              publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+//              updated_at = CURRENT_TIMESTAMP
+//        WHERE id IN (${placeholders})`,
+//       [isPublic ? 1 : 0, isPublic ? 1 : 0, ...propertyIds]
+//     );
+//     return { affected: res.affectedRows };
+//   }
+
+//   static async bulkDelete(propertyIds = []) {
+//     if (!propertyIds.length) return { affected: 0 };
+//     const placeholders = propertyIds.map(() => "?").join(",");
+//     const [res] = await db.execute(
+//       `DELETE FROM my_properties WHERE id IN (${placeholders})`,
+//       propertyIds
+//     );
+//     return { affected: res.affectedRows };
+//   }
+
+//   static async togglePublic(id, isPublic) {
+//     const [res] = await db.execute(
+//       `UPDATE my_properties
+//          SET is_public = ?,
+//              publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+//              updated_at = CURRENT_TIMESTAMP
+//        WHERE id = ?`,
+//       [isPublic ? 1 : 0, isPublic ? 1 : 0, id]
+//     );
+//     return res.affectedRows;
+//   }
+
+//   static async getMany(ids = []) {
+//     if (!ids.length) return [];
+//     const placeholders = ids.map(() => "?").join(",");
+//     const [rows] = await db.execute(
+//       `SELECT * FROM my_properties WHERE id IN (${placeholders})`,
+//       ids
+//     );
+//     return rows;
+//   }
+
+//   static isValidJson(str) {
+//     try {
+//       JSON.parse(str);
+//       return true;
+//     } catch {
+//       return false;
+//     }
+//   }
+//   /* =========================
+//      EVENTS / ANALYTICS
+//      ========================= */
+
+//   /**
+//    * Record an analytics event for a property.
+//    * This is a best-effort helper: it returns { success, affectedRows?, error? }.
+//    *
+//    * @param {object} opts
+//    * @param {number|string} opts.property_id
+//    * @param {string|null} opts.slug
+//    * @param {string} [opts.event_type='view']
+//    * @param {string} [opts.event_name='page_view']
+//    * @param {object} [opts.payload={}]
+//    * @param {string|null} [opts.ip=null]
+//    * @param {string|null} [opts.user_agent=null]
+//    * @param {string|null} [opts.referrer=null]
+//    * @param {string|null} [opts.session_id=null]
+//    */
+//   static async recordEvent({
+//     property_id,
+//     slug = null,
+//     event_type = "view",
+//     event_name = "page_view",
+//     payload = {},
+//     ip = null,
+//     user_agent = null,
+//     referrer = null,
+//     session_id = null,
+//   }) {
+//     try {
+//       const sql = `INSERT INTO property_events (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
+//       const vals = [
+//         property_id,
+//         slug,
+//         event_type,
+//         event_name,
+//         JSON.stringify(payload || {}),
+//         ip,
+//         user_agent,
+//         referrer,
+//         session_id,
+//       ];
+//       const [result] = await db.execute(sql, vals);
+//       return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
+//     } catch (err) {
+//       return { success: false, error: err && err.message };
+//     }
+  
+// }
+//  /* =========================
+//      FILTER CONTEXT helpers
+//      ========================= */
+
+//   /**
+//    * Save a filter context and return its UUID (id).
+//    * filters: object or JSON-string
+//    * user_id: optional
+//    */
+//   static async saveFilterContext(filters, user_id = null) {
+//     try {
+//       const id = uuidv4();
+//       const jsonFilters = typeof filters === "string" ? filters : JSON.stringify(filters || {});
+//       await db.execute(
+//         `INSERT INTO filter_contexts (id, filters, user_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+//         [id, jsonFilters, user_id]
+//       );
+//       return { success: true, id };
+//     } catch (err) {
+//       return { success: false, error: err && err.message };
+//     }
+//   }
+
+//   /**
+//    * Get a filter_context row by id (token)
+//    */
+//   static async getFilterContextById(id) {
+//     try {
+//       const [rows] = await db.execute(`SELECT * FROM filter_contexts WHERE id = ? LIMIT 1`, [id]);
+//       return rows[0] || null;
+//     } catch (err) {
+//       return null;
+//     }
+//   }
+
+//   /**
+//    * Utility: ensureFilterToken
+//    * - If tokenOrFilters is an object => create a new filter_context and return its id
+//    * - If tokenOrFilters is a string => validate existence in filter_contexts and return id or null
+//    */
+//   static async ensureFilterToken(tokenOrFilters, user_id = null) {
+//     // if nothing provided
+//     if (tokenOrFilters == null) return null;
+
+//     // If it's an object (filters) -> save and return id
+//     if (typeof tokenOrFilters === "object") {
+//       const saved = await this.saveFilterContext(tokenOrFilters, user_id);
+//       return saved.success ? saved.id : null;
+//     }
+
+//     // if it's a string -> assume it's a token id; validate existence
+//     if (typeof tokenOrFilters === "string") {
+//       // small sanity check: basic uuid-ish length (36) or allow shorter ids if you use numeric tokens
+//       try {
+//         const ctx = await this.getFilterContextById(tokenOrFilters);
+//         return ctx ? tokenOrFilters : null;
+//       } catch {
+//         return null;
+//       }
+//     }
+
+//     return null;
+//   }
+
+//   /* =========================
+//      EVENTS / ANALYTICS (updated)
+//      ========================= */
+//   /**
+//    * Record an analytics event for a property.
+//    * Accepts filterToken which can be:
+//    *  - null
+//    *  - a filter-token string (existing id)
+//    *  - an object of filters (will be saved into filter_contexts and id returned)
+//    *
+//    * Returns { success, affectedRows?, insertId?, error? }
+//    */
+
+// // models/property.model.js - UPDATED recordEvent method
+// static async recordEvent({
+//   property_id,
+//   slug = null,
+//   event_type = "view",
+//   event_name = "page_view",
+//   payload = {},
+//   ip = null,
+//   user_agent = null,
+//   referrer = null,
+//   session_id = null,
+//   filterToken = null,
+//   dedupe_key = null,
+//   user_id = null,
+//   minutes_window = 1, // Default 1 minute for views, can be longer for sessions
+// }) {
+//   try {
+//     // ensure payload is object
+//     payload = payload || {};
+    
+//     // Normalize/ensure filterToken: if object => create filter_context and get id
+//     const finalFilterToken = await this.ensureFilterToken(filterToken, user_id);
+    
+//     // For views, prioritize session_id as dedupe_key if available
+//     // This ensures same session doesn't record multiple views
+//     const finalDedupeKey = dedupe_key || session_id || finalFilterToken || payload.dedupe_key || null;
+    
+//     // attach finalFilterToken to payload for completeness
+//     payload.filterToken = finalFilterToken;
+//     if (finalDedupeKey) payload.dedupe_key = finalDedupeKey;
+
+//     // *** CHECK FOR RECENT VIEW BEFORE INSERTING ***
+//     if (event_type === 'view' && property_id) {
+//       const Views = require('./views.model');
+//       const hasRecent = await Views.hasRecentView(
+//         property_id,
+//         session_id,
+//         finalDedupeKey,
+//         minutes_window,
+//         ip,
+//         user_agent
+//       );
+      
+//       if (hasRecent) {
+//         return { success: true, affectedRows: 0, insertId: null, duplicate: true };
+//       }
+//     }
+    
+//     // Insert into property_events with dedicated dedupe_key column
+//     const sql = `INSERT INTO property_events
+//       (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, dedupe_key, created_at)
+//       VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
+
+//     const vals = [
+//       property_id,
+//       slug,
+//       event_type,
+//       event_name,
+//       JSON.stringify(payload || {}),
+//       ip,
+//       user_agent,
+//       referrer,
+//       session_id,
+//       finalDedupeKey,
+//     ];
+
+//     const [result] = await db.execute(sql, vals);
+    
+//     return {
+//       success: true,
+//       affectedRows: result.affectedRows,
+//       insertId: result.insertId,
+//       duplicate: false
+//     };
+//   } catch (err) {
+//     return { success: false, error: err && err.message };
+//   }
+  
+// }
+
+// }
+// async function recordPropertyViewHandler(req, res) {
+//   try {
+//     const idRaw = req.params.id;
+//     const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, '')) : null;
+
+//     if (!propertyId || Number.isNaN(propertyId)) {
+//       return res.status(400).json({ success: false, message: 'Missing or invalid property id' });
+//     }
+
+//     // Get session ID from middleware
+//     const sessionId = req.sessionId;
+
+//     // safe header parsing
+//     const ip = getClientIp(req);
+//     const userAgent = req.get ? (req.get('User-Agent') || null) : (req.headers && req.headers['user-agent']) || null;
+//     const referrer = req.get ? (req.get('Referrer') || req.get('Referer') || null) : (req.headers && (req.headers.referer || req.headers.referrer)) || null;
+
+//     // canonical payload for model
+//     const payload = {
+//       property_id: propertyId,
+//       slug: req.body?.slug ?? null,
+//       dedupe_key: sessionId, // Use session ID as primary dedupe key
+//       session_id: sessionId,
+//       source: req.body?.source ?? 'api',
+//       path: (req.body?.path ?? (req.originalUrl || req.path)) || null,
+//       referrer,
+//       ip,
+//       user_agent: userAgent,
+//       minutes_window: 1440, // 24 hour window for session deduplication
+//       event_type: 'view',
+//     };
+
+//     if (!Views || typeof Views.recordView !== 'function') {
+//       return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
+//     }
+
+//     const result = await Views.recordView(payload);
+//     // normalize result
+//     const recorded = !!(result && result.inserted);
+//     const deduped = result?.meta?.deduped || false;
+    
+//     // Log for debugging
+//     if (recorded) {
+//       console.log(`[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+//     } else {
+//       console.log(`[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+//     }
+    
+//     return res.json({
+//       success: true,
+//       recorded,
+//       meta: result?.meta ?? {},
+//       deduped,
+//       session_id: sessionId.slice(0,8) + '...' // Return partial session ID for debugging
+//     });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: 'Server error' });
+//   }
+// }
+
+// module.exports = Property;
+
 // models/Property.js
+// Updated: supports optional `conn` (mysql2 connection) so caller can pass same connection for transactions.
 const db = require("../config/database");
-const { v4: uuidv4 } = require('uuid'); // npm i uuid
+const { v4: uuidv4 } = require("uuid");
+
 // -------- helper: safe JSON ----------
 function safeJsonParse(str, defaultValue = []) {
-  if (!str) return defaultValue;
-  if (typeof str !== "string") return Array.isArray(str) ? str : defaultValue;
+  if (str === null || str === undefined) return defaultValue;
+  if (typeof str !== "string") {
+    return Array.isArray(str) ? str : defaultValue;
+  }
   try {
     const parsed = JSON.parse(str);
     return Array.isArray(parsed) ? parsed : defaultValue;
@@ -19,80 +642,127 @@ function safeJsonParse(str, defaultValue = []) {
   }
 }
 
+function safeJsonStringify(val) {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "string") return val;
+  try {
+    return JSON.stringify(val);
+  } catch {
+    return null;
+  }
+}
+
+function nowSql() {
+  return new Date().toISOString().slice(0, 19).replace("T", " ");
+}
+
+// Helper that runs a query using provided conn or pool
+async function runQuery(connOrPool, sql, params = []) {
+  if (!connOrPool) connOrPool = db;
+  // mysql2: pool.query returns [rows, fields]; conn.query also returns same.
+  return connOrPool.query(sql, params);
+}
+
 class Property {
   /* =========================
      CREATE
+     Accepts optional conn parameter (mysql2 connection) to join transactions.
+     Returns inserted row (object) or throws.
      ========================= */
-  static async create(data) {
-    const [result] = await db.execute(
-      `INSERT INTO my_properties
-       (seller_name, seller_id, assigned_to, property_type_name, property_subtype_name,
-        unit_type, wing, unit_no, furnishing,
-        parking_type, parking_qty, city_name, location_name, society_name,
-        floor, total_floors, carpet_area, builtup_area, budget,
-        address, status, lead_source,
-        possession_month, possession_year,
-        purchase_month, purchase_year,
-        selling_rights, ownership_doc_path,
-        photos, amenities, furnishing_items, nearby_places,
-        description, is_public, publication_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)`,
-      [
-        data.seller_name || null,
-        data.seller_id || null,
-        data.assigned_to || null,
-        data.property_type_name || null,
-        data.property_subtype_name || null,
-        data.unit_type || null,
-        data.wing || null,
-        data.unit_no || null,
-        data.furnishing || null,
-        data.parking_type || null,
-        data.parking_qty || null,
-        data.city_name || null,
-        data.location_name || null,
-        data.society_name || null,
-        data.floor || null,
-        data.total_floors || null,
-        data.carpet_area || null,
-        data.builtup_area || null,
-        data.budget || null,
-        data.address || null,
-        data.status || null,
-        data.lead_source || null,
-        data.possession_month || null,
-        data.possession_year || null,
-        data.purchase_month || null,
-        data.purchase_year || null,
-        data.selling_rights || null,
-        data.ownership_doc_path || null,
-        data.photos ? JSON.stringify(data.photos) : null,
-        data.amenities ? JSON.stringify(data.amenities) : null,
-        data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
-        data.nearby_places ? JSON.stringify(data.nearby_places) : null,
-        data.description || null,
-        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : 0,
-        data.publication_date || null,
-      ]
-    );
-    return result.insertId;
-  }
+  static async create(data = {}, conn = null) {
+    // map fields expected by your my_properties table
+    const payload = {
+      seller_name: data.seller_name ?? null,
+      seller_id: data.seller_id ?? null,
+      assigned_to: data.assigned_to ?? null,
+      property_type_name: data.property_type_name ?? null,
+      property_subtype_name: data.property_subtype_name ?? null,
+      unit_type: data.unit_type ?? null,
+      wing: data.wing ?? null,
+      unit_no: data.unit_no ?? null,
+      furnishing: data.furnishing ?? null,
+      parking_type: data.parking_type ?? null,
+      parking_qty: data.parking_qty ?? null,
+      city_name: data.city_name ?? null,
+      location_name: data.location_name ?? null,
+      society_name: data.society_name ?? null,
+      floor: data.floor ?? null,
+      total_floors: data.total_floors ?? null,
+      carpet_area: data.carpet_area ?? null,
+      builtup_area: data.builtup_area ?? null,
+      budget: data.budget ?? null,
+      address: data.address ?? null,
+      status: data.status ?? null,
+      lead_source: data.lead_source ?? null,
+      possession_month: data.possession_month ?? null,
+      possession_year: data.possession_year ?? null,
+      purchase_month: data.purchase_month ?? null,
+      purchase_year: data.purchase_year ?? null,
+      selling_rights: data.selling_rights ?? null,
+      ownership_doc_path: data.ownership_doc_path ?? null,
+      photos: data.photos ? safeJsonStringify(data.photos) : null,
+      amenities: data.amenities ? safeJsonStringify(data.amenities) : null,
+      furnishing_items: data.furnishing_items ? safeJsonStringify(data.furnishing_items) : null,
+      nearby_places: data.nearby_places ? safeJsonStringify(data.nearby_places) : null,
+      description: data.description ?? null,
+      is_public: typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : (data.is_public != null ? (data.is_public ? 1 : 0) : 0),
+      publication_date: data.publication_date ?? null,
+      created_at: data.created_at ?? nowSql(),
+      updated_at: data.updated_at ?? nowSql(),
+      lead_id: data.lead_id ?? null,
+      created_by: data.created_by ?? null,
+      updated_by: data.updated_by ?? null,
+    };
 
-  static async updateSlug(id, slug) {
-    const [r] = await db.execute(
-      "UPDATE my_properties SET slug = ? WHERE id = ?",
-      [slug, id]
-    );
-    return r.affectedRows;
+    // only include columns that are defined (not undefined)
+    const cols = Object.keys(payload).filter((k) => payload[k] !== undefined);
+    const placeholders = cols.map(() => "?").join(", ");
+    const values = cols.map((k) => payload[k]);
+
+    const sql = `INSERT INTO my_properties (${cols.join(", ")}) VALUES (${placeholders})`;
+
+    // Run using conn if provided (to participate in transaction), else pool
+    const runner = conn || db;
+    const [res] = await runner.query(sql, values);
+
+    const insertId = res && (res.insertId || (Array.isArray(res) && res[0] && res[0].insertId))
+      ? (res.insertId || res[0].insertId)
+      : null;
+
+    let createdId = insertId;
+
+    if (!createdId && payload.lead_id) {
+      // fallback: attempt to select last created property for this lead
+      const [maybeRows] = await runner.query("SELECT id FROM my_properties WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1", [payload.lead_id]);
+      if (Array.isArray(maybeRows) && maybeRows.length) {
+        createdId = maybeRows[0].id;
+      }
+    }
+
+    if (!createdId) {
+      throw new Error("Failed to determine created property id");
+    }
+
+    // fetch the created row
+    const [rows] = await runner.query("SELECT * FROM my_properties WHERE id = ? LIMIT 1", [createdId]);
+    const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!row) throw new Error("Created property not found after insert");
+
+    // normalize JSON columns to arrays/objects as in your original model
+    row.photos = safeJsonParse(row.photos, []);
+    row.amenities = safeJsonParse(row.amenities, []);
+    row.furnishing_items = safeJsonParse(row.furnishing_items, []);
+    row.nearby_places = safeJsonParse(row.nearby_places, []);
+
+    return row;
   }
 
   /* =========================
-     READ
+     read: getAll
      ========================= */
-  static async getAll() {
-    const [rows] = await db.execute(
-      "SELECT * FROM my_properties ORDER BY created_at DESC"
-    );
+  static async getAll(conn = null) {
+    const runner = conn || db;
+    const [rows] = await runner.query("SELECT * FROM my_properties ORDER BY created_at DESC");
     return rows.map((row) => {
       row.photos = safeJsonParse(row.photos, []);
       row.amenities = safeJsonParse(row.amenities, []);
@@ -102,12 +772,13 @@ class Property {
     });
   }
 
-  static async getById(id) {
-    const [rows] = await db.execute(
-      "SELECT * FROM my_properties WHERE id = ?",
-      [id]
-    );
-    const property = rows[0];
+  /* =========================
+     read: getById
+     ========================= */
+  static async getById(id, conn = null) {
+    const runner = conn || db;
+    const [rows] = await runner.query("SELECT * FROM my_properties WHERE id = ?", [id]);
+    const property = rows && rows[0] ? rows[0] : null;
     if (!property) return null;
     property.photos = safeJsonParse(property.photos, []);
     property.amenities = safeJsonParse(property.amenities, []);
@@ -118,93 +789,85 @@ class Property {
 
   /* =========================
      UPDATE (full-row)
+     Accepts conn optionally for transaction safety.
      ========================= */
-  static async update(id, data) {
-    const existing = await this.getById(id);
+  static async update(id, data = {}, conn = null) {
+    const runner = conn || db;
+    const existing = await this.getById(id, runner);
+
     let updatedPhotos = data.photos || [];
     if (data.appendPhotos && existing?.photos) {
       updatedPhotos = [...existing.photos, ...updatedPhotos];
     }
 
-    const [result] = await db.execute(
-      `UPDATE my_properties SET
-        seller_name = ?, seller_id = ?, assigned_to = ?, property_type_name = ?, property_subtype_name = ?,
-        unit_type = ?, wing = ?, unit_no = ?, furnishing = ?,
-        parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
-        floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,
-        address = ?, status = ?, lead_source = ?,
-        possession_month = ?, possession_year = ?,
-        purchase_month = ?, purchase_year = ?,
-        selling_rights = ?, ownership_doc_path = ?,
-        photos = ?, amenities = ?, furnishing_items = ?, nearby_places = ?,
-        description = ?, is_public = COALESCE(?, is_public),
-        publication_date = COALESCE(?, publication_date),
-        updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        data.seller_name || null,
-        data.seller_id || null,
-        data.assigned_to || null,
-        data.property_type_name || null,
-        data.property_subtype_name || null,
-        data.unit_type || null,
-        data.wing || null,
-        data.unit_no || null,
-        data.furnishing || null,
-        data.parking_type || null,
-        data.parking_qty || null,
-        data.city_name || null,
-        data.location_name || null,
-        data.society_name || null,
-        data.floor || null,
-        data.total_floors || null,
-        data.carpet_area || null,
-        data.builtup_area || null,
-        data.budget || null,
-        data.address || null,
-        data.status || null,
-        data.lead_source || null,
-        data.possession_month || null,
-        data.possession_year || null,
-        data.purchase_month || null,
-        data.purchase_year || null,
-        data.selling_rights || null,
-        data.ownership_doc_path || null,
-        updatedPhotos.length ? JSON.stringify(updatedPhotos) : null,
-        data.amenities ? JSON.stringify(data.amenities) : null,
-        data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
-        data.nearby_places ? JSON.stringify(data.nearby_places) : null,
-        data.description || null,
-        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : null,
-        data.publication_date || null,
-        id,
-      ]
-    );
+    const payload = {
+      seller_name: data.seller_name ?? existing?.seller_name ?? null,
+      seller_id: data.seller_id ?? existing?.seller_id ?? null,
+      assigned_to: data.assigned_to ?? existing?.assigned_to ?? null,
+      property_type_name: data.property_type_name ?? existing?.property_type_name ?? null,
+      property_subtype_name: data.property_subtype_name ?? existing?.property_subtype_name ?? null,
+      unit_type: data.unit_type ?? existing?.unit_type ?? null,
+      wing: data.wing ?? existing?.wing ?? null,
+      unit_no: data.unit_no ?? existing?.unit_no ?? null,
+      furnishing: data.furnishing ?? existing?.furnishing ?? null,
+      parking_type: data.parking_type ?? existing?.parking_type ?? null,
+      parking_qty: data.parking_qty ?? existing?.parking_qty ?? null,
+      city_name: data.city_name ?? existing?.city_name ?? null,
+      location_name: data.location_name ?? existing?.location_name ?? null,
+      society_name: data.society_name ?? existing?.society_name ?? null,
+      floor: data.floor ?? existing?.floor ?? null,
+      total_floors: data.total_floors ?? existing?.total_floors ?? null,
+      carpet_area: data.carpet_area ?? existing?.carpet_area ?? null,
+      builtup_area: data.builtup_area ?? existing?.builtup_area ?? null,
+      budget: data.budget ?? existing?.budget ?? null,
+      address: data.address ?? existing?.address ?? null,
+      status: data.status ?? existing?.status ?? null,
+      lead_source: data.lead_source ?? existing?.lead_source ?? null,
+      possession_month: data.possession_month ?? existing?.possession_month ?? null,
+      possession_year: data.possession_year ?? existing?.possession_year ?? null,
+      purchase_month: data.purchase_month ?? existing?.purchase_month ?? null,
+      purchase_year: data.purchase_year ?? existing?.purchase_year ?? null,
+      selling_rights: data.selling_rights ?? existing?.selling_rights ?? null,
+      ownership_doc_path: data.ownership_doc_path ?? existing?.ownership_doc_path ?? null,
+      photos: updatedPhotos.length ? safeJsonStringify(updatedPhotos) : (data.photos === null ? null : (existing?.photos ? safeJsonStringify(existing.photos) : null)),
+      amenities: data.amenities ? safeJsonStringify(data.amenities) : (existing?.amenities ? safeJsonStringify(existing.amenities) : null),
+      furnishing_items: data.furnishing_items ? safeJsonStringify(data.furnishing_items) : (existing?.furnishing_items ? safeJsonStringify(existing.furnishing_items) : null),
+      nearby_places: data.nearby_places ? safeJsonStringify(data.nearby_places) : (existing?.nearby_places ? safeJsonStringify(existing.nearby_places) : null),
+      description: data.description ?? existing?.description ?? null,
+      is_public: typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : existing?.is_public ?? 0,
+      publication_date: data.publication_date ?? existing?.publication_date ?? null,
+      updated_at: data.updated_at ?? nowSql(),
+      created_by: data.created_by ?? existing?.created_by ?? null,
+      updated_by: data.updated_by ?? existing?.updated_by ?? null,
+    };
+
+    const cols = Object.keys(payload);
+    const setSql = cols.map((c) => `\`${c}\` = ?`).join(", ");
+    const values = cols.map((c) => payload[c]);
+    values.push(id);
+
+    const sql = `UPDATE my_properties SET ${setSql} WHERE id = ?`;
+    const [result] = await runner.query(sql, values);
     return result.affectedRows;
   }
 
   /* =========================
      DELETE
      ========================= */
-  static async delete(id) {
-    const [result] = await db.execute(
-      "DELETE FROM my_properties WHERE id = ?",
-      [id]
-    );
+  static async delete(id, conn = null) {
+    const runner = conn || db;
+    const [result] = await runner.query("DELETE FROM my_properties WHERE id = ?", [id]);
     return result.affectedRows;
   }
 
   /* =========================
-     PHOTOS utils
+     PHOTOS utils (use pool by default)
      ========================= */
   static async addPhotos(propertyId, photoPaths) {
     const existing = await this.getById(propertyId);
     const current = existing ? existing.photos : [];
     const merged = [...current, ...photoPaths];
-    const [res] = await db.execute(
-      "UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [JSON.stringify(merged), propertyId]
-    );
+    const [res] = await db.execute("UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [JSON.stringify(merged), propertyId]);
     return res.affectedRows;
   }
 
@@ -214,10 +877,7 @@ class Property {
   }
 
   static async deletePhotos(propertyId) {
-    const [res] = await db.execute(
-      "UPDATE my_properties SET photos = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [propertyId]
-    );
+    const [res] = await db.execute("UPDATE my_properties SET photos = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [propertyId]);
     return res.affectedRows;
   }
 
@@ -225,20 +885,16 @@ class Property {
     const p = await this.getById(propertyId);
     if (!p || !p.photos) return 0;
     const remaining = p.photos.filter((ph) => !photosToDelete.includes(ph));
-    const [res] = await db.execute(
-      "UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [remaining.length ? JSON.stringify(remaining) : null, propertyId]
-    );
+    const [res] = await db.execute("UPDATE my_properties SET photos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [remaining.length ? JSON.stringify(remaining) : null, propertyId]);
     return res.affectedRows;
   }
 
   /* =========================
-     MIGRATION helper
+     MIGRATION / bulk helpers left as-is (you can copy original methods if needed)
      ========================= */
+
   static async migrateData() {
-    const [rows] = await db.execute(
-      "SELECT id, amenities, furnishing_items, nearby_places, photos FROM my_properties"
-    );
+    const [rows] = await db.execute("SELECT id, amenities, furnishing_items, nearby_places, photos FROM my_properties");
     for (const row of rows) {
       const updates = {};
       const fix = (v, wrap) => {
@@ -251,45 +907,29 @@ class Property {
       };
       if (row.amenities && fix(row.amenities, JSON.stringify([row.amenities])))
         updates.amenities = JSON.stringify([row.amenities]);
-      if (
-        row.furnishing_items &&
-        fix(row.furnishing_items, JSON.stringify([row.furnishing_items]))
-      )
+      if (row.furnishing_items && fix(row.furnishing_items, JSON.stringify([row.furnishing_items])))
         updates.furnishing_items = JSON.stringify([row.furnishing_items]);
-      if (
-        row.nearby_places &&
-        fix(row.nearby_places, JSON.stringify([{ name: row.nearby_places }]))
-      )
+      if (row.nearby_places && fix(row.nearby_places, JSON.stringify([{ name: row.nearby_places }])))
         updates.nearby_places = JSON.stringify([{ name: row.nearby_places }]);
       if (row.photos && fix(row.photos, JSON.stringify([row.photos])))
         updates.photos = JSON.stringify([row.photos]);
 
       if (Object.keys(updates).length) {
-        const setClause = Object.keys(updates)
-          .map((k) => `${k} = ?`)
-          .join(", ");
+        const setClause = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
         const values = [...Object.values(updates), row.id];
-        await db.execute(
-          `UPDATE my_properties SET ${setClause} WHERE id = ?`,
-          values
-        );
+        await db.execute(`UPDATE my_properties SET ${setClause} WHERE id = ?`, values);
       }
     }
   }
 
   /* =========================
-     BULK operations (fast)
+     Bulk / utils (unchanged)
      ========================= */
 
   static async bulkUpdateStatus(propertyIds = [], status) {
     if (!propertyIds.length) return { affected: 0 };
     const placeholders = propertyIds.map(() => "?").join(",");
-    const [res] = await db.execute(
-      `UPDATE my_properties
-         SET status = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id IN (${placeholders})`,
-      [status, ...propertyIds]
-    );
+    const [res] = await db.execute(`UPDATE my_properties SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`, [status, ...propertyIds]);
     return { affected: res.affectedRows };
   }
 
@@ -310,10 +950,7 @@ class Property {
   static async bulkDelete(propertyIds = []) {
     if (!propertyIds.length) return { affected: 0 };
     const placeholders = propertyIds.map(() => "?").join(",");
-    const [res] = await db.execute(
-      `DELETE FROM my_properties WHERE id IN (${placeholders})`,
-      propertyIds
-    );
+    const [res] = await db.execute(`DELETE FROM my_properties WHERE id IN (${placeholders})`, propertyIds);
     return { affected: res.affectedRows };
   }
 
@@ -332,10 +969,7 @@ class Property {
   static async getMany(ids = []) {
     if (!ids.length) return [];
     const placeholders = ids.map(() => "?").join(",");
-    const [rows] = await db.execute(
-      `SELECT * FROM my_properties WHERE id IN (${placeholders})`,
-      ids
-    );
+    const [rows] = await db.execute(`SELECT * FROM my_properties WHERE id IN (${placeholders})`, ids);
     return rows;
   }
 
@@ -346,272 +980,6 @@ class Property {
     } catch {
       return false;
     }
-  }
-  /* =========================
-     EVENTS / ANALYTICS
-     ========================= */
-
-  /**
-   * Record an analytics event for a property.
-   * This is a best-effort helper: it returns { success, affectedRows?, error? }.
-   *
-   * @param {object} opts
-   * @param {number|string} opts.property_id
-   * @param {string|null} opts.slug
-   * @param {string} [opts.event_type='view']
-   * @param {string} [opts.event_name='page_view']
-   * @param {object} [opts.payload={}]
-   * @param {string|null} [opts.ip=null]
-   * @param {string|null} [opts.user_agent=null]
-   * @param {string|null} [opts.referrer=null]
-   * @param {string|null} [opts.session_id=null]
-   */
-  static async recordEvent({
-    property_id,
-    slug = null,
-    event_type = "view",
-    event_name = "page_view",
-    payload = {},
-    ip = null,
-    user_agent = null,
-    referrer = null,
-    session_id = null,
-  }) {
-    try {
-      const sql = `INSERT INTO property_events (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
-      const vals = [
-        property_id,
-        slug,
-        event_type,
-        event_name,
-        JSON.stringify(payload || {}),
-        ip,
-        user_agent,
-        referrer,
-        session_id,
-      ];
-      const [result] = await db.execute(sql, vals);
-      return { success: true, affectedRows: result.affectedRows, insertId: result.insertId };
-    } catch (err) {
-      return { success: false, error: err && err.message };
-    }
-  
-}
- /* =========================
-     FILTER CONTEXT helpers
-     ========================= */
-
-  /**
-   * Save a filter context and return its UUID (id).
-   * filters: object or JSON-string
-   * user_id: optional
-   */
-  static async saveFilterContext(filters, user_id = null) {
-    try {
-      const id = uuidv4();
-      const jsonFilters = typeof filters === "string" ? filters : JSON.stringify(filters || {});
-      await db.execute(
-        `INSERT INTO filter_contexts (id, filters, user_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-        [id, jsonFilters, user_id]
-      );
-      return { success: true, id };
-    } catch (err) {
-      return { success: false, error: err && err.message };
-    }
-  }
-
-  /**
-   * Get a filter_context row by id (token)
-   */
-  static async getFilterContextById(id) {
-    try {
-      const [rows] = await db.execute(`SELECT * FROM filter_contexts WHERE id = ? LIMIT 1`, [id]);
-      return rows[0] || null;
-    } catch (err) {
-      return null;
-    }
-  }
-
-  /**
-   * Utility: ensureFilterToken
-   * - If tokenOrFilters is an object => create a new filter_context and return its id
-   * - If tokenOrFilters is a string => validate existence in filter_contexts and return id or null
-   */
-  static async ensureFilterToken(tokenOrFilters, user_id = null) {
-    // if nothing provided
-    if (tokenOrFilters == null) return null;
-
-    // If it's an object (filters) -> save and return id
-    if (typeof tokenOrFilters === "object") {
-      const saved = await this.saveFilterContext(tokenOrFilters, user_id);
-      return saved.success ? saved.id : null;
-    }
-
-    // if it's a string -> assume it's a token id; validate existence
-    if (typeof tokenOrFilters === "string") {
-      // small sanity check: basic uuid-ish length (36) or allow shorter ids if you use numeric tokens
-      try {
-        const ctx = await this.getFilterContextById(tokenOrFilters);
-        return ctx ? tokenOrFilters : null;
-      } catch {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
-  /* =========================
-     EVENTS / ANALYTICS (updated)
-     ========================= */
-  /**
-   * Record an analytics event for a property.
-   * Accepts filterToken which can be:
-   *  - null
-   *  - a filter-token string (existing id)
-   *  - an object of filters (will be saved into filter_contexts and id returned)
-   *
-   * Returns { success, affectedRows?, insertId?, error? }
-   */
-
-// models/property.model.js - UPDATED recordEvent method
-static async recordEvent({
-  property_id,
-  slug = null,
-  event_type = "view",
-  event_name = "page_view",
-  payload = {},
-  ip = null,
-  user_agent = null,
-  referrer = null,
-  session_id = null,
-  filterToken = null,
-  dedupe_key = null,
-  user_id = null,
-  minutes_window = 1, // Default 1 minute for views, can be longer for sessions
-}) {
-  try {
-    // ensure payload is object
-    payload = payload || {};
-    
-    // Normalize/ensure filterToken: if object => create filter_context and get id
-    const finalFilterToken = await this.ensureFilterToken(filterToken, user_id);
-    
-    // For views, prioritize session_id as dedupe_key if available
-    // This ensures same session doesn't record multiple views
-    const finalDedupeKey = dedupe_key || session_id || finalFilterToken || payload.dedupe_key || null;
-    
-    // attach finalFilterToken to payload for completeness
-    payload.filterToken = finalFilterToken;
-    if (finalDedupeKey) payload.dedupe_key = finalDedupeKey;
-
-    // *** CHECK FOR RECENT VIEW BEFORE INSERTING ***
-    if (event_type === 'view' && property_id) {
-      const Views = require('./views.model');
-      const hasRecent = await Views.hasRecentView(
-        property_id, 
-        session_id, 
-        finalDedupeKey, 
-        minutes_window,
-        ip,
-        user_agent
-      );
-      
-      if (hasRecent) {
-        return { success: true, affectedRows: 0, insertId: null, duplicate: true };
-      }
-    }
-    
-    // Insert into property_events with dedicated dedupe_key column
-    const sql = `INSERT INTO property_events
-      (property_id, slug, event_type, event_name, payload, ip, user_agent, referrer, session_id, dedupe_key, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`;
-
-    const vals = [
-      property_id,
-      slug,
-      event_type,
-      event_name,
-      JSON.stringify(payload || {}),
-      ip,
-      user_agent,
-      referrer,
-      session_id,
-      finalDedupeKey,
-    ];
-
-    const [result] = await db.execute(sql, vals);
-    
-    return { 
-      success: true, 
-      affectedRows: result.affectedRows, 
-      insertId: result.insertId,
-      duplicate: false
-    };
-  } catch (err) {
-    return { success: false, error: err && err.message };
-  }
-  
-}
-
-}
-async function recordPropertyViewHandler(req, res) {
-  try {
-    const idRaw = req.params.id;
-    const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, '')) : null;
-
-    if (!propertyId || Number.isNaN(propertyId)) {
-      return res.status(400).json({ success: false, message: 'Missing or invalid property id' });
-    }
-
-    // Get session ID from middleware
-    const sessionId = req.sessionId;
-
-    // safe header parsing
-    const ip = getClientIp(req);
-    const userAgent = req.get ? (req.get('User-Agent') || null) : (req.headers && req.headers['user-agent']) || null;
-    const referrer = req.get ? (req.get('Referrer') || req.get('Referer') || null) : (req.headers && (req.headers.referer || req.headers.referrer)) || null;
-
-    // canonical payload for model
-    const payload = {
-      property_id: propertyId,
-      slug: req.body?.slug ?? null,
-      dedupe_key: sessionId, // Use session ID as primary dedupe key
-      session_id: sessionId,
-      source: req.body?.source ?? 'api',
-      path: (req.body?.path ?? (req.originalUrl || req.path)) || null,
-      referrer,
-      ip,
-      user_agent: userAgent,
-      minutes_window: 1440, // 24 hour window for session deduplication
-      event_type: 'view',
-    };
-
-    if (!Views || typeof Views.recordView !== 'function') {
-      return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
-    }
-
-    const result = await Views.recordView(payload);
-    // normalize result
-    const recorded = !!(result && result.inserted);
-    const deduped = result?.meta?.deduped || false;
-    
-    // Log for debugging
-    if (recorded) {
-      console.log(`[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
-    } else {
-      console.log(`[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
-    }
-    
-    return res.json({ 
-      success: true, 
-      recorded, 
-      meta: result?.meta ?? {}, 
-      deduped,
-      session_id: sessionId.slice(0,8) + '...' // Return partial session ID for debugging
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Server error' });
   }
 }
 
