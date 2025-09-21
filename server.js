@@ -28,7 +28,7 @@ const contactRoutes = require("./routes/contactRoutes");
 const app = express();
 
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
-
+app.set("trust proxy", 1);
 // Security
 app.use(helmet());
 
