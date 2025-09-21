@@ -28,7 +28,7 @@ const contactRoutes = require("./routes/contactRoutes");
 const app = express();
 
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
-
+app.set("trust proxy", 1);
 // Security
 app.use(helmet());
 
@@ -40,13 +40,17 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 app.use(cors(corsOptions));
+
+
+
 
 // Rate limiting — relaxed in dev & ignore OPTIONS
 const limiter = rateLimit({
