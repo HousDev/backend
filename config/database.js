@@ -1,38 +1,45 @@
-// module.exports = pool;
-const mysql = require("mysql2/promise"); // Promise wrapper for mysql2
-
+const mysql = require("mysql2/promise");
 require("dotenv").config();
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "resale_expert_crm",
-  port: process.env.DB_PORT || 3306,
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  // You can enable these if you want
-  // acquireTimeout: 60000,
-  // timeout: 60000,
-  // reconnect: true
 });
 
-// Logs when a new connection is made
 pool.on("connection", (connection) => {
   console.log(`New connection established as id ${connection.threadId}`);
   console.log(`Connected to database: ${connection.config.database}`);
 });
 
-// Handle pool errors
 pool.on("error", (err) => {
   console.error("Database error:", err);
   if (err.code === "PROTOCOL_CONNECTION_LOST") {
     console.log("Reconnecting to database...");
-    // Here you might want to add some reconnection logic if needed
   } else {
-    throw err; // Let the app crash or handle globally
+    throw err;
   }
 });
+
+// Function to test connection immediately after pool creation
+async function testConnection() {
+  try {
+    const [rows] = await pool.query("SELECT 1 + 1 AS solution");
+    console.log(
+      "Database connected successfully, test query result:",
+      rows[0].solution
+    );
+  } catch (error) {
+    console.error("Error connecting to database:", error);
+  }
+}
+
+// Call the test connection function once
+testConnection();
 
 module.exports = pool;

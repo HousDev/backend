@@ -95,7 +95,7 @@
 //   // ===========================
 //   static async findAll() {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
@@ -119,7 +119,7 @@
 //   // ===========================
 //   static async findById(id) {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
@@ -369,7 +369,7 @@
 //   // ===========================
 //   static async findAll() {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
@@ -394,7 +394,7 @@
 //   // ===========================
 //   static async findAllIncludingTransferred() {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
@@ -418,7 +418,7 @@
 //   // ===========================
 //   static async findTransferredLeads() {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name,
@@ -446,7 +446,7 @@
 //   // ===========================
 //   static async findById(id) {
 //     const [rows] = await db.execute(
-//       `SELECT l.*, 
+//       `SELECT l.*,
 //               ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
 //               cu.first_name AS created_first_name, cu.last_name AS created_last_name,
 //               uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
@@ -535,9 +535,9 @@
 //   // ===========================
 //   static async transferToBuyer(id, transferredBy) {
 //     const [result] = await db.execute(
-//       `UPDATE client_leads 
-//        SET transferred_to_buyer = 1, 
-//            transferred_to_buyer_at = NOW(), 
+//       `UPDATE client_leads
+//        SET transferred_to_buyer = 1,
+//            transferred_to_buyer_at = NOW(),
 //            transferred_to_buyer_by = ?
 //        WHERE id = ?`,
 //       [transferredBy, id]
@@ -553,9 +553,9 @@
 
 //     const placeholders = ids.map(() => "?").join(",");
 //     const [result] = await db.execute(
-//       `UPDATE client_leads 
-//        SET transferred_to_buyer = 1, 
-//            transferred_to_buyer_at = NOW(), 
+//       `UPDATE client_leads
+//        SET transferred_to_buyer = 1,
+//            transferred_to_buyer_at = NOW(),
 //            transferred_to_buyer_by = ?
 //        WHERE id IN (${placeholders})`,
 //       [transferredBy, ...ids]
@@ -630,6 +630,88 @@
 // }
 
 // module.exports = Lead;
+
+
+
+//  static async create(leadData) {
+//     const {
+//       salutation,
+//       name,
+//       phone,
+//       email,
+//       lead_type,
+//       priority,
+//       lead_source,
+//       whatsapp_number,
+//       state,
+//       city,
+//       location,
+//       status,
+//       assigned_executive,
+//       created_by,
+//       updated_by,
+//     } = leadData;
+
+//     // 🔹 Email duplicate check
+//     if (email) {
+//       const [emailExists] = await db.execute(
+//         "SELECT id FROM client_leads WHERE email = ?",
+//         [email]
+//       );
+//       if (emailExists.length > 0) {
+//         throw new Error("Duplicate email already exists");
+//       }
+//     }
+
+//     // 🔹 Phone duplicate check
+//     if (phone) {
+//       const [phoneExists] = await db.execute(
+//         "SELECT id FROM client_leads WHERE phone = ?",
+//         [phone]
+//       );
+//       if (phoneExists.length > 0) {
+//         throw new Error("Duplicate phone number already exists");
+//       }
+//     }
+
+//     try {
+//       const [result] = await db.execute(
+//         `INSERT INTO client_leads (
+//           salutation, name, phone, email, lead_type, lead_source,
+//           whatsapp_number, state, city, location, status, assigned_executive,
+//           created_by, updated_by, priority
+//         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [
+//           salutation,
+//           name,
+//           phone,
+//           email,
+//           lead_type,
+//           lead_source,
+//           whatsapp_number,
+//           state,
+//           city,
+//           location,
+//           status,
+//           assigned_executive,
+//           created_by,
+//           updated_by,
+//           priority,
+//         ]
+//       );
+
+//       return this.findById(result.insertId);
+//     } catch (err) {
+//       if (err.code === "ER_DUP_ENTRY") {
+//         throw new Error("Duplicate email or phone already exists");
+//       }
+//       throw err;
+//     }
+//   }
+
+
+
+
 const db = require("../config/database");
 
 class Lead {
@@ -646,7 +728,15 @@ class Lead {
   // ===========================
   // CREATE with duplicate check
   // ===========================
+  // ===========================
   static async create(leadData) {
+    // ✅ Sanitize: convert all "" to null
+    for (const key in leadData) {
+      if (leadData[key] === "") {
+        leadData[key] = null;
+      }
+    }
+
     const {
       salutation,
       name,
@@ -690,10 +780,10 @@ class Lead {
     try {
       const [result] = await db.execute(
         `INSERT INTO client_leads (
-          salutation, name, phone, email, lead_type, lead_source,
-          whatsapp_number, state, city, location, status, assigned_executive,
-          created_by, updated_by, priority
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        salutation, name, phone, email, lead_type, lead_source,
+        whatsapp_number, state, city, location, status, assigned_executive,
+        created_by, updated_by, priority
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           salutation,
           name,
@@ -706,10 +796,10 @@ class Lead {
           city,
           location,
           status,
-          assigned_executive,
+          assigned_executive, // now null if ""
           created_by,
           updated_by,
-          priority,
+          priority, // now null if ""
         ]
       );
 
