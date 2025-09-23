@@ -8,7 +8,12 @@ const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
-const path = require("path");
+// const path = require("path");   //for local
+
+const fs = require("fs");  //for server
+
+const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
+const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
 
 // Routes
 const masterRoutes = require("./routes/masterRoutes");
@@ -40,8 +45,8 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-  // origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -90,12 +95,34 @@ app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
+// app.use(
+//   '/uploads',
+//   helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+// );
+
+// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
 app.use(
-  '/uploads',
-  helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+  UPLOAD_PUBLIC_BASE,
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
 );
+
+app.use(
+  UPLOAD_PUBLIC_BASE,
+  express.static(UPLOAD_ROOT, {
+    fallthrough: false,
+    etag: true,
+    maxAge: "1y",
+    immutable: true,
+    setHeaders: (res) => {
+      // mirror your Nginx Cache-Control
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  })
+);
+
+
 // Static files (IMPORTANT)
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api", require("./routes/buyerTransferRoute"))
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers",require("./routes/sellerRoutes"))
@@ -152,7 +179,9 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 Server: http://localhost:${PORT}`);
   console.log(`📊 Health: http://localhost:${PORT}/api/health`);
-  console.log(`📂 Uploads: ${path.join(process.cwd(), "uploads")}\n`);
+  // console.log(`📂 Uploads: ${path.join(process.cwd(), "uploads")}\n`);
+  console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
+  +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
 });
 
 module.exports = app;

@@ -4,13 +4,10 @@ const systemSettingsController = require("../controllers/systemSettings.controll
 const { verifyToken, isAdmin } = require("../middleware/authJwt");
 const { uploadSystem, handleUploadErrors } = require("../middleware/upload");
 
-// Admin only routes
 router.use(verifyToken, isAdmin);
 
-// GET
 router.get("/", systemSettingsController.getSystemSettings);
 
-// POST with file uploads
 router.post(
   "/",
   uploadSystem.fields([
@@ -22,3 +19,4 @@ router.post(
 );
 
 module.exports = router;
+

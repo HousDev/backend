@@ -174,12 +174,18 @@ const createProperty = async (req, res) => {
 
   try {
     // Convert multer file objects to PUBLIC paths (keep your existing toPublic implementation)
+    // const ownershipDocPublic = req.files?.ownershipDoc?.[0]
+    //   ? toPublic(req.files.ownershipDoc[0])
+    //   : null;
     const ownershipDocPublic = req.files?.ownershipDoc?.[0]
-      ? toPublic(req.files.ownershipDoc[0])
+      ? req.files.ownershipDoc[0].publicUrl ||
+        toPublic(req.files.ownershipDoc[0])
       : null;
 
-    const photoPublicPaths = (req.files?.photos || []).map(toPublic);
-
+    // const photoPublicPaths = (req.files?.photos || []).map(toPublic);
+const photoPublicPaths = (req.files?.photos || []).map(
+  (f) => f.publicUrl || toPublic(f)
+);
     const propertyData = buildPropertyData(
       req,
       ownershipDocPublic,
