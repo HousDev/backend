@@ -1,60 +1,93 @@
+// const express = require("express");
+// const router = express.Router();
+// const propertyController = require("../controllers/property.controller");
+// const { upload, handleUploadErrors } = require("../middleware/upload");
+
+
+// router.get("/master", propertyController.getMasterData);
+// router.get("/", propertyController.getAllProperties);
+// router.get("/getPropertyById/:id", propertyController.getProperty);
+
+// router.post(
+//   "/create",
+//   upload.fields([
+//     { name: "ownershipDoc", maxCount: 1 },
+//     { name: "photos", maxCount: 10 },
+//   ]),
+//   handleUploadErrors,
+//   propertyController.createProperty
+// );
+
+// router.put(
+//   "/:id",
+//   upload.fields([
+//     { name: "ownershipDoc", maxCount: 1 },
+//     { name: "photos", maxCount: 10 },
+//   ]),
+//   handleUploadErrors,
+//   propertyController.updateProperty
+// );
+
+// router.delete("/delete/:id", propertyController.deleteProperty);
+// router.post("/migrate", propertyController.migratePropertyData);
+
+// router.get("/", propertyController.searchProperties);
+// router.get("/", propertyController.searchProperties);
+// router.get("/page/:slug", propertyController.getPropertyBySlug);
+// router.post("/migrate", propertyController.migratePropertyData);
+// router.post("/:id/event", propertyController.recordEventHandler);
+// router.post("/filters", propertyController.saveFilterContextHandler);
+// router.get("/filters/:id", propertyController.getFilterContextHandler);
+
+// module.exports = router;
+
 const express = require("express");
 const router = express.Router();
 const propertyController = require("../controllers/property.controller");
-const { upload, handleUploadErrors } = require("../middleware/upload");
+const {
+  upload,
+  handleUploadErrors,
+  attachPublicUrls,
+} = require("../middleware/upload");
 
-// ✅ Get master data
+// Master + list + search
 router.get("/master", propertyController.getMasterData);
-
-// ✅ Get all properties
 router.get("/", propertyController.getAllProperties);
-
-// ✅ Get single property by ID
+router.get("/page/:slug", propertyController.getPropertyBySlug);
 router.get("/getPropertyById/:id", propertyController.getProperty);
+// (avoid duplicate GET "/" and migrate route duplicates)
 
-// ✅ Create property with files
+// Create
 router.post(
   "/create",
   upload.fields([
     { name: "ownershipDoc", maxCount: 1 },
     { name: "photos", maxCount: 10 },
   ]),
-  handleUploadErrors, // Add error handling
+  handleUploadErrors,
+  attachPublicUrls, // <<---- NEW
   propertyController.createProperty
 );
 
-// ✅ Update property with files
+// Update
 router.put(
   "/:id",
   upload.fields([
     { name: "ownershipDoc", maxCount: 1 },
     { name: "photos", maxCount: 10 },
   ]),
-  handleUploadErrors, // Add error handling
+  handleUploadErrors,
+  attachPublicUrls, // <<---- NEW
   propertyController.updateProperty
 );
 
-// ✅ Delete property
+// Delete
 router.delete("/delete/:id", propertyController.deleteProperty);
 
-// ✅ Data migration endpoint
-router.post("/migrate", propertyController.migratePropertyData);
-
-router.get("/", propertyController.searchProperties);
-// get all (list/search) - keep one handler (avoid duplicate root routes)
-router.get("/", propertyController.searchProperties); // or getAllProperties based on your needs
-// get by slug (public facing)
-router.get("/page/:slug", propertyController.getPropertyBySlug);
-
-
-// migrate
-router.post("/migrate", propertyController.migratePropertyData);
+// Events + Filters + Migrate
 router.post("/:id/event", propertyController.recordEventHandler);
-
-// create filter context
 router.post("/filters", propertyController.saveFilterContextHandler);
-
-// get filter context by id (debug)
 router.get("/filters/:id", propertyController.getFilterContextHandler);
+router.post("/migrate", propertyController.migratePropertyData);
 
 module.exports = router;
