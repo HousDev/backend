@@ -6,3 +6,5 @@ const systemSettingsController = require("../controllers/systemSettings.controll
 router.get("/", systemSettingsController.getSystemSettings);
 
 module.exports = router;
+
+
