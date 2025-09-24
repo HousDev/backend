@@ -42,3 +42,7 @@ pnpm-debug.log*
 .prisma/
 migrations/
 typeorm-cache/
+
+# Uploads (runtime generated)
+# ---------------------------
+uploads/uploads/

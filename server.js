@@ -135,6 +135,12 @@ app.use("/api/ai", aiRoutes); // <-- new line
 app.use("/api/status-update", propertyStatusRoutes);
 app.use("/api/bulk-operations", bulkOperationsRoutes);
 app.use("/api/client-lead-notifications", clientLeadNotificationRoutes);
+
+app.use(
+  "/api/public/system-settings",
+  require("./routes/publicSystemSettings.routes")
+);
+
 app.use("/api/system-settings", systemSettingsRoutes);
 app.use("/api/sms-integration", smsIntegrationRoutes);
 app.use("/api/templates", templateRoutes);
