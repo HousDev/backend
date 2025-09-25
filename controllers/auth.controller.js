@@ -169,6 +169,118 @@ exports.signin = async (req, res) => {
   }
 };
 
+
+// User Login (updated to allow buyer_id / seller_id login)
+// exports.signin = async (req, res) => {
+//   try {
+//     console.log('Signin request received');
+
+//     // Validate request
+//     const { username, password, buyer_id, seller_id } = req.body;
+//     if (!password || (!username && !buyer_id && !seller_id)) {
+//       console.log('Validation failed: Missing identifier or password');
+//       return res.status(400).send({
+//         success: false,
+//         message: 'Provide password and one of username / buyer_id / seller_id.'
+//       });
+//     }
+
+//     // Determine lookup method (priority: buyer_id -> seller_id -> username)
+//     let user = null;
+//     if (buyer_id) {
+//       console.log('Looking up user by buyer_id');
+//       user = await User.findByBuyerId(buyer_id); // implement in your model if not present
+//       if (!user) {
+//         console.log('No user found for buyer_id:', buyer_id);
+//         return res.status(401).send({ success: false, message: 'Invalid credentials.' });
+//       }
+//       if (user.role !== 'buyer') {
+//         console.log('Role mismatch for buyer_id. Expected buyer, got:', user.role);
+//         return res.status(403).send({ success: false, message: 'Account role mismatch.' });
+//       }
+//     } else if (seller_id) {
+//       console.log('Looking up user by seller_id');
+//       user = await User.findBySellerId(seller_id); // implement in your model if not present
+//       if (!user) {
+//         console.log('No user found for seller_id:', seller_id);
+//         return res.status(401).send({ success: false, message: 'Invalid credentials.' });
+//       }
+//       if (user.role !== 'seller') {
+//         console.log('Role mismatch for seller_id. Expected seller, got:', user.role);
+//         return res.status(403).send({ success: false, message: 'Account role mismatch.' });
+//       }
+//     } else {
+//       console.log('Looking up user by username:', username);
+//       user = await User.findByUsername(username);
+//       if (!user) {
+//         console.log('User not found for username:', username);
+//         return res.status(401).send({
+//           success: false,
+//           message: 'Invalid username or password!'
+//         });
+//       }
+//     }
+
+//     // Check if user is active
+//     if (!user.is_active) {
+//       console.log('User inactive:', user.username || user.id);
+//       return res.status(401).send({
+//         success: false,
+//         message: 'Your account has been deactivated. Please contact administrator.'
+//       });
+//     }
+
+//     // Verify password (DO NOT log raw password)
+//     const passwordIsValid = bcrypt.compareSync(password, user.password);
+//     console.log('Password validation result for user id:', user.id, '=', passwordIsValid);
+
+//     if (!passwordIsValid) {
+//       console.log('Password invalid for user id:', user.id);
+//       return res.status(401).send({
+//         success: false,
+//         message: 'Invalid username or password!'
+//       });
+//     }
+
+//     // Generate JWT token
+//     const token = jwt.sign(
+//       {
+//         id: user.id,
+//         username: user.username,
+//         email: user.email,
+//         role: user.role
+//       },
+//       config.secret,
+//       { expiresIn: config.jwtExpiration }
+//     );
+//     console.log('JWT token generated for user id:', user.id);
+
+//     // Update last login
+//     await User.updateLastLogin(user.id);
+//     console.log('Updated last login for user id:', user.id);
+
+//     // Remove password from response object safely
+//     const safeUser = { ...user };
+//     if (safeUser.password) delete safeUser.password;
+
+//     res.send({
+//       success: true,
+//       message: 'Login successful!',
+//       data: {
+//         user: safeUser,
+//         accessToken: token
+//       }
+//     });
+//   } catch (err) {
+//     console.error('Signin error:', err);
+//     res.status(500).send({
+//       success: false,
+//       message: err.message || 'Error occurred during login.'
+//     });
+//   }
+// };
+
+
 // Refresh Token
 exports.refreshToken = async (req, res) => {
   try {
