@@ -986,9 +986,10 @@ class Lead {
   // UPDATE with duplicate check
   // ===========================
   static async update(id, leadData) {
-    const cleanData = Object.fromEntries(
-      Object.entries(leadData).map(([k, v]) => [k, v === undefined ? null : v])
-    );
+   const cleanData = Object.fromEntries(
+  Object.entries(leadData).map(([k, v]) => [k, v === undefined || v === "" ? null : v])
+);
+
     cleanData.updated_at = new Date();
 
     // 🔹 Email duplicate check

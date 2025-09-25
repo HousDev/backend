@@ -137,8 +137,6 @@
 // };
 
 // module.exports = SellerModel;
-
-
 // models/SellerModel.js
 const pool = require("../config/database");
 
@@ -174,7 +172,6 @@ const SellerModel = {
     return rows && rows[0] ? rows[0] : null;
   },
 
-  // CREATE: accepts optional conn to join a transaction
   async create(data = {}, conn = null) {
     const payload = {
       salutation: data.salutation ?? null,
@@ -241,7 +238,6 @@ const SellerModel = {
     return null;
   },
 
-  // keep your updateWithCoSellers but allow optional conn param if you want (not required here)
   async updateWithCoSellers(id, data, cosellers = [], deleteIds = [], conn = null) {
     const connection = conn || await pool.getConnection();
     let createdLocally = false;
@@ -255,6 +251,9 @@ const SellerModel = {
       data.seller_dob = toDateOnly(data.seller_dob);
       if (data.expected_close) data.expected_close = toDateOnly(data.expected_close);
       if (data.last_activity) data.last_activity = toDateOnly(data.last_activity);
+
+      // Ensure notifications is JSON string or null before updating DB
+      data.notifications = safeStringify(data.notifications, null);
 
       const sql = `
         UPDATE sellers SET 
