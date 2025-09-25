@@ -47,6 +47,7 @@ class Buyer {
     const {
       salutation,
       name,
+       dob, 
       phone,
       whatsapp_number,
       email,
@@ -65,14 +66,15 @@ class Buyer {
 
     const [result] = await db.execute(
       `INSERT INTO buyers (
-        \`salutation\`, \`name\`, \`phone\`, \`whatsapp_number\`, \`email\`,
+        \`salutation\`, \`name\`,\`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
         \`state\`, \`city\`, \`location\`,
         \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
         \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`, \`created_at\`, \`updated_at\`
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW())`,
       [
         salutation ?? "Mr.",
         name,
+          dob ?? null,  
         phone ?? null,
         whatsapp_number ?? null,
         email ?? null,
@@ -101,6 +103,7 @@ class Buyer {
     const row = rows[0];
     return {
       ...row,
+       dob: row.dob, 
       requirements: safeParse(row.requirements, {}),
       financials:  safeParse(row.financials, {}),
       budget: { min: row.budget_min, max: row.budget_max },
@@ -112,6 +115,7 @@ class Buyer {
     const [rows] = await db.execute("SELECT * FROM buyers ORDER BY created_at DESC");
     return rows.map((row) => ({
       ...row,
+       dob: row.dob, 
       requirements: safeParse(row.requirements, {}),
       financials:  safeParse(row.financials, {}),
       budget: { min: row.budget_min, max: row.budget_max },
@@ -140,6 +144,7 @@ class Buyer {
     const merged = {
       salutation:           data.salutation           ?? current.salutation,
       name:                 data.name                 ?? current.name,
+       dob:                 data.dob                  ?? current.dob, 
       phone:                data.phone                ?? current.phone,
       whatsapp_number:      data.whatsapp_number      ?? current.whatsapp_number ?? current.whatsapp,
       email:                data.email                ?? current.email,
@@ -158,13 +163,13 @@ class Buyer {
 
     await db.execute(
       `UPDATE buyers SET
-        \`salutation\`=?, \`name\`=?, \`phone\`=?, \`whatsapp_number\`=?, \`email\`=?,
+        \`salutation\`=?, \`name\`=?, \`dob\`=?, \`phone\`=?, \`whatsapp_number\`=?, \`email\`=?,
         \`state\`=?, \`city\`=?, \`location\`=?,
         \`buyer_lead_priority\`=?, \`buyer_lead_source\`=?, \`buyer_lead_stage\`=?, \`buyer_lead_status\`=?,
         \`budget_min\`=?, \`budget_max\`=?, \`requirements\`=CAST(? AS JSON), \`financials\`=CAST(? AS JSON), \`updated_at\`=NOW()
        WHERE \`id\`=?`,
       [
-        merged.salutation, merged.name, merged.phone, merged.whatsapp_number, merged.email,
+        merged.salutation, merged.name, merged.dob, merged.phone, merged.whatsapp_number, merged.email,
         merged.state, merged.city, merged.location,
         merged.buyer_lead_priority, merged.buyer_lead_source, merged.buyer_lead_stage, merged.buyer_lead_status,
         merged.budget_min, merged.budget_max,
@@ -216,6 +221,7 @@ class Buyer {
     const name = raw.name ?? "";
     const email = normalizeEmail(raw.email ?? null);
     const phone = normalizePhone(raw.phone ?? null);
+    
     const whatsapp_number = raw.whatsapp_number ?? null;
     const state = raw.state ?? null;
     const city = raw.city ?? null;
@@ -243,15 +249,16 @@ class Buyer {
     try {
       await db.execute(
         `INSERT INTO buyers (
-          \`salutation\`, \`name\`, \`phone\`, \`whatsapp_number\`, \`email\`,
+          \`salutation\`, \`name\`,\`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
           \`state\`, \`city\`, \`location\`,
           \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
           \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`, \`created_at\`, \`updated_at\`
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW())`,
         [
           salutation,
           name,
           phone,
+          dob, 
           whatsapp_number,
           email,
           state,
