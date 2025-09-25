@@ -1,15 +1,17 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database'); // Assuming you have a db config file
-const path = require("path"); // <-- Add this line
+const path = require("path");
 const fs = require("fs");
-// Update user (for admin)
 
+// Update user (for admin)
 exports.updateUser = async (req, res) => {
   try {
     const allowedFields = [
+      'salutation',       // नया
       'first_name',
       'last_name',
+       'username',  
       'email',
       'phone',
       'role',            // dynamic role allowed
@@ -18,14 +20,24 @@ exports.updateUser = async (req, res) => {
       'designation',
       'department',
       'module_permissions',
-      'dob',             // ✅ new field
-      'blood_group'      // ✅ new field
+      'dob',             // existing
+      'blood_group',     // existing
+      'buyer_id',        // नया
+      'seller_id'        // नया
     ];
     const updateData = {};
 
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        // numeric ids: normalize empty string to null, convert to int if present
+        if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] !== '') {
+          const val = parseInt(req.body[field], 10);
+          updateData[field] = Number.isNaN(val) ? null : val;
+        } else if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] === '') {
+          updateData[field] = null;
+        } else {
+          updateData[field] = req.body[field];
+        }
       }
     });
 
@@ -62,7 +74,9 @@ exports.updateUser = async (req, res) => {
       });
     }
 
-    delete data.password;
+    // don't return password in response
+    if (data.password) delete data.password;
+
     res.send({
       success: true,
       message: 'User updated successfully!',
@@ -79,84 +93,88 @@ exports.updateUser = async (req, res) => {
 };
 
 
-  // Create new user (admin only)
-  exports.createUser = async (req, res) => {
-    try {
-      const { 
-        username, first_name, last_name, email, password, phone, role, avatar,
-        designation, department, module_permissions,
-        dob, blood_group
-      } = req.body;
+// Create new user (admin only)
+exports.createUser = async (req, res) => {
+  try {
+    const {
+      username, salutation, first_name, last_name, email, password, phone, role, avatar,
+      designation, department, module_permissions,
+      dob, blood_group, buyer_id, seller_id
+    } = req.body;
 
-      // Required fields validation
-      if (!username || !first_name || !last_name || !email || !password) {
-        return res.status(400).send({
-          success: false,
-          message: 'Required fields missing!'
-        });
-      }
-
-      // Password length check
-      if (password.length < 6) {
-        return res.status(400).send({
-          success: false,
-          message: 'Password must be at least 6 characters long!'
-        });
-      }
-
-      // Use role from frontend directly (dynamic)
-      const userRole = role ? role.trim() : 'No Role Assign'; // default 'agent' if empty
-
-      // Hash password
-      const hashedPassword = bcrypt.hashSync(password, 8);
-
-      const newUser = {
-        username: username.trim(),
-        first_name: first_name.trim(),
-        last_name: last_name.trim(),
-        email: email.trim(),
-        password: hashedPassword,
-        phone: phone || null,
-        role: userRole,
-        avatar: avatar || null,
-        designation: designation || null,
-        department: department || null,
-        module_permissions: module_permissions || [],
-        dob: dob || null,
-        blood_group: blood_group || null
-      };
-
-      const createdUser = await User.create(newUser);
-
-      delete createdUser.password;
-
-      res.status(201).send({
-        success: true,
-        message: 'User created successfully!',
-        data: createdUser
-      });
-
-    } catch (err) {
-      console.error('Error creating user:', err);
-      res.status(500).send({
+    // Required fields validation
+    if (!username || !first_name || !last_name || !email || !password) {
+      return res.status(400).send({
         success: false,
-        message: err.message || 'Error creating user.'
+        message: 'Required fields missing!'
       });
     }
-  };
 
+    // Password length check
+    if (password.length < 6) {
+      return res.status(400).send({
+        success: false,
+        message: 'Password must be at least 6 characters long!'
+      });
+    }
 
+    // Use role from frontend directly (dynamic). Default to 'agent' if not provided/empty
+    const userRole = role && role.trim() ? role.trim() : 'agent';
 
+    // Hash password
+    const hashedPassword = bcrypt.hashSync(password, 8);
 
+    const newUser = {
+      username: username.trim(),
+      salutation: salutation || null,
+      first_name: first_name.trim(),
+      last_name: last_name.trim(),
+      email: email.trim(),
+      password: hashedPassword,
+      phone: phone || null,
+      role: userRole,
+      avatar: avatar || null,
+      designation: designation || null,
+      department: department || null,
+      module_permissions: module_permissions || {}, // keep as object
+      dob: dob || null,
+      blood_group: blood_group || null,
+      buyer_id: buyer_id !== undefined && buyer_id !== '' ? (Number.isNaN(parseInt(buyer_id, 10)) ? null : parseInt(buyer_id, 10)) : null,
+      seller_id: seller_id !== undefined && seller_id !== '' ? (Number.isNaN(parseInt(seller_id, 10)) ? null : parseInt(seller_id, 10)) : null
+    };
+
+    const createdUser = await User.create(newUser);
+
+    if (createdUser.password) delete createdUser.password;
+
+    res.status(201).send({
+      success: true,
+      message: 'User created successfully!',
+      data: createdUser
+    });
+
+  } catch (err) {
+    console.error('Error creating user:', err);
+    res.status(500).send({
+      success: false,
+      message: err.message || 'Error creating user.'
+    });
+  }
+};
 
 
 // Get all users (for admin)
 exports.getAllUsers = async (req, res) => {
   try {
     const data = await User.getAll();
+    // Remove passwords before sending
+    const sanitized = data.map(u => {
+      if (u.password) delete u.password;
+      return u;
+    });
     res.send({
       success: true,
-      data
+      data: sanitized
     });
   } catch (err) {
     res.status(500).send({
@@ -173,7 +191,7 @@ exports.getProfile = async (req, res) => {
     const data = await User.findById(req.userId);
     if (data) {
       // Remove password from response
-      delete data.password;
+      if (data.password) delete data.password;
       res.send({
         success: true,
         data: data
@@ -192,19 +210,26 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-// Update user profile
+// Update user profile (self)
 exports.updateProfile = async (req, res) => {
   try {
     // Don't allow updating email, username, or role through this endpoint
-    const allowedFields = ['first_name', 'last_name', 'phone', 'avatar'];
+    const allowedFields = ['salutation', 'first_name', 'last_name', 'phone', 'avatar', 'dob', 'blood_group', 'buyer_id', 'seller_id'];
     const updateData = {};
-    
+
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] !== '') {
+          const val = parseInt(req.body[field], 10);
+          updateData[field] = Number.isNaN(val) ? null : val;
+        } else if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] === '') {
+          updateData[field] = null;
+        } else {
+          updateData[field] = req.body[field];
+        }
       }
     });
-    
+
     if (Object.keys(updateData).length === 0) {
       return res.status(400).send({
         success: false,
@@ -213,7 +238,7 @@ exports.updateProfile = async (req, res) => {
     }
 
     const data = await User.updateById(req.userId, updateData);
-    
+
     if (data.kind === 'not_found') {
       res.status(404).send({
         success: false,
@@ -221,7 +246,7 @@ exports.updateProfile = async (req, res) => {
       });
     } else {
       // Remove password from response
-      delete data.password;
+      if (data.password) delete data.password;
       res.send({
         success: true,
         message: 'Profile updated successfully!',
@@ -240,14 +265,14 @@ exports.updateProfile = async (req, res) => {
 exports.changePassword = async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
-    
+
     if (!current_password || !new_password) {
       return res.status(400).send({
         success: false,
         message: 'Current password and new password are required!'
       });
     }
-    
+
     if (new_password.length < 6) {
       return res.status(400).send({
         success: false,
@@ -275,11 +300,11 @@ exports.changePassword = async (req, res) => {
 
     // Hash new password
     const hashedNewPassword = bcrypt.hashSync(new_password, 8);
-    
+
     const data = await User.updateById(req.userId, {
       password: hashedNewPassword
     });
-    
+
     if (data.kind === 'not_found') {
       res.status(404).send({
         success: false,
@@ -305,7 +330,7 @@ exports.getUserById = async (req, res) => {
     const data = await User.findById(req.params.userId);
     if (data) {
       // Remove password from response
-      delete data.password;
+      if (data.password) delete data.password;
       res.send({
         success: true,
         data: data
@@ -324,14 +349,11 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-
-
-
 // Delete user (for admin)
 exports.deleteUser = async (req, res) => {
   try {
     const data = await User.remove(req.params.userId);
-    
+
     if (data.kind === 'not_found') {
       res.status(404).send({
         success: false,
@@ -357,10 +379,10 @@ exports.getAgents = async (req, res) => {
     const data = await User.getByRole('agent');
     // Remove passwords from response
     const agents = data.map(agent => {
-      delete agent.password;
+      if (agent.password) delete agent.password;
       return agent;
     });
-    
+
     res.send({
       success: true,
       data: agents
@@ -379,13 +401,13 @@ exports.getDashboardStats = async (req, res) => {
     const Lead = require('../models/Lead');
     const Property = require('../models/Property');
     const Activity = require('../models/Activity');
-    
+
     const [leadsStats, propertiesStats, activitiesStats] = await Promise.all([
       Lead.getLeadsStats(),
       Property.getPropertiesStats(),
       Activity.getActivitiesStats(req.userId)
     ]);
-    
+
     res.send({
       success: true,
       data: {
@@ -439,9 +461,15 @@ exports.filterData = async (req, res) => {
     console.log("Query values:", values);
 
     const [rows] = await db.query(query, values);
-    console.log("Database results:", rows);
-    
-    res.send({ success: true, data: rows });
+    // console.log("Database results:", rows);
+
+    // sanitize passwords
+    const sanitized = rows.map(r => {
+      if (r.password) delete r.password;
+      return r;
+    });
+
+    res.send({ success: true, data: sanitized });
   } catch (err) {
     console.error("Error fetching users:", err);
     res.status(500).send({ success: false, message: err.message });
@@ -458,7 +486,7 @@ exports.uploadAvatar = async (req, res) => {
       });
     }
 
-    // Save avatar path in DB
+    // Save avatar path in DB (ensure path starts with '/')
     const avatarPath = `/uploads/avatars/${req.file.filename}`;
     await User.updateById(req.userId, { avatar: avatarPath });
 
@@ -488,10 +516,17 @@ exports.removeAvatar = async (req, res) => {
     }
 
     // Jo path DB me save hai wo "/uploads/avatars/..." format ka hai
-    const filePath = path.resolve(__dirname, "..", user.avatar.replace(/^\//, "")); 
+    // use path.resolve to build absolute path relative to project root
+    const avatarRel = user.avatar.replace(/^\//, "");
+    const filePath = path.resolve(__dirname, "..", avatarRel);
 
     if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath); // delete karega file
+      try {
+        fs.unlinkSync(filePath); // delete file
+      } catch (unlinkErr) {
+        console.warn("Unable to delete avatar file:", unlinkErr);
+        // proceed to update DB anyway
+      }
     }
 
     await User.updateById(req.userId, { avatar: null });
@@ -508,4 +543,3 @@ exports.removeAvatar = async (req, res) => {
     });
   }
 };
-
