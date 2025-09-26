@@ -36,46 +36,6 @@ exports.markAsRead = async (id) => {
   return result.affectedRows; // kitne rows update huye
 };
 
-// ✅ Upsert Notification (unique per leadId + type, not userId)
-// exports.upsert = async ({ leadId, userId, message, type, link }) => {
-//   type = type || "lead_assign";
-//   link = link || `/leads/${leadId}`;
-
-//   // 1️⃣ Check if notification for this lead + type exists
-//   const [existing] = await db.query(
-//     `SELECT id FROM client_lead_notification
-//      WHERE lead_id = ? AND type = ?
-//      LIMIT 1`,
-//     [leadId, type]
-//   );
-
-//   if (existing.length > 0) {
-//     const notificationId = existing[0].id;
-
-//     // 2️⃣ Update karo (userId bhi update hoga)
-//     await db.query(
-//       `UPDATE client_lead_notification
-//        SET
-//          user_id = ?,
-//          message = COALESCE(?, message),
-//          link    = COALESCE(?, link),
-//          updated_at = CURRENT_TIMESTAMP
-//        WHERE id = ?`,
-//       [userId, message, link, notificationId]
-//     );
-
-//     return { action: "updated", id: notificationId };
-//   }
-
-//   // 3️⃣ Agar nahi mila to create karo
-//   const [insertResult] = await db.query(
-//     `INSERT INTO client_lead_notification (lead_id, user_id, message, type, link)
-//      VALUES (?, ?, ?, ?, ?)`,
-//     [leadId, userId, message, type, link]
-//   );
-
-//   return { action: "created", id: insertResult.insertId };
-// };
 
 // ✅ Upsert Notification (unique per leadId + type)
 exports.upsert = async ({ leadId, userId, message, type, link }) => {

@@ -1,9 +1,9 @@
 const db = require("../config/database"); // mysql2/promise pool
 
-class User {
+ class User {
   constructor(user) {
     this.username = user.username;
-    this.salutation = user.salutation || null; // नया
+    this.salutation = user.salutation || null;
     this.first_name = user.first_name;
     this.last_name = user.last_name;
     this.email = user.email;
@@ -24,7 +24,7 @@ class User {
     this.dob = user.dob || null; // Date of Birth
     this.blood_group = user.blood_group || null; // Blood Group
 
-    // नए relational fields
+    // relational fields
     this.buyer_id = user.buyer_id !== undefined ? user.buyer_id : null;
     this.seller_id = user.seller_id !== undefined ? user.seller_id : null;
   }
@@ -34,34 +34,10 @@ class User {
 
     if (newUser.role === "admin") {
       module_permissions = {
-        users: {
-          create: true,
-          read: true,
-          update: true,
-          delete: true,
-          view: true,
-        },
-        leads: {
-          create: true,
-          read: true,
-          update: true,
-          delete: true,
-          view: true,
-        },
-        properties: {
-          create: true,
-          read: true,
-          update: true,
-          delete: true,
-          view: true,
-        },
-        reports: {
-          create: true,
-          read: true,
-          update: true,
-          delete: true,
-          view: true,
-        },
+        users: { create: true, read: true, update: true, delete: true, view: true },
+        leads: { create: true, read: true, update: true, delete: true, view: true },
+        properties: { create: true, read: true, update: true, delete: true, view: true },
+        reports: { create: true, read: true, update: true, delete: true, view: true },
       };
     }
 
@@ -75,22 +51,12 @@ class User {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `;
 
-    const normalizedBuyerId =
-      newUser.buyer_id !== undefined &&
-      newUser.buyer_id !== null &&
-      newUser.buyer_id !== ""
-        ? Number.isNaN(parseInt(newUser.buyer_id, 10))
-          ? null
-          : parseInt(newUser.buyer_id, 10)
+    const normalizedBuyerId = newUser.buyer_id !== undefined && newUser.buyer_id !== null && newUser.buyer_id !== ""
+        ? Number.isNaN(parseInt(newUser.buyer_id, 10)) ? null : parseInt(newUser.buyer_id, 10)
         : null;
 
-    const normalizedSellerId =
-      newUser.seller_id !== undefined &&
-      newUser.seller_id !== null &&
-      newUser.seller_id !== ""
-        ? Number.isNaN(parseInt(newUser.seller_id, 10))
-          ? null
-          : parseInt(newUser.seller_id, 10)
+    const normalizedSellerId = newUser.seller_id !== undefined && newUser.seller_id !== null && newUser.seller_id !== ""
+        ? Number.isNaN(parseInt(newUser.seller_id, 10)) ? null : parseInt(newUser.seller_id, 10)
         : null;
 
     const values = [
@@ -116,12 +82,10 @@ class User {
       normalizedSellerId,
     ];
 
-    // debug
-    console.log("INSERT values length:", values.length);
-    console.log("INSERT values:", values);
-
     try {
       const [result] = await db.query(query, values);
+      console.log("✅ User created successfully:", result.insertId);
+      
       return {
         id: result.insertId,
         ...newUser,
@@ -131,10 +95,11 @@ class User {
         module_permissions,
       };
     } catch (err) {
-      console.error("Error creating user:", err);
+      console.error("❌ Error creating user:", err.message);
       throw err;
     }
   }
+
 
   static async findById(userId) {
     try {
@@ -242,11 +207,10 @@ static async updateById(id, user) {
     if (v === null || v === undefined || v === "") return null;
     if (typeof v === "string") {
       const s = v.trim().toLowerCase();
-      if (s === "1" || s === "true" || s === "yes" || s === "active") return 1;
-      if (s === "0" || s === "false" || s === "no" || s === "inactive") return 0;
+      if (["1", "true", "yes", "active"].includes(s)) return 1;
+      if (["0", "false", "no", "inactive"].includes(s)) return 0;
       const n = Number(s);
-      if (!Number.isNaN(n)) return n ? 1 : 0;
-      return 0;
+      return Number.isNaN(n) ? 0 : (n ? 1 : 0);
     }
     if (v === true) return 1;
     if (v === false) return 0;
@@ -262,7 +226,7 @@ static async updateById(id, user) {
 
   const provided = (k) => user[k] !== undefined;
 
-  // Build dynamic SET for users table
+  // --- build dynamic SET for users table ---
   const fields = [];
   const values = [];
 
@@ -273,24 +237,19 @@ static async updateById(id, user) {
         field === "module_permissions"
           ? JSON.stringify(user[field])
           : field === "is_active"
-            ? toTinyInt(user[field])
-            : user[field]
+          ? toTinyInt(user[field])
+          : user[field]
       );
     }
   }
 
-  // If nothing to update, short-circuit
-  if (fields.length === 0) {
-    return { kind: "no_changes" };
-  }
+  if (fields.length === 0) return { kind: "no_changes" };
 
-  // We also want to mirror is_active to buyer/seller even if buyer_id/seller_id
-  // were NOT sent in payload. So fetch existing relations first.
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
-    // Get current linkage if missing
+    // --- fetch existing buyer/seller IDs ---
     const [rows] = await conn.query(
       "SELECT buyer_id, seller_id FROM users WHERE id = ? LIMIT 1",
       [id]
@@ -299,122 +258,67 @@ static async updateById(id, user) {
       await conn.rollback();
       return { kind: "not_found" };
     }
+
     const existingBuyerId = normalizeId(rows[0].buyer_id);
     const existingSellerId = normalizeId(rows[0].seller_id);
 
-    // Resolve buyer/seller IDs (payload overrides existing if present)
     const buyerId = user.buyer_id !== undefined ? normalizeId(user.buyer_id) : existingBuyerId;
     const sellerId = user.seller_id !== undefined ? normalizeId(user.seller_id) : existingSellerId;
 
+    // --- finalize user update ---
     fields.push("updated_at = NOW()");
     values.push(id);
 
     const updateUserSql = `UPDATE users SET ${fields.join(", ")} WHERE id = ?`;
-
-    // 1) Update users
     const [userResult] = await conn.query(updateUserSql, values);
     if (userResult.affectedRows === 0) {
       await conn.rollback();
       return { kind: "not_found" };
     }
 
-    // Compute derived fullName only if either part was provided
     const fullName =
       provided("first_name") || provided("last_name")
         ? `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim().replace(/\s+/g, " ")
         : undefined;
 
-    // 2) Sync to BUYERS (mirror important fields)
+    // --- mirror to BUYERS ---
     if (buyerId) {
       const buyerSetParts = [];
       const buyerVals = [];
 
-      if (provided("salutation")) {
-        buyerSetParts.push("salutation = ?");
-        buyerVals.push(user.salutation || null);
-      }
-      if (fullName !== undefined) {
-        buyerSetParts.push("name = ?");
-        buyerVals.push(fullName || null);
-      }
-      if (provided("phone")) {
-        buyerSetParts.push("phone = ?");
-        buyerVals.push(user.phone || null);
-      }
-      if (provided("email")) {
-        buyerSetParts.push("email = ?");
-        buyerVals.push(user.email || null);
-      }
-
-      
-      // ✅ Mirror is_active from user to buyer whenever user.is_active is provided
-if (provided("is_active")) {
-  buyerSetParts.push("is_active = ?");
-  buyerVals.push(toTinyInt(user.is_active));
-}
-
-      if (provided("dob")) {
-        buyerSetParts.push("dob = ?");
-        buyerVals.push(user.dob || null);
-      }
+      if (provided("salutation")) { buyerSetParts.push("salutation = ?"); buyerVals.push(user.salutation || null); }
+      if (fullName !== undefined) { buyerSetParts.push("name = ?"); buyerVals.push(fullName); }
+      if (provided("phone")) { buyerSetParts.push("phone = ?"); buyerVals.push(user.phone || null); }
+      if (provided("email")) { buyerSetParts.push("email = ?"); buyerVals.push(user.email || null); }
+      if (provided("dob")) { buyerSetParts.push("dob = ?"); buyerVals.push(user.dob || null); }
+      if (provided("is_active")) { buyerSetParts.push("is_active = ?"); buyerVals.push(toTinyInt(user.is_active)); }
 
       if (buyerSetParts.length > 0) {
         buyerSetParts.push("updated_at = NOW()");
-        const buyerSql = `
-          UPDATE buyers
-          SET ${buyerSetParts.join(", ")}
-          WHERE id = ?
-        `;
         buyerVals.push(buyerId);
-        await conn.query(buyerSql, buyerVals);
+        await conn.query(`UPDATE buyers SET ${buyerSetParts.join(", ")} WHERE id = ?`, buyerVals);
       }
     }
 
-    // 3) Sync to SELLERS (optional mirror)
+    // --- mirror to SELLERS ---
     if (sellerId) {
       const sellerSetParts = [];
       const sellerVals = [];
 
-      if (provided("salutation")) {
-        sellerSetParts.push("salutation = ?");
-        sellerVals.push(user.salutation || null);
-      }
-      if (fullName !== undefined) {
-        sellerSetParts.push("name = ?");
-        sellerVals.push(fullName || null);
-      }
-      if (provided("phone")) {
-        sellerSetParts.push("phone = ?");
-        sellerVals.push(user.phone || null);
-      }
-      if (provided("email")) {
-        sellerSetParts.push("email = ?");
-        sellerVals.push(user.email || null);
-      }
-      if (provided("dob")) {
-        sellerSetParts.push("seller_dob = ?");
-        sellerVals.push(user.dob || null);
-      }
-
-      // Mirror is_active from user to seller (if you want this behavior)
+      if (provided("salutation")) { sellerSetParts.push("salutation = ?"); sellerVals.push(user.salutation || null); }
+      if (fullName !== undefined) { sellerSetParts.push("name = ?"); sellerVals.push(fullName); }
+      if (provided("phone")) { sellerSetParts.push("phone = ?"); sellerVals.push(user.phone || null); }
+      if (provided("email")) { sellerSetParts.push("email = ?"); sellerVals.push(user.email || null); }
+      if (provided("dob")) { sellerSetParts.push("seller_dob = ?"); sellerVals.push(user.dob || null); }
       if (provided("is_active")) {
-        sellerSetParts.push("is_active = ?");
-        sellerVals.push(toTinyInt(user.is_active));
-
-        // Optional: also maintain a text status
-        sellerSetParts.push("status = ?");
-        sellerVals.push(toTinyInt(user.is_active) ? "active" : "inactive");
+        sellerSetParts.push("is_active = ?"); sellerVals.push(toTinyInt(user.is_active));
+        sellerSetParts.push("status = ?"); sellerVals.push(toTinyInt(user.is_active) ? "active" : "inactive");
       }
 
       if (sellerSetParts.length > 0) {
         sellerSetParts.push("updated_at = NOW()");
-        const sellerSql = `
-          UPDATE sellers
-          SET ${sellerSetParts.join(", ")}
-          WHERE id = ?
-        `;
         sellerVals.push(sellerId);
-        await conn.query(sellerSql, sellerVals);
+        await conn.query(`UPDATE sellers SET ${sellerSetParts.join(", ")} WHERE id = ?`, sellerVals);
       }
     }
 

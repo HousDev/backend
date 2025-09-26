@@ -4,50 +4,59 @@ const db = require('../config/database'); // Assuming you have a db config file
 const path = require("path");
 const fs = require("fs");
 
-// Update user (for admin)
+// Update user (admin only)
 exports.updateUser = async (req, res) => {
   try {
+    const userId = req.params.userId;
+
+    // Allowed fields to update
     const allowedFields = [
-      'salutation',       // नया
+      'username',
+      'salutation',
       'first_name',
       'last_name',
-       'username',  
       'email',
       'phone',
-      'role',            // dynamic role allowed
+      'role',
       'is_active',
       'avatar',
       'designation',
       'department',
       'module_permissions',
-      'dob',             // existing
-      'blood_group',     // existing
-      'buyer_id',        // नया
-      'seller_id'        // नया
+      'dob',
+      'blood_group',
+      'buyer_id',
+      'seller_id'
     ];
+
     const updateData = {};
 
+    // Prepare update data
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        // numeric ids: normalize empty string to null, convert to int if present
-        if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] !== '') {
-          const val = parseInt(req.body[field], 10);
-          updateData[field] = Number.isNaN(val) ? null : val;
-        } else if ((field === 'buyer_id' || field === 'seller_id') && req.body[field] === '') {
-          updateData[field] = null;
+        let value = req.body[field];
+
+        // Normalize buyer/seller IDs
+        if ((field === 'buyer_id' || field === 'seller_id')) {
+          if (value === '' || value === null) {
+            updateData[field] = null;
+          } else {
+            const val = parseInt(value, 10);
+            updateData[field] = Number.isNaN(val) ? null : val;
+          }
         } else {
-          updateData[field] = req.body[field];
+          updateData[field] = value;
         }
       }
     });
 
-    // If role is provided, just trim it
+    // Trim role and ignore empty string
     if (updateData.role) {
       updateData.role = updateData.role.trim();
-      if (!updateData.role) delete updateData.role; // ignore empty role
+      if (!updateData.role) delete updateData.role;
     }
 
-    // Hash new password if provided
+    // Hash password if provided
     if (req.body.password) {
       if (req.body.password.length < 6) {
         return res.status(400).send({
@@ -65,29 +74,31 @@ exports.updateUser = async (req, res) => {
       });
     }
 
-    const data = await User.updateById(req.params.userId, updateData);
+    // Call your model's update function
+    // Make sure it returns the updated user
+    const updatedUser = await User.updateById(userId, updateData);
 
-    if (data.kind === 'not_found') {
+    if (!updatedUser) {
       return res.status(404).send({
         success: false,
-        message: `User not found with id ${req.params.userId}.`
+        message: `User not found with id ${userId}.`
       });
     }
 
-    // don't return password in response
-    if (data.password) delete data.password;
+    // Remove password from response
+    if (updatedUser.password) delete updatedUser.password;
 
-    res.send({
+    res.status(200).send({
       success: true,
       message: 'User updated successfully!',
-      data
+      data: updatedUser
     });
 
   } catch (err) {
     console.error('Error updating user:', err);
     res.status(500).send({
       success: false,
-      message: err.message || 'Error updating user with id ' + req.params.userId
+      message: err.message || `Error updating user with id ${req.params.userId}`
     });
   }
 };
