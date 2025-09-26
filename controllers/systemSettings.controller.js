@@ -68,7 +68,7 @@
 
 const SystemSettings = require("../models/SystemSettings");
 
-// GET settings
+// -------------------- GET settings --------------------
 exports.getSystemSettings = async (req, res) => {
   try {
     const settings = await SystemSettings.getSettings();
@@ -82,7 +82,7 @@ exports.getSystemSettings = async (req, res) => {
   }
 };
 
-// SAVE settings
+// -------------------- SAVE settings --------------------
 exports.saveSystemSettings = async (req, res) => {
   try {
     const current = await SystemSettings.getSettings();
@@ -127,14 +127,20 @@ exports.saveSystemSettings = async (req, res) => {
         ? 1
         : 0;
 
-    const saved = await SystemSettings.save(data);
+    // ✅ Save in DB
+    await SystemSettings.save(data);
 
+    // ✅ Fetch fresh values from DB (to ensure latest response)
+    const updated = await SystemSettings.getSettings();
+
+    // ✅ Send fresh response back
     res.json({
       success: true,
-      data: saved,
+      data: updated,
       message: "System settings updated successfully!",
     });
   } catch (err) {
+    console.error("Error in saveSystemSettings:", err);
     res.status(500).json({
       success: false,
       message: "Error saving settings",
