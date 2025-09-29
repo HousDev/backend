@@ -5,8 +5,8 @@ const {
   getSellerById,
   updateSeller,
   deleteSeller,
-  getPropertiesBySellerId,
-  getPropertiesByAssignedTo,
+  // getPropertiesBySellerId,
+  // getPropertiesByAssignedTo,
 } = require("../controllers/sellerController");
 
 const router = express.Router();
@@ -17,9 +17,9 @@ router.get("/getSellerById/:id", getSellerById);
 router.put("/updateSeller/:id", updateSeller);
 router.delete("/deleteSeller/:id", deleteSeller);
 // GET /properties/seller/123
-router.get("/getPropertiesBySellerId/:sellerId", getPropertiesBySellerId);
+// router.get("/getPropertiesBySellerId/:sellerId", getPropertiesBySellerId);
 
 // GET /properties/assigned/45
-router.get("/getPropertiesByAssignedTo/:userId", getPropertiesByAssignedTo);
+// router.get("/getPropertiesByAssignedTo/:userId", getPropertiesByAssignedTo);
 
 module.exports = router;
