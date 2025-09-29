@@ -132,59 +132,97 @@ const createSeller = async (req, res) => {
 module.exports = { createSeller };
 
 // ---------- READ/UPDATE/DELETE ----------
+// getSellers.js
 const getSellers = async (_req, res) => {
-  try {
-    // 1) Fetch all sellers first
-    const [sellers] = await pool.query(`SELECT * FROM sellers ORDER BY id DESC`);
-
-    if (!sellers.length) {
-      return res.json({ success: true, data: [] });
+  const tryQuery = async (sql, params = []) => {
+    try {
+      const [rows] = await pool.query(sql, params);
+      return rows;
+    } catch (e) {
+      if (e && e.code === "ER_NO_SUCH_TABLE") return null;
+      throw e;
     }
+  };
 
-    // 2) Fetch all related tables in parallel
-    const [cosellers, activities, followups, documents, properties, metrics] = await Promise.all([
-      pool.query(`SELECT * FROM seller_cosellers ORDER BY id DESC`),
-      pool.query(`SELECT * FROM seller_activities ORDER BY activity_date DESC, created_at DESC, id DESC`),
-      pool.query(`SELECT * FROM seller_followups ORDER BY followup_date DESC, id DESC`),
-      pool.query(`SELECT * FROM seller_documents ORDER BY id DESC`),
-      pool.query(`SELECT * FROM my_properties ORDER BY id DESC`),
-      pool.query(`
-        SELECT s.id AS seller_id,
-          (SELECT COUNT(*) FROM seller_activities sa WHERE sa.seller_id = s.id) AS activities_count,
-          (SELECT COUNT(*) FROM seller_followups sf WHERE sf.seller_id = s.id) AS followups_count,
-          (SELECT COUNT(*) FROM seller_documents sd WHERE sd.seller_id = s.id) AS documents_count,
-          (SELECT MAX(sa.activity_date) FROM seller_activities sa WHERE sa.seller_id = s.id) AS last_activity_date
-        FROM sellers s
-      `)
+  const getTableRows = async (primary, fallback, orderBy = "id DESC") => {
+    const primaryRows = await tryQuery(`SELECT * FROM \`${primary}\` ORDER BY ${orderBy}`);
+    if (primaryRows !== null) return primaryRows;
+    if (!fallback) return [];
+    const fallbackRows = await tryQuery(`SELECT * FROM \`${fallback}\` ORDER BY ${orderBy}`);
+    return fallbackRows ?? [];
+  };
+
+  try {
+    const [sellers] = await pool.query(`SELECT * FROM sellers ORDER BY id DESC`);
+    if (!sellers.length) return res.json({ success: true, data: [] });
+
+    const [
+      cosellerRows,
+      activityRows,
+      followupRows,
+      documentRows,
+      propertyRows,
+    ] = await Promise.all([
+      getTableRows("seller_cosellers", "cosellers", "id DESC"),
+      getTableRows("seller_activities", "activities", "activity_date DESC, created_at DESC, id DESC"),
+      getTableRows("seller_followups", "followups", "followup_date DESC, id DESC"),
+      getTableRows("seller_documents", "documents", "id DESC"),
+      getTableRows("my_properties", null, "id DESC"),
     ]);
 
-    // unwrap from pool.query return format
-    const cosellerRows = cosellers[0];
-    const activityRows = activities[0];
-    const followupRows = followups[0];
-    const documentRows = documents[0];
-    const propertyRows = properties[0];
-    const metricsRows = metrics[0];
+    const bySeller = (rows) =>
+      rows.reduce((acc, r) => {
+        const k = r.seller_id;
+        if (!acc[k]) acc[k] = [];
+        acc[k].push(r);
+        return acc;
+      }, {});
 
-    // 3) Attach related data to each seller
-    const sellerData = sellers.map(seller => {
-      return {
-        ...seller,
-        cosellers: cosellerRows.filter(c => c.seller_id === seller.id),
-        activities: activityRows.filter(a => a.seller_id === seller.id),
-        followups: followupRows.filter(f => f.seller_id === seller.id),
-        documents: documentRows.filter(d => d.seller_id === seller.id),
-        properties: propertyRows.filter(p => p.seller_id === seller.id),
-        metrics: metricsRows.find(m => m.seller_id === seller.id) || {}
+    const cosBy = bySeller(cosellerRows);
+    const actBy = bySeller(activityRows);
+    const folBy = bySeller(followupRows);
+    const docBy = bySeller(documentRows);
+    const propBy = bySeller(propertyRows);
+
+    const metricsBy = {};
+    for (const s of sellers) {
+      const sid = s.id;
+      const acts = actBy[sid] || [];
+      const foll = folBy[sid] || [];
+      const docs = docBy[sid] || [];
+      const lastActivity = acts.reduce((max, a) => {
+        const d = a.activity_date || a.created_at || a.updated_at || null;
+        if (!d) return max;
+        const ts = new Date(d).getTime();
+        return ts > max ? ts : max;
+      }, 0);
+      metricsBy[sid] = {
+        seller_id: sid,
+        activities_count: acts.length,
+        followups_count: foll.length,
+        documents_count: docs.length,
+        last_activity_date: lastActivity ? new Date(lastActivity) : null,
       };
-    });
+    }
 
-    return res.json({ success: true, data: sellerData });
+    const data = sellers.map((s) => ({
+      ...s,
+      cosellers: cosBy[s.id] || [],
+      activities: actBy[s.id] || [],
+      followups: folBy[s.id] || [],
+      documents: docBy[s.id] || [],
+      properties: propBy[s.id] || [],
+      metrics: metricsBy[s.id] || { seller_id: s.id, activities_count: 0, followups_count: 0, documents_count: 0, last_activity_date: null },
+    }));
+
+    return res.json({ success: true, data });
   } catch (err) {
     console.error("Get Sellers error:", err);
-    res.status(500).json({ success: false, message: "Failed to fetch sellers" });
+    return res.status(500).json({ success: false, message: "Failed to fetch sellers" });
   }
 };
+
+module.exports = { getSellers };
 
 
 
@@ -516,3 +554,82 @@ module.exports = {
   getPropertiesBySellerId,
   getPropertiesByAssignedTo
 };
+
+
+
+// // ------------------
+// const pool = require("../config/database");
+// const Seller = require("../models/SellerModel");
+
+// // ---------- CREATE ----------
+// const createSeller = async (req, res) => {
+//   try {
+//     const seller = await Seller.create(req.body);
+//     if (!seller) return res.status(400).json({ success: false, message: "Failed to create seller" });
+//     return res.status(201).json({ success: true, data: seller });
+//   } catch (err) {
+//     console.error("Create seller error:", err);
+//     return res.status(500).json({ success: false, message: "Failed to create seller" });
+//   }
+// };
+
+// // ---------- READ ----------
+// const getSellers = async (_req, res) => {
+//   try {
+//     const data = await Seller.getAll();
+//     return res.json({ success: true, data });
+//   } catch (err) {
+//     console.error("Get sellers error:", err);
+//     return res.status(500).json({ success: false, message: "Failed to fetch sellers" });
+//   }
+// };
+
+// const getSellerById = async (req, res) => {
+//   try {
+//     const id = Number(req.params.id);
+//     if (!id) return res.status(400).json({ success: false, message: "Invalid seller id" });
+//     const seller = await Seller.getByIdWithCoSellers(id);
+//     if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
+//     return res.json({ success: true, data: seller });
+//   } catch (err) {
+//     console.error("Get seller by id error:", err);
+//     return res.status(500).json({ success: false, message: "Failed to fetch seller" });
+//   }
+// };
+
+// // ---------- UPDATE ----------
+// const updateSeller = async (req, res) => {
+//   try {
+//     const id = Number(req.params.id);
+//     if (!id) return res.status(400).json({ success: false, message: "Invalid seller id" });
+
+//     const affected = await Seller.updateWithCoSellers(id, req.body, req.body.cosellers, req.body.deleteIds);
+//     if (!affected) return res.status(404).json({ success: false, message: "Seller not found" });
+
+//     const fresh = await Seller.getByIdWithCoSellers(id);
+//     return res.json({ success: true, message: "Seller updated successfully", data: fresh });
+//   } catch (err) {
+//     console.error("Update seller error:", err);
+//     return res.status(500).json({ success: false, message: "Failed to update seller" });
+//   }
+// };
+
+// // ---------- DELETE ----------
+// const deleteSeller = async (req, res) => {
+//   try {
+//     const affected = await Seller.delete(req.params.id);
+//     if (!affected) return res.status(404).json({ success: false, message: "Seller not found" });
+//     return res.json({ success: true, message: "Seller deleted successfully" });
+//   } catch (err) {
+//     console.error("Delete seller error:", err);
+//     return res.status(500).json({ success: false, message: "Failed to delete seller" });
+//   }
+// };
+
+// module.exports = {
+//   createSeller,
+//   getSellers,
+//   getSellerById,
+//   updateSeller,
+//   deleteSeller,
+// };
