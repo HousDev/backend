@@ -9,6 +9,7 @@ const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
 const Views = require("../models/views.model");
 const { getOrCreateSessionId } = require('../utils/sessionUtils');
 const cookieParser = require('cookie-parser');
+
 // ---------------------
 // Helper Functions
 // ---------------------
@@ -1023,6 +1024,135 @@ const getFilterContextHandler = async (req, res) => {
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
+// POST /api/properties/search/city-locations
+const searchCityLocationsStrict = async (req, res) => {
+  try {
+    // Debug logging
+    console.log("=== Search Request Debug ===");
+    console.log("Query params:", req.query);
+    console.log("Full URL:", req.originalUrl);
+    
+    // Get city from query parameters
+    const cityInput = (req.query.city || req.query.city_name || "").toString().trim();
+    console.log("City input:", cityInput);
+    
+    // Validate city is provided
+    if (!cityInput) {
+      console.log("❌ No city provided");
+      return res.status(400).json({
+        success: false,
+        message: "City parameter is required"
+      });
+    }
+    
+    console.log("✓ City validated:", cityInput);
+    
+    // Get locations from query parameters
+    let locationsInput = req.query.locations || req.query.location_name || "";
+    
+    // Process locations input
+    let locArr = [];
+    if (locationsInput) {
+      console.log("Locations input:", locationsInput);
+      if (typeof locationsInput === "string") {
+        locArr = locationsInput.split(",").map(s => s.trim()).filter(Boolean);
+      } else if (Array.isArray(locationsInput)) {
+        locArr = locationsInput.map(s => String(s).trim()).filter(Boolean);
+      }
+      
+      // Normalize: lowercase, remove duplicates, limit to 5 locations
+      locArr = Array.from(new Set(locArr.map(s => s.toLowerCase()))).slice(0, 5);
+    }
+    
+    console.log("Processed locations:", locArr);
+    
+    // Pagination parameters
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const offset = Number(req.query.offset) || 0;
+    
+    console.log("Limit:", limit, "Offset:", offset);
+    
+    // Build SQL query
+    const filters = [];
+    const values = [];
+    
+    // Add city filter (case-insensitive exact match)
+    filters.push("LOWER(TRIM(city_name)) = ?");
+    values.push(cityInput.toLowerCase());
+    console.log("City filter value:", cityInput.toLowerCase());
+    
+    // Add location filter if locations provided
+    if (locArr.length > 0) {
+      const locationConditions = locArr.map(() => "LOWER(TRIM(location_name)) LIKE ?").join(" OR ");
+      filters.push(`(${locationConditions})`);
+      locArr.forEach(loc => values.push(`%${loc}%`));
+      console.log("Location filter added for:", locArr);
+    }
+    
+    // Build WHERE clause
+    const whereClause = filters.length > 0 ? " WHERE " + filters.join(" AND ") : "";
+    
+    console.log("=== SQL Query Debug ===");
+    console.log("WHERE clause:", whereClause);
+    console.log("Values array:", values);
+    
+    // Count query
+    const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
+    console.log("Count SQL:", countSql);
+    console.log("Executing count query...");
+    
+    // Execute count query using async/await
+    const [countRows] = await db.query(countSql, values);
+    console.log("Count rows result:", countRows);
+    
+    const total = countRows?.[0]?.total || 0;
+    console.log("✓ Total count:", total);
+    
+    // Data query with sorting
+    const dataSql = `
+      SELECT * FROM my_properties
+      ${whereClause}
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    const dataValues = [...values, limit, offset];
+    
+    console.log("Data SQL:", dataSql);
+    console.log("Data values:", dataValues);
+    console.log("Executing data query...");
+    
+    // Execute data query using async/await
+    const [dataRows] = await db.query(dataSql, dataValues);
+    
+    console.log("✓ Data fetched:", dataRows.length, "rows");
+    console.log("=========================\n");
+    
+    // Return successful response
+    return res.json({
+      success: true,
+      city: cityInput,
+      locations: locArr.length > 0 ? locArr : null,
+      count: dataRows.length,
+      total: total,
+      limit: limit,
+      offset: offset,
+      data: dataRows
+    });
+    
+  } catch (error) {
+    console.error("❌ Search properties error:", error);
+    console.error("Stack trace:", error.stack);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+
+
+
+
 
 module.exports = {
   createProperty,
@@ -1039,4 +1169,5 @@ module.exports = {
   recordEventHandler,
   saveFilterContextHandler,
   getFilterContextHandler,
+  searchCityLocationsStrict,
 };

@@ -89,5 +89,5 @@ router.post("/:id/event", propertyController.recordEventHandler);
 router.post("/filters", propertyController.saveFilterContextHandler);
 router.get("/filters/:id", propertyController.getFilterContextHandler);
 router.post("/migrate", propertyController.migratePropertyData);
-
+router.get("/city-locations", propertyController.searchCityLocationsStrict);
 module.exports = router;
