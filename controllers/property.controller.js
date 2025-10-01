@@ -45,11 +45,34 @@ const parseNearbyPlaces = (req) => {
   }
   return [];
 };
+// --- Money parsers: "50L", "1.25Cr", "50,00,000", "5000000" -> number (rupees)
+const LAKH = 100_000;
+const CRORE = 10_000_000;
+
+function parseMoneyToRupees(value) {
+  if (value == null || value === "") return null;
+  const raw = String(value).trim().toLowerCase();
+  const cleaned = raw.replace(/₹/g, "").replace(/\s+/g, "");
+  const onlyDigits = cleaned.replace(/,/g, "");
+
+  if (/^\d+(\.\d+)?c(r)?$/.test(cleaned)) {
+    const n = parseFloat(cleaned.replace(/c(r)?/g, ""));
+    return Math.round(n * CRORE);
+  }
+  if (/^\d+(\.\d+)?l$/.test(cleaned)) {
+    const n = parseFloat(cleaned.replace(/l/g, ""));
+    return Math.round(n * LAKH);
+  }
+  if (/^\d+(\.\d+)?$/.test(onlyDigits)) {
+    return Math.round(parseFloat(onlyDigits));
+  }
+  return null;
+}
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
   seller_id: req.body.seller_id || null,
-  assigned_to:  req.body.assigned_to || null,
+  assigned_to: req.body.assigned_to || null,
   property_type_name:
     req.body.propertyType || req.body.property_type_name || null,
   property_subtype_name:
@@ -58,6 +81,12 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   wing: req.body.wing || null,
   unit_no: req.body.unitNo || null,
   furnishing: req.body.furnishing || null,
+
+  // NEW
+  bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
+  bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
+  facing: req.body.facing || null,
+
   parking_type: req.body.parkingType || null,
   parking_qty: req.body.parkingQty || null,
   city_name: req.body.city || req.body.city_name || null,
@@ -68,6 +97,11 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   carpet_area: req.body.carpetArea || null,
   builtup_area: req.body.builtupArea || null,
   budget: req.body.budget || null,
+
+  // NEW
+  price_type: req.body.priceType === "Negotiable" ? "Negotiable" : "Fixed",
+  final_price: parseMoneyToRupees(req.body.finalPrice),
+
   address: req.body.address || null,
   status: req.body.status || null,
   lead_source: req.body.leadSource || null,
@@ -360,6 +394,13 @@ const updateProperty = async (req, res) => {
       wing: req.body.wing || null,
       unit_no: req.body.unitNo || null,
       furnishing: req.body.furnishing || null,
+
+      bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
+      bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
+      facing: req.body.facing || null,
+      price_type: req.body.priceType === "Negotiable" ? "Negotiable" : "Fixed",
+      final_price: parseMoneyToRupees(req.body.finalPrice),
+
       parking_type: req.body.parkingType || null,
       parking_qty: req.body.parkingQty || null,
       city_name: req.body.city || req.body.city_name || null,
@@ -1149,10 +1190,6 @@ const searchCityLocationsStrict = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 module.exports = {
   createProperty,
