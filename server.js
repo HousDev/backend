@@ -30,9 +30,10 @@ const templateContentRoutes = require("./routes/template.routes");
 const viewsRoutes = require("./routes/views.routes");
 const blogRoutes =require("./routes/blog.routes")
 const contactRoutes = require("./routes/contactRoutes");
+const variableRoutes = require('./routes/variableRoutes');
+const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const app = express();
 
-const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 app.set("trust proxy", 1);
 // Security
 app.use(helmet());
@@ -45,8 +46,8 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -151,6 +152,7 @@ app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/buyer-followups", buyerFollowupRoutes);
+app.use('/api/variables', variableRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
