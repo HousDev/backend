@@ -1,77 +1,98 @@
+// models/VariableModel.js
 const db = require('../config/database');
 
-const Variable = {
-    findAllByTab: async (tabId) => {
-        const [rows] = await db.query(
-            'SELECT * FROM variables WHERE variable_tab_id = ? ORDER BY id DESC',
-            [tabId]
-        );
-        return rows;
-    },
+// NOTE: Ensure you have a composite unique index:
+// ALTER TABLE variables ADD UNIQUE KEY uniq_tab_key (variable_tab_id, variable_key);
 
-    findById: async (id) => {
-        const [rows] = await db.query('SELECT * FROM variables WHERE id = ?', [id]);
-        return rows[0];
-    },
-
-    create: async ({ name, variableName, variableTabId, status }) => {
-        const [result] = await db.query(
-            'INSERT INTO variables (name, variable_name, variable_tab_id, status) VALUES (?, ?, ?, ?)',
-            [name, variableName, variableTabId, status]
-        );
-        return result.insertId;
-    },
-
-    update: async (id, { name, variableName, status }) => {
-        await db.query(
-            'UPDATE variables SET name = ?, variable_name = ?, status = ? WHERE id = ?',
-            [name, variableName, status, id]
-        );
-    },
-
-    delete: async (id) => {
-        await db.query('DELETE FROM variables WHERE id = ?', [id]);
-    },
-
-    bulkDelete: async (ids) => {
-        if (!ids.length) return;
-        const placeholders = ids.map(() => '?').join(',');
-        await db.query(`DELETE FROM variables WHERE id IN (${placeholders})`, ids);
-    },
-
-    bulkUpdateStatus: async (ids, status) => {
-        if (!ids.length) return;
-        const placeholders = ids.map(() => '?').join(',');
-        await db.query(`UPDATE variables SET status = ? WHERE id IN (${placeholders})`, [status, ...ids]);
-    }
-    ,
- bulkUpsertByTab: async (tabId, rows) => {
-    if (!rows?.length) return { affectedRows: 0 };
-
-    // Build VALUES (...),(...),(...)
-    const placeholders = rows.map(() => '(?, ?, ?, ?)').join(',');
-    const values = [];
-    for (const r of rows) {
-      values.push(
-        r.name,
-        r.variable_name,      // already {{snake}} format
-        tabId,                // force tab here
-        r.status || 'active'
-      );
-    }
-
+module.exports = {
+ async findAll() {
     const sql = `
-      INSERT INTO variables (name, variable_name, variable_tab_id, status)
-      VALUES ${placeholders}
-      ON DUPLICATE KEY UPDATE
-        name = VALUES(name),
-        status = VALUES(status)
+      SELECT id, name, variable_key, placeholder, variable_tab_id, category, status, created_at, updated_at
+      FROM variables
+      ORDER BY id DESC
     `;
-    const [result] = await db.query(sql, values);
-    return result; // note: updates count as 2 in affectedRows (MySQL behavior)
+    const [rows] = await db.query(sql);
+    return rows;
+  }
+
+  ,
+  async findAllByTab(tabId, { q, status, limit = 100, offset = 0 } = {}) {
+    const params = [tabId];
+    let where = 'WHERE variable_tab_id = ?';
+    if (status) {
+      where += ' AND status = ?';
+      params.push(status);
+    }
+    if (q) {
+      where += ' AND (LOWER(name) LIKE ? OR LOWER(variable_key) LIKE ? OR LOWER(placeholder) LIKE ?)';
+      const like = `%${q}%`;
+      params.push(like, like, like);
+    }
+    const sql = `
+      SELECT id, name, variable_key, placeholder, variable_tab_id, category, status, created_at, updated_at
+      FROM variables
+      ${where}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `;
+    params.push(Number(limit), Number(offset));
+    const [rows] = await db.query(sql, params);
+    return rows;
   },
 
+  async findByTabAndKey(tabId, variable_key) {
+    const [rows] = await db.query(
+      `SELECT id, name, variable_key, placeholder, variable_tab_id, category, status
+       FROM variables
+       WHERE variable_tab_id = ? AND variable_key = ?
+       LIMIT 1`,
+      [tabId, variable_key]
+    );
+    return rows[0];
+  },
 
+  async findById(id) {
+    const [rows] = await db.query(
+      `SELECT id, name, variable_key, placeholder, variable_tab_id, category, status
+       FROM variables WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    return rows[0];
+  },
+
+  async create({ name, variable_key, placeholder, variable_tab_id, category, status }) {
+    const [res] = await db.query(
+      `INSERT INTO variables
+       (name, variable_key, placeholder, variable_tab_id, category, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, variable_key, placeholder, variable_tab_id, category, status]
+    );
+    return res.insertId;
+  },
+
+  async update(id, { name, variable_key, placeholder, status }) {
+    await db.query(
+      `UPDATE variables
+       SET name = ?, variable_key = ?, placeholder = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [name, variable_key, placeholder, status, id]
+    );
+  },
+
+  async delete(id) {
+    await db.query(`DELETE FROM variables WHERE id = ?`, [id]);
+  },
+
+  async bulkDelete(ids) {
+    await db.query(`DELETE FROM variables WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  },
+
+  async bulkUpdateStatus(ids, status) {
+    await db.query(
+      `UPDATE variables
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id IN (${ids.map(() => '?').join(',')})`,
+      [status, ...ids]
+    );
+  },
 };
-
-module.exports = Variable;

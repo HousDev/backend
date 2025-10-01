@@ -1,24 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const VariableController = require('../controllers/VariableController');
-const {  uploadCsvMemory } = require('../middleware/upload');
 
-// Get all variables for a tab
-router.get('/:tabId', VariableController.getVariablesByTab);
 
-// Create new variable
-router.post('/', VariableController.createVariable);
 
-// Update variable by ID
-router.put('/:id', VariableController.updateVariable);
+// IMPORTANT: static route BEFORE the param route
+router.get('/get-all', VariableController.getAllVariables);
+router.get('/:tabId',  VariableController.getVariablesByTab);
 
-// Delete variable by ID
-router.delete('/:id', VariableController.deleteVariable);
-
-// Bulk delete variables
-router.post('/bulk-delete', VariableController.bulkDeleteVariables);
-
-// Bulk update status
+router.post('/',       VariableController.createVariable);
+router.put('/:id',     VariableController.updateVariable);
+router.delete('/:id',  VariableController.deleteVariable);
+router.post('/bulk-delete',        VariableController.bulkDeleteVariables);
 router.post('/bulk-update-status', VariableController.bulkUpdateStatus);
 
 module.exports = router;
