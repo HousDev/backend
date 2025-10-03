@@ -29,6 +29,7 @@
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
     "csv-parser": "^3.2.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -44,7 +45,8 @@
     "sequelize": "^6.37.7",
     "sharp": "^0.34.3",
     "twilio": "^5.8.2",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^8.47.0",
