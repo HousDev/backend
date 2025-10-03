@@ -8,9 +8,9 @@ const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
-// const path = require("path");   //for local
+const path = require("path");   //for local
 
-const fs = require("fs");  //for server
+// const fs = require("fs");  //for server
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
@@ -32,6 +32,8 @@ const blogRoutes =require("./routes/blog.routes")
 const contactRoutes = require("./routes/contactRoutes");
 const variableRoutes = require('./routes/variableRoutes');
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
+const documentsTemplateRoutes = require('./routes/documentsTemplateRoutes');
+const documentsGeneratedRoutes = require('./routes/documentsGeneratedRoutes');
 const app = express();
 
 app.set("trust proxy", 1);
@@ -96,31 +98,33 @@ app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
+
+// for use for loacal
+app.use(
+  '/uploads',
+  helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+);
+
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
 // app.use(
-//   '/uploads',
-//   helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+//   UPLOAD_PUBLIC_BASE,
+//   helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
 // );
 
-// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
-app.use(
-  UPLOAD_PUBLIC_BASE,
-  helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
-);
-
-app.use(
-  UPLOAD_PUBLIC_BASE,
-  express.static(UPLOAD_ROOT, {
-    fallthrough: false,
-    etag: true,
-    maxAge: "1y",
-    immutable: true,
-    setHeaders: (res) => {
-      // mirror your Nginx Cache-Control
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    },
-  })
-);
+// app.use(
+//   UPLOAD_PUBLIC_BASE,
+//   express.static(UPLOAD_ROOT, {
+//     fallthrough: false,
+//     etag: true,
+//     maxAge: "1y",
+//     immutable: true,
+//     setHeaders: (res) => {
+//       // mirror your Nginx Cache-Control
+//       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+//     },
+//   })
+// );
 
 
 // Static files (IMPORTANT)
@@ -153,6 +157,8 @@ app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/buyer-followups", buyerFollowupRoutes);
 app.use('/api/variables', variableRoutes);
+app.use('/api/doctemplates/', documentsTemplateRoutes);
+app.use('/api/documents-generated', documentsGeneratedRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
