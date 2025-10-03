@@ -142,7 +142,7 @@ class Property {
         seller_name = ?, seller_id = ?, assigned_to = ?, property_type_name = ?, property_subtype_name = ?,
         unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, bedrooms = ?, bathrooms = ?, facing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
-        floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?, bedrooms = ?, bathrooms = ?, facing = ?,
+        floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,price_type=?, final_price=?,
         address = ?, status = ?, lead_source = ?,
         possession_month = ?, possession_year = ?,
         purchase_month = ?, purchase_year = ?,
