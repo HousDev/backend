@@ -32,7 +32,7 @@ const blogRoutes =require("./routes/blog.routes")
 const contactRoutes = require("./routes/contactRoutes");
 const variableRoutes = require('./routes/variableRoutes');
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
-const documentsTemplateRoutes = require('./routes/documentsTemplateRoutes');
+// const documentsTemplateRoutes = require('./routes/documentsTemplateRoutes');
 const documentsGeneratedRoutes = require('./routes/documentsGeneratedRoutes');
 
 const rssRoutes = require("./routes/rssRoutes");
@@ -101,6 +101,7 @@ app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
+app.use("/api/doctemplates",require("./routes/documentsTemplateRoutes"));
 
 // for use for loacal
 // app.use(
@@ -160,7 +161,7 @@ app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/buyer-followups", buyerFollowupRoutes);
 app.use('/api/variables', variableRoutes);
-app.use('/api/doctemplates/', documentsTemplateRoutes);
+// app.use('/api/doctemplates/', documentsTemplateRoutes);
 app.use('/api/documents-generated', documentsGeneratedRoutes);
 
 app.use("/api/rss-sources", rssRoutes);
