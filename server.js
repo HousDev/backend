@@ -32,6 +32,8 @@ const blogRoutes =require("./routes/blog.routes")
 const contactRoutes = require("./routes/contactRoutes");
 const variableRoutes = require('./routes/variableRoutes');
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
+
+const rssRoutes = require("./routes/rssRoutes");
 const app = express();
 
 app.set("trust proxy", 1);
@@ -153,6 +155,8 @@ app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/buyer-followups", buyerFollowupRoutes);
 app.use('/api/variables', variableRoutes);
+
+app.use("/api/rss-sources", rssRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
