@@ -48,15 +48,40 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser()); 
 
 
-// CORS
+// // CORS
+// const corsOptions = {
+//   // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+//   origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+//   credentials: true,
+//   optionsSuccessStatus: 200,
+//   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+//   allowedHeaders: ["Content-Type", "Authorization"],
+// };
+
+
+const allowedOrigins = [
+  "http://localhost:5173",       // local dev
+  "http://investordeal.in",      // production HTTP
+  "https://investordeal.in"      // production HTTPS
+];
+
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
+
+
+
 app.use(cors(corsOptions));
 
 
