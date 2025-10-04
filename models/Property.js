@@ -27,16 +27,16 @@ class Property {
     const [result] = await db.execute(
       `INSERT INTO my_properties
        (seller_name, seller_id, assigned_to, property_type_name, property_subtype_name,
-        unit_type, wing, unit_no, furnishing,
+        unit_type, wing, unit_no, furnishing, bedrooms, bathrooms, facing ,
         parking_type, parking_qty, city_name, location_name, society_name,
-        floor, total_floors, carpet_area, builtup_area, budget,
+        floor, total_floors, carpet_area, builtup_area, budget, price_type, final_price,
         address, status, lead_source,
         possession_month, possession_year,
         purchase_month, purchase_year,
         selling_rights, ownership_doc_path,
         photos, amenities, furnishing_items, nearby_places,
         description, is_public, publication_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?,?,?,?,?,?)`,
       [
         data.seller_name || null,
         data.seller_id || null,
@@ -47,6 +47,12 @@ class Property {
         data.wing || null,
         data.unit_no || null,
         data.furnishing || null,
+
+        // NEW
+        data.bedrooms || null,
+        data.bathrooms || null,
+        data.facing || null,
+
         data.parking_type || null,
         data.parking_qty || null,
         data.city_name || null,
@@ -57,6 +63,11 @@ class Property {
         data.carpet_area || null,
         data.builtup_area || null,
         data.budget || null,
+
+        // NEW
+        data.price_type || "Fixed",
+        data.final_price || null,
+
         data.address || null,
         data.status || null,
         data.lead_source || null,
@@ -129,9 +140,9 @@ class Property {
     const [result] = await db.execute(
       `UPDATE my_properties SET
         seller_name = ?, seller_id = ?, assigned_to = ?, property_type_name = ?, property_subtype_name = ?,
-        unit_type = ?, wing = ?, unit_no = ?, furnishing = ?,
+        unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, bedrooms = ?, bathrooms = ?, facing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
-        floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,
+        floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?,price_type=?, final_price=?,
         address = ?, status = ?, lead_source = ?,
         possession_month = ?, possession_year = ?,
         purchase_month = ?, purchase_year = ?,
@@ -151,6 +162,12 @@ class Property {
         data.wing || null,
         data.unit_no || null,
         data.furnishing || null,
+
+        // NEW
+        data.bedrooms ?? null,
+        data.bathrooms ?? null,
+        data.facing || null,
+
         data.parking_type || null,
         data.parking_qty || null,
         data.city_name || null,
@@ -161,6 +178,11 @@ class Property {
         data.carpet_area || null,
         data.builtup_area || null,
         data.budget || null,
+
+        // NEW
+        data.price_type || "Fixed",
+        data.final_price ?? null,
+
         data.address || null,
         data.status || null,
         data.lead_source || null,
