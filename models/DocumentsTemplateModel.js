@@ -135,12 +135,20 @@ function jsonOrNull(v) {
 /* ---------- model ---------- */
 const DocumentsTemplate = {
   // CREATE
-  async create(data) {
+async create(data) {
     const sql = `
       INSERT INTO documents_templates
       (name, description, category, content, variables, status, created_by, updated_by, last_used_at, usage_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, UTC_TIMESTAMP(3)), ?)
+      --                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      --  if param is NULL -> use current UTC time (ms precision)
     `;
+
+    const lastUsed =
+      data.last_used_at === undefined || data.last_used_at === null || data.last_used_at === ''
+        ? null
+        : toMySQLDateTime(data.last_used_at, true, true); // normalize if provided
+
     const params = [
       data.name,
       data.description ?? null,
@@ -150,16 +158,12 @@ const DocumentsTemplate = {
       data.status ?? 'draft',
       data.created_by ?? null,
       data.updated_by ?? null,
-      (() => {
-        // normalize last_used_at if provided, else null
-        const norm = toMySQLDateTime(data.last_used_at, true, true);
-        return norm ?? null;
-      })(),
+      lastUsed,                 // <- COALESCE will turn NULL into UTC_TIMESTAMP(3)
       data.usage_count ?? 0,
     ];
 
     const [result] = await db.query(sql, params);
-    return result; // has insertId
+    return result;
   },
 
   // GET BY ID
