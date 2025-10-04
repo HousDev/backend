@@ -10,7 +10,7 @@ const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 // const path = require("path");   //for local
 
-const fs = require("fs");  //for server
+const fs = require("fs"); //for server
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
@@ -28,12 +28,12 @@ const systemSettingsRoutes = require("./routes/systemSettings.routes");
 const templateRoutes = require("./routes/templateRoutes");
 const templateContentRoutes = require("./routes/template.routes");
 const viewsRoutes = require("./routes/views.routes");
-const blogRoutes =require("./routes/blog.routes")
+const blogRoutes = require("./routes/blog.routes");
 const contactRoutes = require("./routes/contactRoutes");
-const variableRoutes = require('./routes/variableRoutes');
+const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
-const documentsTemplateRoutes = require('./routes/documentsTemplateRoutes');
-const documentsGeneratedRoutes = require('./routes/documentsGeneratedRoutes');
+const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
+const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
 
 const rssRoutes = require("./routes/rssRoutes");
 const app = express();
@@ -45,8 +45,7 @@ app.use(helmet());
 // Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(cookieParser()); 
-
+app.use(cookieParser());
 
 // CORS
 const corsOptions = {
@@ -59,24 +58,23 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-
-
-
-
 // Rate limiting — relaxed in dev & ignore OPTIONS
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.method === "OPTIONS" || process.env.NODE_ENV !== "production",
+  skip: (req) =>
+    req.method === "OPTIONS" || process.env.NODE_ENV !== "production",
   message: { success: false, message: "Too many requests. Please try later." },
 });
 app.use("/api/", limiter);
 
 // Compression + Logging
 app.use(compression());
-app.use(process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined"));
+app.use(
+  process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined")
+);
 
 // Health
 app.get("/api/health", (req, res) => {
@@ -88,7 +86,7 @@ app.get("/api/health", (req, res) => {
     version: "1.0.0",
   });
 });
-app.set('trust proxy', true);
+app.set("trust proxy", true);
 // API routes
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/leads", leadRoutes);
@@ -129,15 +127,14 @@ app.use(
   })
 );
 
-
 // Static files (IMPORTANT)
-app.use("/api", require("./routes/buyerTransferRoute"))
+app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
-app.use("/api/sellers",require("./routes/sellerRoutes"))
+app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
-app.use("/api/razorpay-integration",require("./routes/razorpayRoutes"))
+app.use("/api/razorpay-integration", require("./routes/razorpayRoutes"));
 const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
 app.use("/api/ai", aiRoutes); // <-- new line
 app.use("/api/status-update", propertyStatusRoutes);
@@ -149,8 +146,6 @@ app.use(
   require("./routes/publicSystemSettings.routes")
 );
 
-
-
 app.use("/api/system-settings", systemSettingsRoutes);
 app.use("/api/sms-integration", smsIntegrationRoutes);
 app.use("/api/templates", templateRoutes);
@@ -159,10 +154,9 @@ app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/buyer-followups", buyerFollowupRoutes);
-app.use('/api/variables', variableRoutes);
-app.use('/api/doctemplates/', documentsTemplateRoutes);
-app.use('/api/documents-generated', documentsGeneratedRoutes);
-
+app.use("/api/variables", variableRoutes);
+app.use("/api/doctemplates/", documentsTemplateRoutes);
+app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
 // Root
 app.get("/", (req, res) => {
@@ -173,16 +167,19 @@ app.get("/", (req, res) => {
     documentation: "/api/health for health check",
   });
 });
-const slugRedirect = require('./middleware/slugRedirect');
-
+const slugRedirect = require("./middleware/slugRedirect");
 
 app.use(slugRedirect);
 
-
-
 // 404
 app.use("*", (req, res) => {
-  res.status(404).json({ success: false, message: "Endpoint not found", path: req.originalUrl });
+  res
+    .status(404)
+    .json({
+      success: false,
+      message: "Endpoint not found",
+      path: req.originalUrl,
+    });
 });
 
 // Global error
@@ -190,7 +187,10 @@ app.use((err, req, res, next) => {
   console.error("Error:", err);
   res.status(err.status || 500).json({
     success: false,
-    message: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    message:
+      process.env.NODE_ENV === "production"
+        ? "Internal server error"
+        : err.message,
     ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
   });
 });
