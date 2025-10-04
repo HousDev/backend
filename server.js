@@ -8,9 +8,9 @@ const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
-const path = require("path");   //for local
+// const path = require("path");   //for local
 
-// const fs = require("fs");  //for server
+const fs = require("fs");  //for server
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
@@ -50,7 +50,7 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
   origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
@@ -103,31 +103,31 @@ app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
 
 // for use for loacal
+// app.use(
+//   '/uploads',
+//   helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+// );
+
+// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
 app.use(
-  '/uploads',
-  helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
+  UPLOAD_PUBLIC_BASE,
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
 );
 
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
-// app.use(
-//   UPLOAD_PUBLIC_BASE,
-//   helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
-// );
-
-// app.use(
-//   UPLOAD_PUBLIC_BASE,
-//   express.static(UPLOAD_ROOT, {
-//     fallthrough: false,
-//     etag: true,
-//     maxAge: "1y",
-//     immutable: true,
-//     setHeaders: (res) => {
-//       // mirror your Nginx Cache-Control
-//       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-//     },
-//   })
-// );
+app.use(
+  UPLOAD_PUBLIC_BASE,
+  express.static(UPLOAD_ROOT, {
+    fallthrough: false,
+    etag: true,
+    maxAge: "1y",
+    immutable: true,
+    setHeaders: (res) => {
+      // mirror your Nginx Cache-Control
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  })
+);
 
 
 // Static files (IMPORTANT)
