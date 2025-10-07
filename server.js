@@ -34,7 +34,7 @@ const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
-
+const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
 const rssRoutes = require("./routes/rssRoutes");
 const app = express();
 
@@ -181,6 +181,7 @@ app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
+app.use('/api/receipts', receiptRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
