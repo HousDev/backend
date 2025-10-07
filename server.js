@@ -55,6 +55,7 @@ const corsOptions = {
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
+   exposedHeaders: ["Content-Disposition"],
 };
 app.use(cors(corsOptions));
 
@@ -107,6 +108,28 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 // );
 
 // app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "img-src": [
+          "'self'",
+          "data:",
+          "blob:",
+          "https://investordeal.in",
+          "https://resaleexpert.in",
+        ],
+        "style-src": ["'self'", "https:", "'unsafe-inline'"],
+        "font-src": ["'self'", "https:", "data:"],
+        "frame-ancestors": ["'self'"],
+      },
+    },
+  })
+);
 
 app.use(
   UPLOAD_PUBLIC_BASE,
