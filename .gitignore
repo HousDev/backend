@@ -45,4 +45,5 @@ typeorm-cache/
 
 # Uploads (runtime generated)
 # ---------------------------
-uploads/uploads/
+# uploads/uploads/
+
