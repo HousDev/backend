@@ -1,7 +1,8 @@
 // controllers/documentsGeneratedController.js
 const Model = require('../models/documentsGeneratedModel');
 const puppeteer = require('puppeteer');
-
+const pool=require("../config/database")
+const archiver = require('archiver'); // 👈 ADD THIS
 /* ------------------- helpers ------------------- */
 function interpolate(html, vars = {}) {
   return String(html).replace(/{{\s*([\w.]+)\s*}}/g, (_, key) => {
@@ -336,6 +337,7 @@ const DocumentsGeneratedController = {
       return res.status(500).json({ error: 'Failed to generate PDF' });
     }
   },
+  
 
   /* On-the-fly PDF (unsaved) */
   async pdfFromHtml(req, res) {
@@ -360,6 +362,184 @@ const DocumentsGeneratedController = {
       return res.status(500).json({ error: 'Failed to generate PDF' });
     }
   },
+  
+  
+  
 };
+DocumentsGeneratedController.getOneWithRelations = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const row = await Model.getById(id);
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+
+    const variables = row.variables && typeof row.variables === 'string'
+      ? JSON.parse(row.variables)
+      : row.variables || {};
+
+    const buyerId = variables.buyer?.id ?? null;
+    const sellerId = variables.seller?.id ?? null;
+    const executiveId = variables.executive_id ?? null;
+    const propertyIds = variables.properties?.map(p => p.id) || (variables.property ? [variables.property.id] : []);
+
+    const fetchEntity = async (table, id) => id ? (await pool.query(`SELECT * FROM ?? WHERE id = ?`, [table, id]))[0][0] : null;
+    const fetchProperties = async (ids) => ids.length ? (await pool.query(`SELECT * FROM properties WHERE id IN (?)`, [ids]))[0] : [];
+    const fetchTemplate = async (templateId) => templateId ? (await pool.query(`SELECT id, name, category, description FROM documents_templates WHERE id = ?`, [templateId]))[0][0] : null;
+
+    const [buyer, seller, executive, properties, template] = await Promise.all([
+      fetchEntity('buyers', buyerId),
+      fetchEntity('sellers', sellerId),
+      fetchEntity('users', executiveId),
+      fetchProperties(propertyIds),
+      fetchTemplate(row.template_id),
+    ]);
+
+    const fullDocument = {
+      ...row,
+      template_name: template?.name || null,
+      template_category: template?.category || null,
+      template_description: template?.description || null,
+      variables: {
+        ...variables,
+        buyer,
+        seller,
+        executive,
+        properties,
+      },
+    };
+
+    return res.json({ data: fullDocument });
+  } catch (err) {
+    console.error('documents-generated:getOneWithRelations', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+DocumentsGeneratedController.getAllWithRelations = async (req, res) => {
+  try {
+    const rows = await Model.getAll();
+    if (!rows || !rows.length) return res.json({ data: [] });
+
+    const parseVariables = (v) => {
+      if (!v) return {};
+      if (typeof v === 'string') {
+        try { return JSON.parse(v); } catch { return {}; }
+      }
+      return v;
+    };
+
+    const fetchEntity = async (table, id) =>
+      id ? (await pool.query(`SELECT * FROM ?? WHERE id = ?`, [table, id]))[0][0] || null : null;
+
+    const fetchProperties = async (ids) =>
+      ids && ids.length ? (await pool.query(`SELECT * FROM properties WHERE id IN (?)`, [ids]))[0] || [] : [];
+
+    const fetchTemplate = async (templateId) =>
+      templateId ? (await pool.query(`SELECT id, name, category, description FROM documents_templates WHERE id = ?`, [templateId]))[0][0] : null;
+
+    const results = await Promise.all(rows.map(async (row) => {
+      const variables = parseVariables(row.variables);
+
+      const buyerId = variables.buyer?.id || null;
+      const sellerId = variables.seller?.id || null;
+      const executiveId = variables.executive_id || null;
+
+      let propertyIds = [];
+      if (Array.isArray(variables.properties)) {
+        propertyIds = variables.properties.map(p => p.id).filter(Boolean);
+      } else if (variables.property?.id) {
+        propertyIds = [variables.property.id];
+      }
+
+      const [buyer, seller, executive, properties, template] = await Promise.all([
+        fetchEntity('buyers', buyerId),
+        fetchEntity('sellers', sellerId),
+        fetchEntity('users', executiveId),
+        fetchProperties(propertyIds),
+        fetchTemplate(row.template_id),
+      ]);
+
+      return {
+        ...row,
+        template_name: template?.name || null,
+        template_category: template?.category || null,
+        template_description: template?.description || null,
+        variables: {
+          ...variables,
+          buyer: buyer || null,
+          seller: seller || null,
+          executive: executive || null,
+          properties: properties || [],
+        },
+      };
+    }));
+
+    return res.json({ data: results });
+  } catch (err) {
+    console.error('documents-generated:getAllWithRelations', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+
+
+async function bulkDownloadZip(req, res) {
+  try {
+    const { ids = [], options = {} } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids[] required" });
+    }
+
+    const pageOpt = (options.page || 'A4').toString();
+    const filenamePrefix = (options.filenamePrefix || 'documents').toString();
+
+    // ZIP response headers
+    const stamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0,14); // YYYYMMDDHHmm
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${slugify(filenamePrefix)}_${ids.length}_files_${stamp}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      try { res.status(500).end(String(err?.message || err)); } catch {}
+    });
+    archive.pipe(res);
+
+    // Process sequentially (safer for memory/CPU)
+    for (const rawId of ids) {
+      const id = Number(rawId);
+      try {
+        const row = await Model.getById(id);
+        if (!row) {
+          archive.append(Buffer.from(`Document ${id} not found`), { name: `ERROR_${id}.txt` });
+          continue;
+        }
+
+        // build final HTML with shell
+        const html = applyPageShell(row.content || '', pageOpt);
+
+        // generate PDF buffer (reuses your single-PDF engine)
+        const pdfBuffer = await renderPdfBuffer(html, { /* extra pdf options if needed */ });
+
+        const fname = `${slugify(row.name || 'document')}_${id}.pdf`;
+        archive.append(Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer), { name: fname });
+      } catch (e) {
+        archive.append(
+          Buffer.from(`Failed to generate PDF for document ${id}\n${String(e && e.message || e)}`),
+          { name: `ERROR_${id}.txt` }
+        );
+      }
+    }
+
+    await archive.finalize(); // stream end
+  } catch (e) {
+    console.error('documents-generated:bulkDownloadZip', e);
+    try {
+      return res.status(500).json({ error: e?.message || 'Bulk download failed' });
+    } catch {}
+  }
+}
+
+// export karo (jahan tum module.exports kar rahe ho, wahan add kar do)
+DocumentsGeneratedController.bulkDownloadZip = bulkDownloadZip;
+
 
 module.exports = DocumentsGeneratedController;
