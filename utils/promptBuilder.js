@@ -1,69 +1,3 @@
-// function label(k) {
-//   const map = {
-//     propertyType: "Property Type",
-//     propertySubtype: "Subtype",
-//     unitType: "Unit Type",
-//     furnishing: "Furnishing",
-//     city: "City",
-//     location: "Location/Locality",
-//     budget: "Budget",
-//     parkingType: "Parking Type",
-//     carpetArea: "Carpet Area (sq.ft)",
-//     floor: "Floor",
-//   };
-//   return map[k] || k;
-// }
-
-// function buildPrompt(payload) {
-//   const { formData, tone, lang, words } = payload;
-
-//   // ✅ allowed fields (budget & parkingType included)
-//   const allowed = [
-//     "propertyType",
-//     "propertySubtype",
-//     "unitType",
-//     "furnishing",
-//     "city",
-//     "location",
-//     "budget",
-//     "parkingType",
-//     "carpetArea",
-//     "floor",
-//   ];
-
-//   const lines = [];
-//   lines.push(`Write a property listing description in ${lang}.`);
-//   lines.push(`Tone: ${tone}. Target length: around ${words} words.`);
-//   lines.push(
-//     `Use ONLY these facts: property type, subtype, unit type, furnishing, city, location, budget, parking type, carpet area (sq.ft), and floor.`
-//   );
-//   lines.push(
-//     `No false promises, no negotiation language, no hidden amenities. Write crisp, clear, buyer-friendly copy with a short CTA at the end (e.g., schedule a visit).`
-//   );
-
-//   lines.push(`\nFACTS:`);
-//   for (const key of allowed) {
-//     const v = formData?.[key];
-//     if (v == null || v === "") continue;
-
-//     if (key === "carpetArea") {
-//       lines.push(`- ${label(key)}: ${v} sq.ft`);
-//     } else {
-//       lines.push(`- ${label(key)}: ${Array.isArray(v) ? v.join(", ") : v}`);
-//     }
-//   }
-
-//   return lines.join("\n");
-// }
-
-// module.exports = { buildPrompt };
-
-
-// utils/promptBuilder.js
-
-/* ----------------------------------------
-   Label helper (existing)
----------------------------------------- */
 function label(k) {
   const map = {
     propertyType: "Property Type",
@@ -80,12 +14,10 @@ function label(k) {
   return map[k] || k;
 }
 
-/* ----------------------------------------
-   Property Description Prompt (unchanged)
----------------------------------------- */
 function buildPrompt(payload) {
   const { formData, tone, lang, words } = payload;
 
+  // ✅ allowed fields (budget & parkingType included)
   const allowed = [
     "propertyType",
     "propertySubtype",
@@ -124,12 +56,80 @@ function buildPrompt(payload) {
   return lines.join("\n");
 }
 
+
+
+
+// utils/promptBuilder.js
+
 /* ----------------------------------------
-   Template Content Prompt (REAL-ESTATE focused)
-   - Driven by subject + category (preferred)
-   - Short, professional, modern
-   - Keep and use allowed variables only
+   Label helper (existing)
 ---------------------------------------- */
+// function label(k) {
+//   const map = {
+//     propertyType: "Property Type",
+//     propertySubtype: "Subtype",
+//     unitType: "Unit Type",
+//     furnishing: "Furnishing",
+//     city: "City",
+//     location: "Location/Locality",
+//     budget: "Budget",
+//     parkingType: "Parking Type",
+//     carpetArea: "Carpet Area (sq.ft)",
+//     floor: "Floor",
+//   };
+//   return map[k] || k;
+// }
+
+// /* ----------------------------------------
+//    Property Description Prompt (unchanged)
+// ---------------------------------------- */
+// function buildPrompt(payload) {
+//   const { formData, tone, lang, words } = payload;
+
+//   const allowed = [
+//     "propertyType",
+//     "propertySubtype",
+//     "unitType",
+//     "furnishing",
+//     "city",
+//     "location",
+//     "budget",
+//     "parkingType",
+//     "carpetArea",
+//     "floor",
+//   ];
+
+//   const lines = [];
+//   lines.push(`Write a property listing description in ${lang}.`);
+//   lines.push(`Tone: ${tone}. Target length: around ${words} words.`);
+//   lines.push(
+//     `Use ONLY these facts: property type, subtype, unit type, furnishing, city, location, budget, parking type, carpet area (sq.ft), and floor.`
+//   );
+//   lines.push(
+//     `No false promises, no negotiation language, no hidden amenities. Write crisp, clear, buyer-friendly copy with a short CTA at the end (e.g., schedule a visit).`
+//   );
+
+//   lines.push(`\nFACTS:`);
+//   for (const key of allowed) {
+//     const v = formData?.[key];
+//     if (v == null || v === "") continue;
+
+//     if (key === "carpetArea") {
+//       lines.push(`- ${label(key)}: ${v} sq.ft`);
+//     } else {
+//       lines.push(`- ${label(key)}: ${Array.isArray(v) ? v.join(", ") : v}`);
+//     }
+//   }
+
+//   return lines.join("\n");
+// }
+
+// /* ----------------------------------------
+//    Template Content Prompt (REAL-ESTATE focused)
+//    - Driven by subject + category (preferred)
+//    - Short, professional, modern
+//    - Keep and use allowed variables only
+// ---------------------------------------- */
 function buildTemplatePrompt(payload = {}) {
   const {
     name = "",

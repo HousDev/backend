@@ -34,9 +34,12 @@ const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
-
 const rssRoutes = require("./routes/rssRoutes");
+const aiBlogsRoutes = require("./routes/aiBlogs.routes");
+
 const app = express();
+
+
 
 app.set("trust proxy", 1);
 // Security
@@ -181,6 +184,8 @@ app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
+
+app.use("/api/ai-blogs", aiBlogsRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
