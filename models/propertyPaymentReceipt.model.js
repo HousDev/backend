@@ -3,6 +3,36 @@ const pool = require('../config/database');
 const TABLE = 'property_payment_receipts';
 const SEQ_TABLE = 'receipt_sequences';
 const USERS_TABLE = 'users'; // change if your table name differs
+// ---- date helpers (DATE columns ke liye) ----
+function toSQLDate(v) {
+  if (v == null || v === '') return null;
+
+  // ✅ already in full MySQL DATETIME format?
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v)) {
+    // add seconds if missing
+    return v.length === 16 ? v + ':00' : v;
+  }
+
+  // ✅ only date provided (no time)
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return v + ' 00:00:00';
+  }
+
+  // ✅ try to parse ISO / timestamp / JS Date
+  const d = new Date(v);
+  if (isNaN(d)) return null;
+
+  // format to local time (not UTC)
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const HH = String(d.getHours()).padStart(2, '0');
+  const MM = String(d.getMinutes()).padStart(2, '0');
+  const SS = String(d.getSeconds()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${HH}:${MM}:${SS}`;
+}
+
 
 // JSON columns in DB
 const JSON_FIELDS = new Set(['property_details', 'transaction_details', 'ledger_entries']);
@@ -26,6 +56,12 @@ function parseRow(row) {
 
 function toDbPayload(payload = {}) {
   const copy = { ...payload };
+
+  // normalize DATE fields (agar table me DATE type hai)
+  if ('receipt_date' in copy) copy.receipt_date = toSQLDate(copy.receipt_date);
+  if ('payment_date' in copy) copy.payment_date = toSQLDate(copy.payment_date);
+
+  // stringify JSON fields
   for (const key of Object.keys(copy)) {
     if (JSON_FIELDS.has(key) && copy[key] != null && typeof copy[key] !== 'string') {
       copy[key] = JSON.stringify(copy[key]);
@@ -33,6 +69,7 @@ function toDbPayload(payload = {}) {
   }
   return copy;
 }
+
 
 // --- Sequence generator (atomic) ---
 async function generateSequentialReceiptId(prefix = 'PPR') {
