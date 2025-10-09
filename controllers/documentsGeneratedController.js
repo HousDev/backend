@@ -137,6 +137,41 @@ function getActorIds(req, body = {}) {
   return { creatorId, updaterId };
 }
 
+function safeParseVariables(v) {
+  if (!v) return {};
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return {}; }
+  }
+  return v;
+}
+
+function uniq(arr) {
+  return [...new Set(arr.filter(Boolean))];
+}
+
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+async function fetchByIds(table, ids, columns = '*') {
+  if (!ids.length) return [];
+  // MySQL has a practical limit for the size of IN() lists – chunk for safety.
+  const chunks = chunk(uniq(ids), 1000);
+  const results = [];
+  for (const c of chunks) {
+    const placeholders = c.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT ${columns} FROM \`${table}\` WHERE id IN (${placeholders})`,
+      c
+    );
+    results.push(...rows);
+  }
+  return results;
+}
+
+
 /* ------------------- controller ------------------- */
 const DocumentsGeneratedController = {
   /* CREATE (fixed) */
@@ -416,47 +451,64 @@ DocumentsGeneratedController.getOneWithRelations = async (req, res) => {
 
 DocumentsGeneratedController.getAllWithRelations = async (req, res) => {
   try {
-    const rows = await Model.getAll();
+    // 1) Base rows (one query)
+    const rows = await Model.getAll(); // make sure this uses the shared pool and not per-request pools
     if (!rows || !rows.length) return res.json({ data: [] });
 
-    const parseVariables = (v) => {
-      if (!v) return {};
-      if (typeof v === 'string') {
-        try { return JSON.parse(v); } catch { return {}; }
-      }
-      return v;
-    };
+    // 2) Collect all foreign ids from variables in one pass (no queries here)
+    const buyers = [];
+    const sellers = [];
+    const executives = [];
+    const templates = [];
+    const propertyIdBuckets = []; // array of arrays so we can re-map per row later
 
-    const fetchEntity = async (table, id) =>
-      id ? (await pool.query(`SELECT * FROM ?? WHERE id = ?`, [table, id]))[0][0] || null : null;
+    const parsed = rows.map((row) => {
+      const v = safeParseVariables(row.variables);
 
-    const fetchProperties = async (ids) =>
-      ids && ids.length ? (await pool.query(`SELECT * FROM properties WHERE id IN (?)`, [ids]))[0] || [] : [];
-
-    const fetchTemplate = async (templateId) =>
-      templateId ? (await pool.query(`SELECT id, name, category, description FROM documents_templates WHERE id = ?`, [templateId]))[0][0] : null;
-
-    const results = await Promise.all(rows.map(async (row) => {
-      const variables = parseVariables(row.variables);
-
-      const buyerId = variables.buyer?.id || null;
-      const sellerId = variables.seller?.id || null;
-      const executiveId = variables.executive_id || null;
+      const buyerId = v?.buyer?.id || null;
+      const sellerId = v?.seller?.id || null;
+      const executiveId = v?.executive_id || v?.executive?.id || null;
 
       let propertyIds = [];
-      if (Array.isArray(variables.properties)) {
-        propertyIds = variables.properties.map(p => p.id).filter(Boolean);
-      } else if (variables.property?.id) {
-        propertyIds = [variables.property.id];
+      if (Array.isArray(v?.properties)) {
+        propertyIds = v.properties.map(p => p?.id).filter(Boolean);
+      } else if (v?.property?.id) {
+        propertyIds = [v.property.id];
       }
 
-      const [buyer, seller, executive, properties, template] = await Promise.all([
-        fetchEntity('buyers', buyerId),
-        fetchEntity('sellers', sellerId),
-        fetchEntity('users', executiveId),
-        fetchProperties(propertyIds),
-        fetchTemplate(row.template_id),
-      ]);
+      buyers.push(buyerId);
+      sellers.push(sellerId);
+      executives.push(executiveId);
+      templates.push(row.template_id);
+      propertyIdBuckets.push(propertyIds);
+
+      return { row, variables: v, buyerId, sellerId, executiveId, propertyIds };
+    });
+
+    // 3) Batch fetch each entity type (few queries total)
+    const [buyerRows, sellerRows, execRows, templateRows] = await Promise.all([
+      fetchByIds('buyers', buyers, '*'),
+      fetchByIds('sellers', sellers, '*'),
+      fetchByIds('users', executives, '*'),
+      fetchByIds('documents_templates', templates, 'id, name, category, description'),
+    ]);
+
+    // properties can be many; flatten first then fetch once
+    const allPropertyIds = uniq(propertyIdBuckets.flat());
+    const propertyRows = await fetchByIds('properties', allPropertyIds, '*');
+
+    // 4) Index everything in memory for O(1) lookup
+    const buyerById = new Map(buyerRows.map(b => [b.id, b]));
+    const sellerById = new Map(sellerRows.map(s => [s.id, s]));
+    const execById  = new Map(execRows.map(u => [u.id, u]));
+    const tmplById  = new Map(templateRows.map(t => [t.id, t]));
+    const propertyById = new Map(propertyRows.map(p => [p.id, p]));
+
+    // 5) Stitch results
+    const results = parsed.map(({ row, variables, buyerId, sellerId, executiveId, propertyIds }) => {
+      const template = tmplById.get(row.template_id) || null;
+
+      const stitchedProps = (propertyIds || []).map(id => propertyById.get(id)).filter(Boolean);
 
       return {
         ...row,
@@ -465,13 +517,13 @@ DocumentsGeneratedController.getAllWithRelations = async (req, res) => {
         template_description: template?.description || null,
         variables: {
           ...variables,
-          buyer: buyer || null,
-          seller: seller || null,
-          executive: executive || null,
-          properties: properties || [],
+          buyer: buyerId ? (buyerById.get(buyerId) || null) : null,
+          seller: sellerId ? (sellerById.get(sellerId) || null) : null,
+          executive: executiveId ? (execById.get(executiveId) || null) : null,
+          properties: stitchedProps,
         },
       };
-    }));
+    });
 
     return res.json({ data: results });
   } catch (err) {
@@ -480,6 +532,7 @@ DocumentsGeneratedController.getAllWithRelations = async (req, res) => {
   }
 };
 
+module.exports = DocumentsGeneratedController;
 
 
 async function bulkDownloadZip(req, res) {
