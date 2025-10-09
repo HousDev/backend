@@ -34,8 +34,9 @@ const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
-
+const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
 const rssRoutes = require("./routes/rssRoutes");
+const documentStatusRoutes = require("./routes/documentStatus.routes");
 const app = express();
 
 app.set("trust proxy", 1);
@@ -100,6 +101,7 @@ app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
+app.use("/api/doc-status", documentStatusRoutes);
 
 // for use for loacal
 // app.use(
@@ -181,6 +183,7 @@ app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
+app.use('/api/receipts', receiptRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({

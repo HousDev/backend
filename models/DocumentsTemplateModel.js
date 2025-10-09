@@ -1,104 +1,3 @@
-// // models/DocumentsTemplateModel.js
-// const db = require('../config/database'); // your mysql2/promise connection
-
-// const DocumentsTemplate = {
-//   // CREATE
-//   async create(data) {
-//    const sql = `
-//   INSERT INTO documents_templates
-//   (name, description, category, content, variables, status, created_by, updated_by, last_used_at, usage_count)
-//   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-// `;
-// const params = [
-//   data.name,
-//   data.description || null,
-//   data.category || null,
-//   data.content,
-//   data.variables ? JSON.stringify(data.variables) : null,
-//   data.status || 'draft',
-//   data.created_by || null,
-//   data.updated_by || null,
-//   data.last_used_at || null,
-//   data.usage_count || 0   // 👈 naya field
-// ];
-
-
-//     const [result] = await db.query(sql, params);
-//     return result;
-//   },
-
-//   // GET BY ID
-//   async getById(id) {
-//     const sql = `SELECT * FROM documents_templates WHERE id = ?`;
-//     const [rows] = await db.query(sql, [id]);
-//     return rows;
-//   },
-
-//   // GET ALL
-//   async getAll(filters = {}) {
-//     let sql = `SELECT * FROM documents_templates WHERE 1=1`;
-//     const params = [];
-
-//     if (filters.status) {
-//       sql += ` AND status = ?`;
-//       params.push(filters.status);
-//     }
-
-//     if (filters.category) {
-//       sql += ` AND category = ?`;
-//       params.push(filters.category);
-//     }
-
-//     const [rows] = await db.query(sql, params);
-//     return rows;
-//   },
-
-//   // UPDATE
-//   async update(id, data) {
-//    const sql = `
-//   UPDATE documents_templates
-//   SET name = ?, description = ?, category = ?, content = ?, variables = ?, status = ?, updated_by = ?, last_used_at = ?, usage_count = ?
-//   WHERE id = ?
-// `;
-// const params = [
-//   data.name,
-//   data.description || null,
-//   data.category || null,
-//   data.content,
-//   data.variables ? JSON.stringify(data.variables) : null,
-//   data.status || 'draft',
-//   data.updated_by || null,
-//   data.last_used_at || null,
-//   data.usage_count ?? 0,   // 👈 default 0 agar undefined ho
-//   id
-// ];
-
-
-//     const [result] = await db.query(sql, params);
-//     return result;
-//   },
-
-//   // DELETE
-//   async delete(id) {
-//     const sql = `DELETE FROM documents_templates WHERE id = ?`;
-//     const [result] = await db.query(sql, [id]);
-//     return result;
-//   }
-//   ,
-//   async incrementUsage(id) {
-//   const sql = `
-//     UPDATE documents_templates
-//     SET usage_count = usage_count + 1, last_used_at = NOW()
-//     WHERE id = ?
-//   `;
-//   const [result] = await db.query(sql, [id]);
-//   return result;
-// }
-
-// };
-
-// module.exports = DocumentsTemplate;
-
 // models/DocumentsTemplateModel.js
 const db = require('../config/database'); // mysql2/promise pool
 
@@ -132,22 +31,28 @@ function jsonOrNull(v) {
   }
 }
 
+/** Build a display name from users table fields */
+const USER_DISPLAY = (alias) =>
+  `TRIM(CONCAT_WS(' ',
+    ${alias}.salutation,
+    ${alias}.first_name,
+    ${alias}.last_name
+  ))`;
+
 /* ---------- model ---------- */
 const DocumentsTemplate = {
   // CREATE
-async create(data) {
+  async create(data) {
     const sql = `
       INSERT INTO documents_templates
       (name, description, category, content, variables, status, created_by, updated_by, last_used_at, usage_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, UTC_TIMESTAMP(3)), ?)
-      --                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      --  if param is NULL -> use current UTC time (ms precision)
     `;
 
     const lastUsed =
       data.last_used_at === undefined || data.last_used_at === null || data.last_used_at === ''
         ? null
-        : toMySQLDateTime(data.last_used_at, true, true); // normalize if provided
+        : toMySQLDateTime(data.last_used_at, true, true);
 
     const params = [
       data.name,
@@ -158,34 +63,75 @@ async create(data) {
       data.status ?? 'draft',
       data.created_by ?? null,
       data.updated_by ?? null,
-      lastUsed,                 // <- COALESCE will turn NULL into UTC_TIMESTAMP(3)
+      lastUsed,                 // NULL -> set by COALESCE
       data.usage_count ?? 0,
     ];
 
     const [result] = await db.query(sql, params);
-    return result;
+    return result; // { insertId, affectedRows, ... }
   },
 
-  // GET BY ID
+  // GET BY ID — include author names
   async getById(id) {
-    const sql = `SELECT * FROM documents_templates WHERE id = ? LIMIT 1`;
+    const sql = `
+      SELECT
+        dt.*,
+        ${USER_DISPLAY('u1')} AS created_by_name,
+        ${USER_DISPLAY('u2')} AS updated_by_name
+      FROM documents_templates dt
+      LEFT JOIN users u1 ON u1.id = dt.created_by
+      LEFT JOIN users u2 ON u2.id = dt.updated_by
+      WHERE dt.id = ?
+      LIMIT 1
+    `;
     const [rows] = await db.query(sql, [id]);
     return rows && rows[0] ? rows[0] : null;
   },
 
-  // GET ALL
+  // GET ALL — include author names + optional filters/pagination
   async getAll(filters = {}) {
-    let sql = `SELECT * FROM documents_templates WHERE 1=1`;
+    let sql = `
+      SELECT
+        dt.*,
+        ${USER_DISPLAY('u1')} AS created_by_name,
+        ${USER_DISPLAY('u2')} AS updated_by_name
+      FROM documents_templates dt
+      LEFT JOIN users u1 ON u1.id = dt.created_by
+      LEFT JOIN users u2 ON u2.id = dt.updated_by
+      WHERE 1=1
+    `;
     const params = [];
 
     if (filters.status) {
-      sql += ` AND status = ?`;
+      sql += ` AND dt.status = ?`;
       params.push(filters.status);
     }
-
     if (filters.category) {
-      sql += ` AND category = ?`;
+      sql += ` AND dt.category = ?`;
       params.push(filters.category);
+    }
+    // optional search by name/description
+    if (filters.q) {
+      sql += ` AND (dt.name LIKE ? OR dt.description LIKE ?)`;
+      params.push(`%${filters.q}%`, `%${filters.q}%`);
+    }
+
+    // sorting (safe whitelist)
+    const sortMap = { created_at: 'dt.created_at', updated_at: 'dt.updated_at', name: 'dt.name', usage_count: 'dt.usage_count' };
+    const sortBy = sortMap[filters.sortBy] || 'dt.updated_at';
+    const sortDir = (String(filters.sortDir || '').toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
+    sql += ` ORDER BY ${sortBy} ${sortDir}`;
+
+    // pagination (optional)
+    const limit = Number.isInteger(filters.limit) ? filters.limit : undefined;
+    const offset = Number.isInteger(filters.offset) ? filters.offset : undefined;
+    if (Number.isInteger(limit) && limit > 0) {
+      sql += ` LIMIT ?`;
+      params.push(limit);
+      if (Number.isInteger(offset) && offset >= 0) {
+        sql += ` OFFSET ?`;
+        params.push(offset);
+      }
     }
 
     const [rows] = await db.query(sql, params);
@@ -197,64 +143,28 @@ async create(data) {
     const sets = [];
     const params = [];
 
-    if (data.name !== undefined) {
-      sets.push('name = ?');
-      params.push(data.name);
-    }
-    if (data.description !== undefined) {
-      sets.push('description = ?');
-      params.push(data.description ?? null);
-    }
-    if (data.category !== undefined) {
-      sets.push('category = ?');
-      params.push(data.category ?? null);
-    }
-    if (data.content !== undefined) {
-      sets.push('content = ?');
-      params.push(data.content);
-    }
-    if (data.variables !== undefined) {
-      sets.push('variables = ?');
-      params.push(jsonOrNull(data.variables));
-    }
-    if (data.status !== undefined) {
-      sets.push('status = ?');
-      params.push(data.status ?? 'draft');
-    }
-    if (data.updated_by !== undefined) {
-      sets.push('updated_by = ?');
-      params.push(data.updated_by ?? null);
-    }
-    if (data.usage_count !== undefined) {
-      sets.push('usage_count = ?');
-      params.push(data.usage_count ?? 0);
-    }
+    if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
+    if (data.description !== undefined) { sets.push('description = ?'); params.push(data.description ?? null); }
+    if (data.category !== undefined) { sets.push('category = ?'); params.push(data.category ?? null); }
+    if (data.content !== undefined) { sets.push('content = ?'); params.push(data.content); }
+    if (data.variables !== undefined) { sets.push('variables = ?'); params.push(jsonOrNull(data.variables)); }
+    if (data.status !== undefined) { sets.push('status = ?'); params.push(data.status ?? 'draft'); }
+    if (data.updated_by !== undefined) { sets.push('updated_by = ?'); params.push(data.updated_by ?? null); }
+    if (data.usage_count !== undefined) { sets.push('usage_count = ?'); params.push(data.usage_count ?? 0); }
 
-    // --- last_used_at rules ---
-    if (data.hasOwnProperty('last_used_at')) {
-      // case 1: client wants DB to set current time
+    // last_used_at rules
+    if (Object.prototype.hasOwnProperty.call(data, 'last_used_at')) {
       if (data.last_used_at === 'auto' || data.last_used_at === true) {
         sets.push('last_used_at = UTC_TIMESTAMP(3)');
-        // no param pushed
-      }
-      // case 2: explicit null
-      else if (data.last_used_at === null || data.last_used_at === '') {
+      } else if (data.last_used_at === null || data.last_used_at === '') {
         sets.push('last_used_at = NULL');
-      }
-      // case 3: normalize any date-ish value
-      else {
+      } else {
         const norm = toMySQLDateTime(data.last_used_at, true, true);
-        if (norm) {
-          sets.push('last_used_at = ?');
-          params.push(norm);
-        }
-        // invalid value → don't touch column
+        if (norm) { sets.push('last_used_at = ?'); params.push(norm); }
       }
     }
-    // if key absent → don't touch last_used_at
 
     if (sets.length === 0) {
-      // nothing to update
       return { affectedRows: 0 };
     }
 
@@ -266,7 +176,7 @@ async create(data) {
     params.push(id);
 
     const [result] = await db.query(sql, params);
-    return result; // has affectedRows
+    return result; // { affectedRows, ... }
   },
 
   // DELETE (hard delete)
@@ -290,4 +200,3 @@ async create(data) {
 };
 
 module.exports = DocumentsTemplate;
-

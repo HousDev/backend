@@ -25,40 +25,65 @@ const DocumentsGeneratedModel = {
       variables = null,
       status = 'draft',
       created_by = null,
+      updated_by = null,
     } = payload;
 
     const sql = `
       INSERT INTO documents_generated
-      (template_id, name, description, category, content, variables, status, created_by)
-      VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
+        (template_id, name, description, category, content, variables, status, created_by, updated_by)
+      VALUES
+        (?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?)
     `;
     const params = [
-      template_id, name, description, category, content,
-      toJsonOrNull(variables), status, created_by,
+      template_id,
+      name,
+      description,
+      category,
+      content,
+      toJsonOrNull(variables),
+      status,
+      created_by,
+      updated_by,
     ];
     const [res] = await pool.execute(sql, params);
     return { id: res.insertId };
   },
 
-  // ✅ must exist
   async getAll(opts = {}) {
     const { includeDeleted = false, created_by = null } = opts;
     const where = [];
     const params = [];
 
-    if (!includeDeleted) where.push('is_deleted = 0');
-    if (created_by != null) { where.push('created_by = ?'); params.push(created_by); }
+    if (!includeDeleted) where.push('dg.is_deleted = 0');
+    if (created_by != null) { where.push('dg.created_by = ?'); params.push(created_by); }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const [rows] = await pool.execute(
       `
       SELECT
-        id, template_id, name, description, category, content, variables,
-        status, created_by, updated_by, created_at, updated_at, last_used_at, is_deleted
-      FROM documents_generated
+        dg.id,
+        dg.template_id,
+        dg.name,
+        dg.description,
+        dg.category,
+        dg.content,
+        dg.variables,
+        dg.status,
+        dg.created_by,
+        dg.updated_by,
+        dg.created_at,
+        dg.updated_at,
+        dg.last_used_at,
+        dg.is_deleted,
+        /* joined names */
+        TRIM(CONCAT_WS(' ', u1.salutation, u1.first_name, u1.last_name)) AS created_by_name,
+        TRIM(CONCAT_WS(' ', u2.salutation, u2.first_name, u2.last_name)) AS updated_by_name
+      FROM documents_generated dg
+      LEFT JOIN users u1 ON u1.id = dg.created_by
+      LEFT JOIN users u2 ON u2.id = dg.updated_by
       ${whereSql}
-      ORDER BY created_at DESC
+      ORDER BY dg.created_at DESC
       `,
       params
     );
@@ -66,7 +91,19 @@ const DocumentsGeneratedModel = {
   },
 
   async getById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM documents_generated WHERE id = ?`, [id]);
+    const [rows] = await pool.execute(
+      `
+      SELECT
+        dg.*,
+        TRIM(CONCAT_WS(' ', u1.salutation, u1.first_name, u1.last_name)) AS created_by_name,
+        TRIM(CONCAT_WS(' ', u2.salutation, u2.first_name, u2.last_name)) AS updated_by_name
+      FROM documents_generated dg
+      LEFT JOIN users u1 ON u1.id = dg.created_by
+      LEFT JOIN users u2 ON u2.id = dg.updated_by
+      WHERE dg.id = ?
+      `,
+      [id]
+    );
     return rows[0] || null;
   },
 
