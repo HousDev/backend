@@ -41,6 +41,7 @@ function tSafeEq(a, b) {
 
 // --------------------------------- INIT ------------------------------------ //
 /** POST /esign/init */
+/** POST /esign/init */
 exports.init = async (req, res) => {
   try {
     const {
@@ -62,6 +63,67 @@ exports.init = async (req, res) => {
     // ensure doc exists (also ensures snapshot)
     await DocumentStatus.getOrInitSnapshot(document_id);
 
+    // 🚧 Sequential Rule: Seller cannot start until Buyer is signed
+    if (party_role === "Seller") {
+      const [buyerRow] = await q(
+        `SELECT status FROM document_esign_sessions
+         WHERE document_id=? AND party_role='Buyer'
+         ORDER BY id DESC LIMIT 1`,
+        [document_id]
+      );
+      if (!buyerRow || String(buyerRow.status) !== "signed") {
+        return bad(res, "Buyer must complete e-sign before starting Seller.", 409);
+      }
+    }
+
+    // 🔒 Single active session per (document_id, party_role)
+    // If there is an existing ACTIVE session (otp_sent/otp_verified/redirected), reuse it by rotating OTP.
+    const [existing] = await q(
+      `SELECT * FROM document_esign_sessions
+       WHERE document_id=? AND party_role=? 
+       ORDER BY id DESC LIMIT 1`,
+      [document_id, party_role]
+    );
+
+    const isActive = existing &&
+      ["otp_sent", "otp_verified", "redirected"].includes(String(existing.status));
+
+    // helper to (re)issue OTP on an existing row
+    const reissueOtpOn = async (row) => {
+      const otp   = genOtp(6);
+      const expAt = addMinutes(new Date(), 5);
+      await q(
+        `UPDATE document_esign_sessions
+           SET otp_code=?, otp_expires_at=?, otp_attempts=0,
+               status='otp_sent', updated_at=NOW(3)
+         WHERE id=?`,
+        [otp, expAt, row.id]
+      );
+      await DocumentStatus.logEsignEvent({
+        document_id,
+        provider: "mock",
+        event: "otp_rotated",
+        actor: `${party_role}:${row.name || name}`,
+        status: "otp_sent",
+        details: { session_id: row.session_id },
+        created_by: req.user?.id ?? null
+      });
+      return { otp, expAt };
+    };
+
+    if (isActive) {
+      // ♻️ Reuse: do NOT create a new session. Just rotate OTP and return the same session_id.
+      const { otp, expAt } = await reissueOtpOn(existing);
+      return ok(res, {
+        session_id: existing.session_id,
+        redirect_url: existing.redirect_url || null,
+        reused: true,
+        ...(isProd ? {} : { mock_otp: otp, mock_otp_expires_at: expAt.toISOString() })
+      });
+    }
+
+    // If the last session is 'signed', we are allowed to create next role (or retry new cycle)
+    // Else (failed/cancelled/expired), we create a fresh session row.
     const session_id   = uid();
     const created_by   = req.user?.id ?? null;
     const redirect_url = null; // will be set after OTP flow or via /redirect-url
@@ -91,16 +153,8 @@ exports.init = async (req, res) => {
       created_by
     });
 
-    // move document to esign_pending (your UI will manage both-party completion)
-    await DocumentStatus.setStatus({
-      document_id,
-      new_status: "esign_pending",
-      reason: `eSign session created for ${party_role}`,
-      changed_by: created_by,
-      details: { session_id, party_role }
-    });
+    // ❌ No doc status change here — FE will set `esign_pending` on Continue.
 
-    // In non-prod, return OTP for quick QA
     return ok(res, {
       session_id,
       redirect_url, // currently null
@@ -159,6 +213,8 @@ exports.resendOtp = async (req, res) => {
 
 // ------------------------------- VERIFY OTP -------------------------------- //
 /** POST /esign/verify-otp */
+// ------------------------------- VERIFY OTP -------------------------------- //
+/** POST /esign/verify-otp */
 exports.verifyOtp = async (req, res) => {
   try {
     const { session_id, otp } = req.body || {};
@@ -178,15 +234,34 @@ exports.verifyOtp = async (req, res) => {
       return bad(res, "OTP expired", 400);
     }
 
-    // compare
+    // compare (timing-safe)
     const isMatch = tSafeEq(s.otp_code, otp);
     if (!isMatch) {
-      await q(`UPDATE document_esign_sessions SET otp_attempts=otp_attempts+1, updated_at=NOW(3) WHERE id=?`, [s.id]);
+      await q(
+        `UPDATE document_esign_sessions
+            SET otp_attempts = otp_attempts + 1, updated_at = NOW(3)
+          WHERE id = ?`,
+        [s.id]
+      );
       return bad(res, "Invalid OTP", 400);
     }
 
-    // success
-    await q(`UPDATE document_esign_sessions SET status='otp_verified', updated_at=NOW(3) WHERE id=?`, [s.id]);
+    // ✅ SUCCESS: reset attempts, mark otp_verified only if still in pre-OTP states
+    // NOTE: this prevents DOWNGRADING from 'redirected' or 'signed'
+    await q(
+      `UPDATE document_esign_sessions
+          SET
+            otp_attempts = 0,
+            -- optional column; create if you want it. If not present, remove this line.
+            -- otp_verified_at = COALESCE(otp_verified_at, NOW(3)),
+            status = CASE
+                      WHEN status IN ('created','otp_sent') THEN 'otp_verified'
+                      ELSE status
+                    END,
+            updated_at = NOW(3)
+        WHERE id = ?`,
+      [s.id]
+    );
 
     await DocumentStatus.logEsignEvent({
       document_id: s.document_id,
@@ -198,14 +273,17 @@ exports.verifyOtp = async (req, res) => {
       created_by: req.user?.id ?? null
     });
 
+    // keep response minimal; FE will call /redirect-url next
     return ok(res, { verified: true });
   } catch (err) {
     return bad(res, err.message || "OTP verification failed");
   }
 };
 
+
 // ------------------------------ REDIRECT URL ------------------------------- //
 /** GET /esign/redirect-url?session_id=... */
+
 exports.getRedirectUrl = async (req, res) => {
   try {
     const { session_id } = req.query || {};
@@ -214,15 +292,15 @@ exports.getRedirectUrl = async (req, res) => {
     const [s] = await q(`SELECT * FROM document_esign_sessions WHERE session_id=?`, [session_id]);
     if (!s) return bad(res, "Unknown session", 404);
 
-    // deterministic mock signing URL
-    const redirect_url = s.redirect_url || `http://localhost:5173/session/${encodeURIComponent(session_id)}`;
+    const origin = process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
+    const finalUrl = s.redirect_url || `${origin}/session/${encodeURIComponent(session_id)}`;
 
-    if (!s.redirect_url) {
+    if (['created','otp_sent','otp_verified'].includes(String(s.status))) {
       await q(
         `UPDATE document_esign_sessions
-            SET redirect_url=?, status='redirected', updated_at=NOW(3)
-          WHERE id=?`,
-        [redirect_url, s.id]
+            SET redirect_url = ?, status = 'redirected', updated_at = NOW(3)
+          WHERE id = ?`,
+        [finalUrl, s.id]
       );
 
       await DocumentStatus.logEsignEvent({
@@ -231,16 +309,20 @@ exports.getRedirectUrl = async (req, res) => {
         event: "redirect_created",
         actor: `${s.party_role}:${s.name}`,
         status: "redirected",
-        details: { session_id, redirect_url },
+        details: { session_id, redirect_url: finalUrl },
         created_by: req.user?.id ?? null
       });
     }
 
-    return ok(res, { redirect_url });
+    return ok(res, { redirect_url: finalUrl });
   } catch (err) {
     return bad(res, err.message || "Failed to get redirect url");
   }
 };
+
+
+
+
 
 // -------------------------------- STATUS ----------------------------------- //
 /** GET /esign/status?session_id=... */
@@ -252,12 +334,45 @@ exports.status = async (req, res) => {
     const [s] = await q(`SELECT * FROM document_esign_sessions WHERE session_id=?`, [session_id]);
     if (!s) return bad(res, "Unknown session", 404);
 
-    // Demo auto-complete: if redirected, auto-sign after 3s
+    console.log("[DEBUG] status check:", session_id, s.status, "updated_at:", s.updated_at);
+
+    // 🧩 Auto-promote to redirected first
+    if (s.status === "otp_verified") {
+      const redirectUrl = s.redirect_url || `http://localhost:5173/session/${session_id}`;
+      await q(
+        `UPDATE document_esign_sessions
+           SET status='redirected', redirect_url=?, updated_at=NOW(3)
+         WHERE id=?`,
+        [redirectUrl, s.id]
+      );
+
+      await DocumentStatus.logEsignEvent({
+        document_id: s.document_id,
+        provider: "mock",
+        event: "redirect_created",
+        actor: `${s.party_role}:${s.name}`,
+        status: "redirected",
+        details: { session_id, redirect_url: redirectUrl },
+        created_by: req.user?.id ?? null
+      });
+
+      // reload latest row after update
+      s.status = "redirected";
+      s.redirect_url = redirectUrl;
+      s.updated_at = new Date();
+    }
+
+    // 🧩 Auto-complete mock sign after 3 s if redirected
     if (s.status === "redirected") {
       const now = Date.now();
-      const updated = new Date(s.updated_at).getTime();
-      if (now - updated > 3000) {
-        await q(`UPDATE document_esign_sessions SET status='signed', signed_at=NOW(3), updated_at=NOW(3) WHERE id=?`, [s.id]);
+      const updated = s.updated_at ? new Date(s.updated_at).getTime() : 0;
+      if (now - updated > 3000 && !s.signed_at) {
+        await q(
+          `UPDATE document_esign_sessions
+             SET status='signed', signed_at=NOW(3), updated_at=NOW(3)
+           WHERE id=?`,
+          [s.id]
+        );
 
         await DocumentStatus.logEsignEvent({
           document_id: s.document_id,
@@ -268,13 +383,19 @@ exports.status = async (req, res) => {
           details: { session_id },
           created_by: req.user?.id ?? null
         });
+
+        s.status = "signed";
+        s.signed_at = new Date();
       }
     }
 
     const [row2] = await q(
-      `SELECT status, signed_at, redirect_url FROM document_esign_sessions WHERE session_id=?`,
+      `SELECT status, signed_at, redirect_url
+         FROM document_esign_sessions
+        WHERE session_id=?`,
       [session_id]
     );
+
     return ok(res, {
       status: row2.status,
       signed_at: row2.signed_at || null,
@@ -284,6 +405,8 @@ exports.status = async (req, res) => {
     return bad(res, err.message || "Failed to fetch status");
   }
 };
+
+
 
 // ------------------------------- WEBHOOK SIGN ------------------------------- //
 /** POST /esign/webhook */
@@ -328,6 +451,7 @@ exports.artifacts = async (req, res) => {
     }
 
     // In real life, fetch from provider / S3
+    // const base = `http://investordeal.in/artifacts/${encodeURIComponent(session_id)}`;
     const base = `http://localhost:5173/artifacts/${encodeURIComponent(session_id)}`;
     return ok(res, {
       signed_pdf_url: `${base}/signed.pdf`,

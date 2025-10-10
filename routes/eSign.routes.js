@@ -13,5 +13,6 @@ router.get ("/artifacts",   /* verifyToken, */ ctrl.artifacts);
 
 // optional helper to simulate provider webhook
 router.post("/webhook/signed", ctrl.webhookSigned);
+router.get ("/session",        /* verifyToken, */ ctrl.getSession); // <-- add
 
 module.exports = router;
