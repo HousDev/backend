@@ -5,7 +5,7 @@
 // -----------------------------------------------------------------------------
 
 const pool = require("../config/database");
-
+const bcrypt = require("bcryptjs");
 /** Run a query and return rows */
 async function q(sql, params = []) {
   const [rows] = await pool.query(sql, params);
@@ -341,6 +341,82 @@ async function bulkSetStatus({ document_ids, new_status, reason = null, changed_
   });
 }
 
+/** Create/replace an OTP session for a role (upsert by document_id+role) */
+async function createOtpSession({
+  document_id,
+  role,          // 'buyer' | 'seller'
+  channel,       // 'sms' | 'email'
+  sent_to,
+  code_plain,    // raw code to hash
+  ttl_seconds = 300,            // 5 minutes
+  max_attempts = 5,
+  created_by = null,
+  otp_ref = null,
+}) {
+  await ensureSnapshot(document_id);
+
+  const expires_at = new Date(Date.now() + ttl_seconds * 1000);
+  const code_hash = await bcrypt.hash(String(code_plain), 10);
+
+  // upsert (one active per role)
+  await q(
+    `INSERT INTO document_otp_sessions
+       (document_id, role, channel, sent_to, code_hash, otp_ref, expires_at, attempts, max_attempts, verified_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)
+     ON DUPLICATE KEY UPDATE
+       channel=VALUES(channel),
+       sent_to=VALUES(sent_to),
+       code_hash=VALUES(code_hash),
+       otp_ref=VALUES(otp_ref),
+       expires_at=VALUES(expires_at),
+       attempts=0,
+       max_attempts=VALUES(max_attempts),
+       verified_at=NULL,
+       created_by=VALUES(created_by),
+       created_at=CURRENT_TIMESTAMP(3)`,
+    [document_id, role, channel, sent_to, code_hash, otp_ref, expires_at, max_attempts, created_by]
+  );
+
+  return { document_id, role, channel, sent_to, expires_at };
+}
+
+/** Read active session (if any) */
+async function getOtpSession(document_id, role) {
+  const rows = await q(
+    `SELECT * FROM document_otp_sessions WHERE document_id=? AND role=?`,
+    [document_id, role]
+  );
+  return rows[0] || null;
+}
+
+/** Increment attempts; returns updated row */
+async function bumpOtpAttempt(id) {
+  await q(`UPDATE document_otp_sessions SET attempts=attempts+1 WHERE id=?`, [id]);
+  const rows = await q(`SELECT * FROM document_otp_sessions WHERE id=?`, [id]);
+  return rows[0] || null;
+}
+
+/** Mark session verified now */
+async function markOtpVerified(id) {
+  await q(`UPDATE document_otp_sessions SET verified_at=NOW(3) WHERE id=?`, [id]);
+}
+
+/** Return verification flags for both roles */
+async function getVerificationFlags(document_id) {
+  const rows = await q(
+    `SELECT role, verified_at FROM document_otp_sessions WHERE document_id=?`,
+    [document_id]
+  );
+  const flags = { buyer: false, seller: false };
+  for (const r of rows) if (r.verified_at) flags[r.role] = true;
+  return flags;
+}
+
+/** Are both roles verified? */
+async function bothVerified(document_id) {
+  const flags = await getVerificationFlags(document_id);
+  return !!(flags.buyer && flags.seller);
+}
 
 module.exports = {
   // core
@@ -357,3 +433,12 @@ module.exports = {
   logOtpEvent,
   logEsignEvent,
 };
+module.exports.getCatalog = getCatalog;
+
+// expose OTP helpers
+module.exports.createOtpSession = createOtpSession;
+module.exports.getOtpSession = getOtpSession;
+module.exports.bumpOtpAttempt = bumpOtpAttempt;
+module.exports.markOtpVerified = markOtpVerified;
+module.exports.getVerificationFlags = getVerificationFlags;
+module.exports.bothVerified = bothVerified;
