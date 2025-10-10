@@ -266,6 +266,16 @@ const uploadBlog = multer({
   fileFilter: blogFileFilter,
 });
 
+// ✅ Hero images uploader (JPG/PNG/WEBP/GIF/ICO)
+const uploadHero = multer({
+  storage: makeStorage("hero"),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG/PNG/WEBP/GIF/ICO allowed for hero images"));
+  },
+});
+
 // ======= ERROR HANDLER =======
 const handleUploadErrors = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -290,10 +300,11 @@ const handleUploadErrors = (err, req, res, next) => {
 
 module.exports = {
   // storages
-  upload,         // properties
-  uploadSystem,   // system settings (logo, favicon)
-  uploadAvatar,   // user avatars
-  uploadBlog,     // blog featured image
+  upload, // properties
+  uploadSystem, // system settings (logo, favicon)
+  uploadAvatar, // user avatars
+  uploadBlog, // blog featured image
+  uploadHero, // ✅ hero images
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,
