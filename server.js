@@ -37,8 +37,11 @@ const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
 const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
 const rssRoutes = require("./routes/rssRoutes");
 const documentStatusRoutes = require("./routes/documentStatus.routes");
+const eSignRoutes = require("./routes/eSign.routes");
+
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -52,7 +55,7 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
   origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
@@ -104,6 +107,8 @@ app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
+
+app.use("/api/esign", eSignRoutes);
 
 // for use for loacal
 // app.use(
