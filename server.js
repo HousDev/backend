@@ -38,6 +38,10 @@ const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
 const rssRoutes = require("./routes/rssRoutes");
 const documentStatusRoutes = require("./routes/documentStatus.routes");
 const eSignRoutes = require("./routes/eSign.routes");
+
+const aiBlogRoutes = require("./routes/aiBlogs.routes") 
+const homeHeroRoutes = require("./routes/homeHero.routes");
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -187,6 +191,8 @@ app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
 app.use('/api/receipts', receiptRoutes);
+app.use('/api/ai-blogs', aiBlogRoutes)
+app.use("/api/home-hero", homeHeroRoutes);
 // Root
 app.get("/", (req, res) => {
   res.json({
