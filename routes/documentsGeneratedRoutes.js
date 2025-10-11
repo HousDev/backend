@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/documentsGeneratedController');
+const { verifyToken } = require('../middleware/authJwt');
+
+router.use(verifyToken);
 
 // GET /api/documents-generated -> get all
 router.get('/', ctrl.getAll);
@@ -27,4 +30,9 @@ router.get('/with-relations/:id', ctrl.getOneWithRelations);
 // Get all documents with related entities
 
 router.post('/bulk-download', ctrl.bulkDownloadZip);
+
+router.post('/:id/save-pdf', ctrl.savePdfToStorage);
+
+
+router.get('/:id/final-pdf', ctrl.downloadFinalPdf);
 module.exports = router;
