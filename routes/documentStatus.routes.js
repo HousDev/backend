@@ -41,4 +41,17 @@ router.post('/documents/:id/otp/verify',  ctrl.verifyOtp);
 router.post('/documents/:id/otp-events',   ctrl.logOtpEvent);
 router.post('/documents/:id/esign-events', ctrl.logEsignEvent);
 
+
+router.get('/otp-sessions', ctrl.listOtpSessions);                 // GET all (with filters)
+router.get('/otp-sessions/:sessionId', ctrl.getOtpSessionById);    // GET one by id (optional)
+router.get('/documents/:id/otp-sessions', ctrl.getOtpSessionsByDocument); // GET by document id
+
+router.get('/otp-events', ctrl.listOtpEvents);
+router.get('/documents/:id/otp-events', ctrl.getOtpEventsByDocument);
+router.get('/documents/:id/otp-events/latest', ctrl.getLatestOtpEvent);
+router.post('/otp-events/latest-by-documents', ctrl.listLatestOtpEventForDocuments);
+
+
+router.get('/documents/:id/all', ctrl.getAllByDocument);
+
 module.exports = router;

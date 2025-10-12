@@ -298,6 +298,33 @@ const handleUploadErrors = (err, req, res, next) => {
   next();
 };
 
+// --- new: expose ensureUploadDir + makeUploadTarget ---
+const ensureUploadDir = (...parts) => {
+  const dir = path.join(UPLOAD_ROOT, ...parts);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created upload directory: ${dir}`);
+  }
+  return dir;
+};
+
+/**
+ * makeUploadTarget('documents', docId, 'original.pdf') =>
+ *   { dir, absPath, publicUrl }
+ */
+const makeUploadTarget = (...parts) => {
+  if (!parts || parts.length < 2) {
+    throw new Error('makeUploadTarget needs at least a folder and a filename');
+  }
+  const fileName = parts[parts.length - 1];
+  const dirParts = parts.slice(0, -1);
+
+  const dir = ensureUploadDir(...dirParts);
+  const absPath = path.join(dir, fileName);
+  const publicUrl = toPublicUrl(absPath);  // handles Windows slashes + absolute CDN if set
+  return { dir, absPath, publicUrl };
+};
+
 module.exports = {
   // storages
   upload, // properties
@@ -312,5 +339,7 @@ module.exports = {
   toPublicUrl,
   UPLOAD_ROOT,
   UPLOAD_PUBLIC_BASE,
+   ensureUploadDir,
+  makeUploadTarget,
 };
 

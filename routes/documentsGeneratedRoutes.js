@@ -35,4 +35,5 @@ router.post('/:id/save-pdf', ctrl.savePdfToStorage);
 
 
 router.get('/:id/final-pdf', ctrl.downloadFinalPdf);
+router.get('/documents/:id/verification-summary', ctrl.verificationSummary);
 module.exports = router;
