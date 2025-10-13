@@ -418,6 +418,350 @@ async function bothVerified(document_id) {
   return !!(flags.buyer && flags.seller);
 }
 
+/* =========================
+   OTP session list readers
+   ========================= */
+
+/**
+ * Build WHERE clause safely from filters.
+ * Supported filters:
+ *  - document_id: number
+ *  - role: 'buyer' | 'seller'
+ *  - channel: 'sms' | 'email'
+ *  - verified: true|false      (verified_at IS/IS NOT NULL)
+ *  - onlyActive: boolean       (expires_at>NOW and attempts<max_attempts and verified_at IS NULL)
+ *  - sent_to_like: string      (LIKE '%...%')
+ */
+function buildOtpWhere(filters = {}) {
+  const where = [];
+  const params = [];
+
+  if (filters.document_id != null) {
+    where.push(`document_id = ?`);
+    params.push(Number(filters.document_id));
+  }
+  if (filters.role) {
+    where.push(`role = ?`);
+    params.push(String(filters.role));
+  }
+  if (filters.channel) {
+    where.push(`channel = ?`);
+    params.push(String(filters.channel));
+  }
+  if (typeof filters.verified === 'boolean') {
+    if (filters.verified) where.push(`verified_at IS NOT NULL`);
+    else where.push(`verified_at IS NULL`);
+  }
+  if (filters.onlyActive) {
+    where.push(`expires_at > NOW(3)`);
+    where.push(`verified_at IS NULL`);
+    where.push(`attempts < max_attempts`);
+  }
+  if (filters.sent_to_like) {
+    where.push(`sent_to LIKE ?`);
+    params.push(`%${filters.sent_to_like}%`);
+  }
+
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return { clause, params };
+}
+
+/**
+ * GET ALL (paginated)
+ * @param {Object} opts
+ *  - filters: see buildOtpWhere
+ *  - page: 1-based page (default 1)
+ *  - pageSize: items per page (default 25, max 200)
+ *  - orderBy: column to order (default 'id')
+ *  - orderDir: 'ASC'|'DESC' (default 'DESC')
+ */
+async function listOtpSessions(opts = {}) {
+  const {
+    filters = {},
+    page = 1,
+    pageSize = 25,
+    orderBy = 'id',
+    orderDir = 'DESC',
+  } = opts;
+
+  const safeOrderBy = ['id', 'document_id', 'role', 'channel', 'expires_at', 'created_at', 'verified_at', 'attempts']
+    .includes(orderBy) ? orderBy : 'id';
+  const safeOrderDir = String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+  const limit = Math.max(1, Math.min(Number(pageSize) || 25, 200));
+  const offset = Math.max(0, ((Number(page) || 1) - 1) * limit);
+
+  const { clause, params } = buildOtpWhere(filters);
+
+  const rows = await q(
+    `SELECT *
+       FROM document_otp_sessions
+       ${clause}
+      ORDER BY ${safeOrderBy} ${safeOrderDir}
+      LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  const [{ total }] = await q(
+    `SELECT COUNT(*) AS total
+       FROM document_otp_sessions
+       ${clause}`,
+    params
+  );
+
+  return {
+    page: Number(page) || 1,
+    pageSize: limit,
+    total,
+    rows,
+  };
+}
+
+/**
+ * GET BY document_id (optionally filter role/channel/verified/onlyActive)
+ * Returns all rows for that document (e.g., historical regenerations).
+ */
+async function getOtpSessionsByDocument(document_id, filters = {}) {
+  const { clause, params } = buildOtpWhere({ ...filters, document_id });
+  return q(
+    `SELECT *
+       FROM document_otp_sessions
+       ${clause}
+      ORDER BY id DESC`,
+    params
+  );
+}
+
+/** GET one OTP session by its primary key id */
+async function getOtpSessionById(id) {
+  const rows = await q(
+    `SELECT *
+       FROM document_otp_sessions
+      WHERE id = ?`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+/** Bulk: GET sessions for multiple docs (grouped by document_id) */
+async function getOtpSessionsForDocuments(document_ids = [], filters = {}) {
+  if (!Array.isArray(document_ids) || document_ids.length === 0) return [];
+  const placeholders = document_ids.map(() => '?').join(',');
+
+  // Merge base filters, but ignore document_id in filters (we supply IN list)
+  const f = { ...filters };
+  delete f.document_id;
+
+  const { clause, params } = buildOtpWhere(f);
+  const where = clause ? `${clause} AND document_id IN (${placeholders})`
+                       : `WHERE document_id IN (${placeholders})`;
+
+  const rows = await q(
+    `SELECT *
+       FROM document_otp_sessions
+       ${where}
+      ORDER BY document_id ASC, id DESC`,
+    [...params, ...document_ids]
+  );
+
+  // Optionally return grouped map by doc id:
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.document_id)) map.set(r.document_id, []);
+    map.get(r.document_id).push(r);
+  }
+  return { rows, byDocumentId: map };
+}
+
+function buildOtpEventWhere(filters = {}) {
+  const where = [];
+  const params = [];
+
+  if (filters.document_id != null) {
+    where.push(`document_id = ?`);
+    params.push(Number(filters.document_id));
+  }
+  if (filters.purpose) {
+    where.push(`purpose = ?`);
+    params.push(String(filters.purpose));
+  }
+  if (filters.status) {
+    where.push(`status = ?`);
+    params.push(String(filters.status));
+  }
+  if (filters.sent_to_like) {
+    where.push(`sent_to LIKE ?`);
+    params.push(`%${filters.sent_to_like}%`);
+  }
+  if (filters.from) {
+    where.push(`created_at >= ?`);
+    params.push(new Date(filters.from));
+  }
+  if (filters.to) {
+    where.push(`created_at <= ?`);
+    params.push(new Date(filters.to));
+  }
+
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return { clause, params };
+}
+
+/** GET ALL otp events (paginated) */
+async function listOtpEvents(opts = {}) {
+  const {
+    filters = {},
+    page = 1,
+    pageSize = 25,
+    orderBy = 'created_at',
+    orderDir = 'DESC',
+    fields = ['*'],
+  } = opts;
+
+  const safeOrderBy = ['id','document_id','purpose','status','created_at'].includes(orderBy) ? orderBy : 'created_at';
+  const safeOrderDir = String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+  const limit = Math.max(1, Math.min(Number(pageSize) || 25, 200));
+  const offset = Math.max(0, ((Number(page) || 1) - 1) * limit);
+
+  const { clause, params } = buildOtpEventWhere(filters);
+  const sel = Array.isArray(fields) && fields.length ? fields.join(', ') : '*';
+
+  const rows = await q(
+    `SELECT ${sel}
+       FROM document_otp_events
+       ${clause}
+      ORDER BY ${safeOrderBy} ${safeOrderDir}
+      LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  const [{ total }] = await q(
+    `SELECT COUNT(*) AS total
+       FROM document_otp_events
+       ${clause}`,
+    params
+  );
+
+  return { page: Number(page) || 1, pageSize: limit, total, rows };
+}
+
+/** GET events by document_id (optionally filter purpose/status & time-range), newest first */
+async function getOtpEventsByDocument(document_id, filters = {}, fields = ['*']) {
+  const { clause, params } = buildOtpEventWhere({ ...filters, document_id });
+  const sel = Array.isArray(fields) && fields.length ? fields.join(', ') : '*';
+  return q(
+    `SELECT ${sel}
+       FROM document_otp_events
+       ${clause}
+      ORDER BY created_at DESC, id DESC`,
+    params
+  );
+}
+
+/** GET latest event for a document (optionally by purpose) */
+async function getLatestOtpEvent(document_id, purpose = null, fields = ['*']) {
+  const filters = { document_id };
+  if (purpose) filters.purpose = purpose;
+  const { clause, params } = buildOtpEventWhere(filters);
+  const sel = Array.isArray(fields) && fields.length ? fields.join(', ') : '*';
+  const rows = await q(
+    `SELECT ${sel}
+       FROM document_otp_events
+       ${clause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    params
+  );
+  return rows[0] || null;
+}
+
+/** BULK: latest event per document (optionally purpose) — 1 row per doc_id */
+async function listLatestOtpEventForDocuments(document_ids = [], purpose = null, fields = ['document_id','purpose','status','created_at']) {
+  if (!Array.isArray(document_ids) || document_ids.length === 0) return [];
+  const placeholders = document_ids.map(() => '?').join(',');
+  const params = [...document_ids];
+  let extra = '';
+  if (purpose) { extra = ' AND e.purpose = ?'; params.push(String(purpose)); }
+
+  const sel = Array.isArray(fields) && fields.length ? fields.join(', ') : 'document_id, purpose, status, created_at';
+
+  return q(
+    `SELECT ${sel}
+       FROM (
+         SELECT
+           e.*,
+           ROW_NUMBER() OVER (PARTITION BY e.document_id ORDER BY e.created_at DESC, e.id DESC) AS rn
+         FROM document_otp_events e
+        WHERE e.document_id IN (${placeholders}) ${extra}
+       ) t
+      WHERE t.rn = 1
+      ORDER BY t.document_id ASC`,
+    params
+  );
+}
+/** =========================
+ *  GET ALL (bundle) by document_id
+ *  Returns snapshot, history, timeline, shares, otp sessions, otp events, flags
+ *  ========================= */
+async function getAllByDocument(document_id, opts = {}) {
+  const {
+    includeRecipients = false,                        // also fetch recipients per share batch
+    otpEventsFields = ['id','document_id','status','purpose','sent_to','created_at','otp_ref','details','created_by'],
+    otpSessionsFilters = {},                          // e.g. { onlyActive: true }
+    timelineLimit = null,                             // e.g. 200
+  } = opts;
+
+  await ensureSnapshot(document_id);
+
+  // base fetches in parallel
+  const [
+    snapshot,
+    history,
+    timelineAll,
+    shareBatches,
+    otpSessions,
+    otpEvents,
+    verification
+  ] = await Promise.all([
+    getOrInitSnapshot(document_id),
+    getHistory(document_id),
+    (async () => {
+      const rows = await getTimeline(document_id);
+      if (timelineLimit && Number.isFinite(timelineLimit)) {
+        return rows.slice(-Number(timelineLimit));
+      }
+      return rows;
+    })(),
+    listShareBatches(document_id),
+    getOtpSessionsByDocument(document_id, otpSessionsFilters),
+    getOtpEventsByDocument(document_id, {}, otpEventsFields),
+    getVerificationFlags(document_id),
+  ]);
+
+  // optionally attach recipients for each share batch
+  let recipientsByBatch = {};
+  if (includeRecipients && Array.isArray(shareBatches) && shareBatches.length) {
+    const all = await Promise.all(shareBatches.map(b => getShareRecipients(b.id)));
+    recipientsByBatch = shareBatches.reduce((acc, b, i) => {
+      acc[b.id] = all[i] || [];
+      return acc;
+    }, {});
+  }
+
+  return {
+    document_id,
+    snapshot,
+    history,
+    timeline: timelineAll,
+    shareBatches,
+    ...(includeRecipients ? { recipientsByBatch } : {}),
+    otpSessions,
+    otpEvents,
+    verification, // { buyer: boolean, seller: boolean }
+  };
+}
+
+
 module.exports = {
   // core
   setStatus,
@@ -433,6 +777,7 @@ module.exports = {
   logOtpEvent,
   logEsignEvent,
 };
+
 module.exports.getCatalog = getCatalog;
 
 // expose OTP helpers
@@ -442,3 +787,18 @@ module.exports.bumpOtpAttempt = bumpOtpAttempt;
 module.exports.markOtpVerified = markOtpVerified;
 module.exports.getVerificationFlags = getVerificationFlags;
 module.exports.bothVerified = bothVerified;
+// OTP readers
+module.exports.listOtpSessions = listOtpSessions;
+module.exports.getOtpSessionsByDocument = getOtpSessionsByDocument;
+module.exports.getOtpSessionById = getOtpSessionById;
+module.exports.getOtpSessionsForDocuments = getOtpSessionsForDocuments;
+
+// OTP event readers
+module.exports.listOtpEvents = listOtpEvents;
+module.exports.getOtpEventsByDocument = getOtpEventsByDocument;
+module.exports.getLatestOtpEvent = getLatestOtpEvent;
+module.exports.listLatestOtpEventForDocuments = listLatestOtpEventForDocuments;
+module.exports.getAllByDocument = getAllByDocument;
+
+
+

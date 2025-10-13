@@ -8,7 +8,8 @@ const bcrypt = require("bcryptjs");
 
 const ok  = (res, data) => res.json({ ok: true, data });
 const bad = (res, msg, code = 400) => res.status(code).json({ ok: false, error: msg });
-
+const truthy = (v) => v === true || v === 'true' || v === '1' || v === 1;
+const falsy  = (v) => v === false || v === 'false' || v === '0' || v === 0;
 function toId(x) {
   const n = Number(x);
   if (!Number.isFinite(n) || n <= 0) {
@@ -384,5 +385,230 @@ exports.logEsignEvent = async (req, res) => {
     return ok(res, data);
   } catch (err) {
     return bad(res, err.message || "Failed to log e-sign event");
+  }
+};
+
+// ===================== OTP SESSIONS: READERS (you asked for controller too) =====================
+
+/** GET /otp-sessions */
+exports.listOtpSessions = async (req, res) => {
+  try {
+    const {
+      document_id,
+      role,
+      channel,
+      verified,
+      onlyActive,
+      sent_to_like,
+      page = 1,
+      pageSize = 25,
+      orderBy = 'id',
+      orderDir = 'DESC',
+    } = req.query || {};
+
+    const filters = {};
+    if (document_id != null) filters.document_id = Number(document_id);
+    if (role) filters.role = String(role).toLowerCase();
+    if (channel) filters.channel = String(channel).toLowerCase();
+    if (truthy(onlyActive) || falsy(onlyActive)) filters.onlyActive = truthy(onlyActive);
+    if (truthy(verified) || falsy(verified))     filters.verified   = truthy(verified);
+    if (sent_to_like) filters.sent_to_like = String(sent_to_like);
+
+    const out = await Model.listOtpSessions({
+      filters,
+      page: Number(page) || 1,
+      pageSize: Number(pageSize) || 25,
+      orderBy: String(orderBy),
+      orderDir: String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC',
+    });
+    return ok(res, out);
+  } catch (err) {
+    return bad(res, err.message || "Failed to list OTP sessions");
+  }
+};
+
+/** GET /documents/:id/otp-sessions */
+exports.getOtpSessionsByDocument = async (req, res) => {
+  try {
+    const document_id = toId(req.params.id);
+    const { role, channel, verified, onlyActive, sent_to_like } = req.query || {};
+    const filters = {};
+    if (role) filters.role = String(role).toLowerCase();
+    if (channel) filters.channel = String(channel).toLowerCase();
+    if (truthy(onlyActive) || falsy(onlyActive)) filters.onlyActive = truthy(onlyActive);
+    if (truthy(verified) || falsy(verified))     filters.verified   = truthy(verified);
+    if (sent_to_like) filters.sent_to_like = String(sent_to_like);
+
+    const rows = await Model.getOtpSessionsByDocument(document_id, filters);
+    return ok(res, rows);
+  } catch (err) {
+    return bad(res, err.message || "Failed to fetch OTP sessions for document");
+  }
+};
+
+/** GET /otp-sessions/:sessionId */
+exports.getOtpSessionById = async (req, res) => {
+  try {
+    const id = toId(req.params.sessionId);
+    const row = await Model.getOtpSessionById(id);
+    if (!row) return bad(res, "OTP session not found", 404);
+    return ok(res, row);
+  } catch (err) {
+    return bad(res, err.message || "Failed to fetch OTP session");
+  }
+};
+
+// ===================== OTP EVENTS: READERS =====================
+
+/** GET /otp-events */
+exports.listOtpEvents = async (req, res) => {
+  try {
+    const {
+      document_id,
+      purpose,
+      status,
+      sent_to_like,
+      from,
+      to,
+      page = 1,
+      pageSize = 25,
+      orderBy = 'created_at',
+      orderDir = 'DESC',
+      fields,
+    } = req.query || {};
+
+    const filters = {};
+    if (document_id != null) filters.document_id = Number(document_id);
+    if (purpose) filters.purpose = String(purpose);
+    if (status)  filters.status  = String(status);
+    if (sent_to_like) filters.sent_to_like = String(sent_to_like);
+    if (from) filters.from = String(from);
+    if (to)   filters.to   = String(to);
+
+    const fieldList = fields
+      ? String(fields).split(',').map(s => s.trim()).filter(Boolean)
+      : ['*'];
+
+    const out = await Model.listOtpEvents({
+      filters,
+      page: Number(page) || 1,
+      pageSize: Number(pageSize) || 25,
+      orderBy: String(orderBy),
+      orderDir: String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC',
+      fields: fieldList,
+    });
+    return ok(res, out);
+  } catch (err) {
+    return bad(res, err.message || "Failed to list OTP events");
+  }
+};
+
+/** GET /documents/:id/otp-events */
+exports.getOtpEventsByDocument = async (req, res) => {
+  try {
+    const document_id = toId(req.params.id);
+    const { purpose, status, sent_to_like, from, to, fields } = req.query || {};
+    const filters = {};
+    if (purpose) filters.purpose = String(purpose);
+    if (status)  filters.status  = String(status);
+    if (sent_to_like) filters.sent_to_like = String(sent_to_like);
+    if (from) filters.from = String(from);
+    if (to)   filters.to   = String(to);
+
+    const fieldList = fields
+      ? String(fields).split(',').map(s => s.trim()).filter(Boolean)
+      : ['*'];
+
+    const rows = await Model.getOtpEventsByDocument(document_id, filters, fieldList);
+    return ok(res, rows);
+  } catch (err) {
+    return bad(res, err.message || "Failed to fetch OTP events for document");
+  }
+};
+
+/** GET /documents/:id/otp-events/latest */
+exports.getLatestOtpEvent = async (req, res) => {
+  try {
+    const document_id = toId(req.params.id);
+    const { purpose, fields } = req.query || {};
+    const fieldList = fields
+      ? String(fields).split(',').map(s => s.trim()).filter(Boolean)
+      : ['*'];
+
+    const row = await Model.getLatestOtpEvent(document_id, purpose ? String(purpose) : null, fieldList);
+    return ok(res, row || null);
+  } catch (err) {
+    return bad(res, err.message || "Failed to fetch latest OTP event");
+  }
+};
+
+/** POST /otp-events/latest-by-documents  { document_ids: number[], purpose?: string, fields?: string[] } */
+exports.listLatestOtpEventForDocuments = async (req, res) => {
+  try {
+    const { document_ids, purpose = null, fields = ['document_id','purpose','status','created_at'] } = req.body || {};
+    if (!Array.isArray(document_ids) || document_ids.length === 0) {
+      return bad(res, "document_ids must be a non-empty array");
+    }
+    const ids = document_ids.map(toId);
+    const rows = await Model.listLatestOtpEventForDocuments(ids, purpose ? String(purpose) : null, fields);
+    return ok(res, rows);
+  } catch (err) {
+    return bad(res, err.message || "Failed to fetch latest OTP events for documents");
+  }
+};
+
+
+/** GET /documents/:id/all — single-call bundle for a document */
+exports.getAllByDocument = async (req, res) => {
+  try {
+    const document_id = toId(req.params.id);
+
+    const {
+      includeRecipients,  // "true"/"false"
+      onlyActive,         // otpSessions filter
+      verified,           // otpSessions filter
+      timelineLimit,      // number
+      otpEventsFields     // CSV string
+    } = req.query || {};
+
+    // Build options for model
+    const opts = {
+      includeRecipients: String(includeRecipients).toLowerCase() === 'true',
+      otpSessionsFilters: {},
+      timelineLimit: timelineLimit ? Number(timelineLimit) : null,
+      otpEventsFields: otpEventsFields
+        ? String(otpEventsFields)
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+        : [
+            'id',
+            'document_id',
+            'status',
+            'purpose',
+            'sent_to',
+            'created_at',
+            'otp_ref',
+            'details',
+            'created_by',
+          ],
+    };
+
+    // Parse filters safely
+    if (onlyActive !== undefined) {
+      const val = String(onlyActive).toLowerCase();
+      opts.otpSessionsFilters.onlyActive = val === 'true' || val === '1';
+    }
+
+    if (verified !== undefined) {
+      const val = String(verified).toLowerCase();
+      opts.otpSessionsFilters.verified = val === 'true' || val === '1';
+    }
+
+    const data = await Model.getAllByDocument(document_id, opts);
+    return ok(res, data);
+  } catch (err) {
+    console.error("Error in getAllByDocument:", err);
+    return bad(res, err.message || "Failed to fetch document bundle");
   }
 };

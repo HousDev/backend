@@ -1,18 +1,33 @@
+// routes/eSign.routes.js
 const express = require("express");
-const ctrl = require("../controllers/eSign.controller");
-// const { verifyToken } = require("../middleware/authJwt");
+const ctrl = require("../controllers/eSign.controller"); // <-- file name keep same
+const { verifyToken } = require("../middleware/authJwt");
 
 const router = express.Router();
 
-router.post("/init",        /* verifyToken, */ ctrl.init);
-router.post("/resend-otp",  /* verifyToken, */ ctrl.resendOtp);
-router.post("/verify-otp",  /* verifyToken, */ ctrl.verifyOtp);
-router.get ("/redirect-url",/* verifyToken, */ ctrl.getRedirectUrl);
-router.get ("/status",      /* verifyToken, */ ctrl.status);
-router.get ("/artifacts",   /* verifyToken, */ ctrl.artifacts);
+// 🔒 protect all Aadhaar KYC routes
+router.use(verifyToken);
 
-// optional helper to simulate provider webhook
-router.post("/webhook/signed", ctrl.webhookSigned);
-router.get ("/session",        /* verifyToken, */ ctrl.getSession); // <-- add
+/* ==========================================================================
+   Aadhaar OTP-only KYC Flow (Sandbox or Mock)
+   ========================================================================== */
+
+// Step-1: Send Aadhaar OTP
+router.post("/aadhaar/init", ctrl.init);
+
+// Step-2: Resend Aadhaar OTP (cool-down 30s)
+router.post("/aadhaar/resend-otp", ctrl.resendOtp);
+
+// Step-3: Verify Aadhaar OTP and persist KYC snapshot
+router.post("/aadhaar/verify-otp", ctrl.verifyOtp);
+
+// Step-4: Get KYC summary for this session
+router.get("/aadhaar/kyc", ctrl.getKyc);
+
+/* ==========================================================================
+   Notes:
+   - No redirect, no /status, no /artifacts, no /webhook
+   - Final document PDF generation handled by document controller, not here
+   ========================================================================== */
 
 module.exports = router;

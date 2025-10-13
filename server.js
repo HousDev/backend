@@ -8,7 +8,7 @@ const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
-// const path = require("path");   //for local
+const path = require("path");   //for local
 
 const fs = require("fs"); //for server
 
