@@ -1191,6 +1191,147 @@ const searchCityLocationsStrict = async (req, res) => {
   }
 };
 
+
+// Public property without docs
+
+// controllers/property.controller.js
+
+const PublicgetAllProperties = async (req, res) => {
+  try {
+    const properties = await Property.getAll();
+
+    // ✅ Remove sensitive fields before sending to frontend
+    const sanitized = properties.map((p) => {
+      const { ownership_doc_path, ownership_doc_name, ...safe } = p;
+      return safe;
+    });
+
+    res.json({ success: true, data: sanitized });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch properties",
+      error: error.message,
+    });
+  }
+};
+
+
+const PublicgetPropertyBySlug = async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const m = String(slug).match(/^(\d+)(?:-|$)/);
+    if (!m)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid slug format" });
+
+    const id = Number(m[1]);
+    const property = await Property.getById(id);
+    if (!property)
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
+
+    // ✅ Redirect to canonical slug if different
+    if (property.slug && property.slug !== slug) {
+      const qs = req.url.includes("?")
+        ? req.url.slice(req.url.indexOf("?"))
+        : "";
+      return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
+    }
+
+    // ✅ Capture metadata (analytics)
+    const xff = req.headers["x-forwarded-for"];
+    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
+    const userAgent = req.get("User-Agent") || null;
+    const referrer = req.get("Referrer") || req.get("Referer") || null;
+
+    const sessionId = getOrCreateSessionId(req, res);
+    const { token: extractedFilterToken, key: filterParamKey } =
+      extractFilterTokenFromReq(req);
+
+    try {
+      const safePayload = {
+        query: req.query || {},
+        filterToken: extractedFilterToken,
+        filterParamKey: filterParamKey,
+      };
+
+      await Property.recordEvent({
+        property_id: id,
+        slug: property.slug || slug,
+        event_type: "view",
+        event_name: "page_view",
+        payload: safePayload,
+        ip,
+        user_agent: userAgent,
+        referrer,
+        session_id: sessionId,
+        filterToken: extractedFilterToken,
+        user_id: req.user?.id ?? null,
+        dedupe_key: sessionId,
+        minutes_window: 1440,
+      });
+    } catch (e) {
+      console.warn("analytics error:", e && e.message);
+    }
+
+    // ✅ Sanitize sensitive fields before sending to frontend
+    const { ownership_doc_path, ownership_doc_name, ...safeProperty } =
+      property;
+
+    res.json({ success: true, data: safeProperty });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+
+// READ (single by id)
+const PublicgetProperty = async (req, res) => {
+  try {
+    const property = await Property.getById(req.params.id);
+    if (!property) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
+    }
+
+    // Sensitive fields list (same as getAllProperties)
+    const SENSITIVE_KEYS = [
+      "ownership_doc_path",
+      "ownershipDoc",
+      "ownership_document",
+      "internal_notes",
+      "created_by",
+      "updated_by"
+    ];
+
+    // Hide sensitive fields before sending
+    const copy = { ...property };
+    SENSITIVE_KEYS.forEach((key) => delete copy[key]);
+
+    return res.json({ success: true, data: copy });
+  } catch (error) {
+    console.error("getProperty error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch property",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -1207,4 +1348,10 @@ module.exports = {
   saveFilterContextHandler,
   getFilterContextHandler,
   searchCityLocationsStrict,
+
+  //Public
+
+  PublicgetAllProperties,
+  PublicgetPropertyBySlug,
+  PublicgetProperty,
 };

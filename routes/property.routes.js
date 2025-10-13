@@ -57,6 +57,12 @@ router.get("/page/:slug", propertyController.getPropertyBySlug);
 router.get("/getPropertyById/:id", propertyController.getProperty);
 // (avoid duplicate GET "/" and migrate route duplicates)
 
+
+//Public
+router.get("/get-all", propertyController.PublicgetAllProperties);
+router.get("/pro-page/:slug", propertyController.PublicgetPropertyBySlug);
+router.get("/get-one/:id", propertyController.PublicgetProperty);
+
 // Create
 router.post(
   "/create",
