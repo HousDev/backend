@@ -44,6 +44,7 @@
 const express = require("express");
 const router = express.Router();
 const propertyController = require("../controllers/property.controller");
+const brochureCtrl = require("../controllers/propertyBrochure.controller");
 const {
   upload,
   handleUploadErrors,
@@ -96,4 +97,6 @@ router.post("/filters", propertyController.saveFilterContextHandler);
 router.get("/filters/:id", propertyController.getFilterContextHandler);
 router.post("/migrate", propertyController.migratePropertyData);
 router.get("/city-locations", propertyController.searchCityLocationsStrict);
+
+router.post('/:id/brochure', brochureCtrl.generateBrochurePDF);
 module.exports = router;
