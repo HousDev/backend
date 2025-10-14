@@ -12,6 +12,14 @@ const puppeteer = require("puppeteer");
  *   property?: {} (optional — ignored if DB has canonical)
  * }
  */
+// controllers/propertyBrochure.controller.js
+// Requires: const Property = require("../models/Property");
+//           const path = require("path"); const fs = require("fs-extra"); const puppeteer = require("puppeteer");
+
+// controllers/propertyBrochure.controller.js
+// Requires: const Property = require("../models/Property");
+//           const path = require("path"); const fs = require("fs-extra"); const puppeteer = require("puppeteer");
+
 exports.generateBrochurePDF = async (req, res) => {
   const id = req.params.id;
 
@@ -23,12 +31,10 @@ exports.generateBrochurePDF = async (req, res) => {
         .json({ success: false, message: "Property not found" });
     }
 
-    // selections from frontend
+    /* ------------ config from body ------------ */
     const sel = new Set(
       (req.body?.customizations?.selectedContent || []).filter(Boolean)
     );
-
-    // theming
     const theme = {
       primary: req.body?.customizations?.primaryColor || "#4F46E5",
       secondary: req.body?.customizations?.secondaryColor || "#10B981",
@@ -36,45 +42,149 @@ exports.generateBrochurePDF = async (req, res) => {
       layout: req.body?.customizations?.layout || "standard",
       watermark: Boolean(req.body?.customizations?.watermark ?? true),
     };
+    const publicBaseUrl = String(req.body?.publicBaseUrl || "").replace(
+      /\/+$/,
+      ""
+    );
+    const fileName =
+      (req.body?.fileName && String(req.body.fileName).trim()) ||
+      `property-${id}-${Date.now()}.pdf`;
 
-    const template = String(req.body?.template || "premium");
-
-    // --- helpers ---
+    /* ---------------- helpers ---------------- */
+    const esc = (s = "") =>
+      String(s).replace(
+        /[&<>"]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
     const safe = (v, d = "—") =>
-      v === null ||
-      v === undefined ||
-      (typeof v === "string" && v.trim() === "")
-        ? d
-        : v;
-
+      v == null || (typeof v === "string" && v.trim() === "") ? d : v;
     const num = (v) => {
-      if (v === null || v === undefined || v === "") return 0;
+      if (v == null || v === "") return 0;
       const n = Number(String(v).replace(/[^\d.-]/g, ""));
       return Number.isNaN(n) ? 0 : n;
     };
-
     const currency = (val) => {
       const n = num(val);
       if (n >= 1e7) return `₹${(n / 1e7).toFixed(1)} Cr`;
       if (n >= 1e5) return `₹${(n / 1e5).toFixed(1)} L`;
       return `₹${n.toLocaleString("en-IN")}`;
     };
-
     const monthName = (m) => {
       const n = typeof m === "string" ? parseInt(m, 10) : m;
       if (!n || n < 1 || n > 12) return "";
       return new Date(0, n - 1).toLocaleString("en", { month: "long" });
     };
+    const pickFirstStr = (...vals) =>
+      vals
+        .map((v) => (typeof v === "string" ? v : v == null ? "" : String(v)))
+        .map((s) => s.trim())
+        .find(Boolean) || "";
+    const splitPrimaryAndCity = (s) => {
+      const parts = s
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (parts.length >= 2) {
+        const city = parts[parts.length - 1];
+        const primary = parts.slice(0, parts.length - 1).join(", ");
+        return { primary, city };
+      }
+      return { primary: s.trim(), city: "" };
+    };
+    const toPhotoArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.filter(Boolean);
+      if (typeof val === "string") {
+        try {
+          const arr = JSON.parse(val);
+          if (Array.isArray(arr)) return arr.filter(Boolean);
+        } catch {}
+        if (val.includes(","))
+          return val
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        return [val.trim()].filter(Boolean);
+      }
+      return [];
+    };
+    const slugify = (s = "") =>
+      s
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 80);
 
-    // --- normalize DB property to UI-ish shape (support both notations) ---
+    /* ------------- normalize DB → p ------------- */
+    const type = pickFirstStr(
+      dbProp.type,
+      dbProp.property_type,
+      dbProp.propertyType,
+      dbProp.property_type_name
+    );
+    const unitType = pickFirstStr(
+      dbProp.unitType,
+      dbProp.unit_type,
+      dbProp.unitTypeName
+    );
+    const subtype = pickFirstStr(
+      dbProp.subtype,
+      dbProp.property_subtype_name,
+      dbProp.propertySubtype
+    );
+
+    let locationNormalized = pickFirstStr(
+      dbProp.locationNormalized,
+      dbProp.location_normalized,
+      dbProp.normalized_location
+    );
+    let location = pickFirstStr(
+      dbProp.location,
+      dbProp.location_name,
+      dbProp.locality,
+      dbProp.area,
+      dbProp.neighbourhood,
+      dbProp.address?.line1,
+      dbProp.address_line1
+    );
+    let city = pickFirstStr(
+      dbProp.city,
+      dbProp.city_name,
+      dbProp.town,
+      dbProp.address?.city,
+      dbProp.address_city
+    );
+
+    if (!locationNormalized) {
+      const primary = location || "";
+      locationNormalized =
+        primary && city
+          ? `${primary}, ${city}`
+              .replace(/\s*,\s*/g, ", ")
+              .replace(/\s{2,}/g, " ")
+          : primary || city || "";
+    }
+    if (!city && locationNormalized) {
+      const { primary, city: inferredCity } =
+        splitPrimaryAndCity(locationNormalized);
+      if (inferredCity) {
+        city = inferredCity;
+        if (!location) location = primary;
+      }
+    }
+
     const p = {
-      id: dbProp.id,
-      title: dbProp.title || dbProp.society_name || "Property",
-      location: dbProp.location || dbProp.location_name || "",
-      city: dbProp.city || dbProp.city_name || "",
-      type: dbProp.type || dbProp.property_type || "",
-      unitType: dbProp.unitType || dbProp.unit_type || "",
-      subtype: dbProp.subtype || "",
+      id: dbProp.id ?? dbProp.property_id ?? dbProp.propertyId,
+      propertyId: dbProp.propertyId ?? dbProp.property_id ?? dbProp.id,
+      slug: pickFirstStr(dbProp.slug, dbProp.property_slug, dbProp.seo_slug),
+      title: dbProp.title || dbProp.society_name || "",
+      location,
+      locationNormalized,
+      city,
+      type,
+      unitType,
+      subtype,
       carpetArea:
         dbProp.carpetArea || dbProp.carpet_area || dbProp.square_feet || "",
       price: dbProp.price || dbProp.final_price || dbProp.budget || 0,
@@ -98,11 +208,7 @@ exports.generateBrochurePDF = async (req, res) => {
       priceGrowth: dbProp.priceGrowth ?? "",
       investmentGrade: dbProp.investmentGrade ?? "",
       description: dbProp.description || dbProp.details || "",
-      photos: Array.isArray(dbProp.photos)
-        ? dbProp.photos
-        : dbProp.photos
-        ? [dbProp.photos]
-        : [],
+      photos: toPhotoArray(dbProp.photos || dbProp.images),
       amenities: Array.isArray(dbProp.amenities)
         ? dbProp.amenities
         : dbProp.amenities
@@ -128,123 +234,134 @@ exports.generateBrochurePDF = async (req, res) => {
       },
     };
 
-    const images =
-      p.photos && p.photos.length > 0
-        ? p.photos
-        : [
-            "https://images.pexels.com/photos/1396122/pexels-photo-1396122.jpeg",
-          ];
+    /* ------------- derived values ------------- */
+    const show = (key) => sel.has(key); // still used for other sections
+    const makeTitleText = (prop) => {
+      const parts = [prop.type, prop.unitType, prop.subtype]
+        .map((s) => (s || "").trim())
+        .filter(Boolean);
+      return parts.join(" ") || prop.title || "Property";
+    };
+    const computeLocationLine = (prop) => {
+      const primaryRaw = prop.locationNormalized || prop.location || "";
+      const cityRaw = prop.city || "";
+      const primary = primaryRaw.trim();
+      const cityStr = cityRaw.trim();
+      if (!primary && !cityStr) return "";
+      if (!primary) return cityStr;
+      if (!cityStr) return primary;
+      if (primary.toLowerCase().includes(cityStr.toLowerCase())) return primary;
+      return `${primary}, ${cityStr}`;
+    };
+    const composedTitle = `${makeTitleText(p)}`;
+    const locationLine = computeLocationLine(p);
+
+    const buildDeepUrl = () => {
+      if (!show("propertyUrl")) return "";
+      if (!publicBaseUrl) return "";
+      const slug =
+        p.slug ||
+        slugify(
+          `${p.type || ""}-${p.unitType || ""}-${p.title || ""}-${p.city || ""}`
+        );
+      const suffix = slug || p.id || "";
+      return `${publicBaseUrl}/properties/${suffix}`;
+    };
+    const deepUrl = buildDeepUrl();
+
+    /* ---------------- HTML blocks ---------------- */
+    const images = p.photos.length
+      ? p.photos
+      : ["https://images.pexels.com/photos/1396122/pexels-photo-1396122.jpeg"];
     const mainImage = images[0];
 
-    // price per sq ft
     const pricePerSqFt =
       p.price && p.carpetArea
         ? Math.round(num(p.price) / Math.max(1, num(p.carpetArea)))
         : null;
 
-    // --- blocks (conditional) ---
-    const show = (key) => sel.has(key);
-
-    const headerBlock =
-      show("propertyType") ||
-      show("location") ||
-      show("verified") ||
-      show("featured")
-        ? `
-      <section class="header">
-        ${
-          show("propertyType")
-            ? `<h1>${
-                [p.type, p.unitType, p.subtype].filter(Boolean).join(" • ") ||
-                p.title
-              }</h1>`
-            : ""
-        }
-        ${
-          show("location")
-            ? `<div class="location">${[p.location, p.city]
-                .filter(Boolean)
-                .join(", ")}</div>`
-            : ""
-        }
-        <div class="badges">
-          ${
-            show("featured") && p.featured
-              ? `<span class="featured">FEATURED</span>`
-              : ""
-          }
-          ${
-            show("verified") && p.verified
-              ? `<span class="verified">VERIFIED</span>`
-              : ""
-          }
+    // Header card
+    const headerBlock = `
+      <section class="header-card">
+        <div class="header-left">
+          <span class="id-pill">#${p.id}</span>
+          <div class="title-location-wrap">
+            <div class="title-row">${esc(composedTitle)}</div>
+            ${
+              locationLine && show("location")
+                ? `<div class="location-inline">${esc(locationLine)}</div>`
+                : ""
+            }
+          </div>
         </div>
-      </section>`
-        : "";
+        <div class="header-right">
+          <div class="badges">
+            ${p.featured ? `<span class="badge featured">FEATURED</span>` : ""}
+            ${p.verified ? `<span class="badge verified">VERIFIED</span>` : ""}
+          </div>
+        </div>
+      </section>`;
 
-    const mainImageBlock = show("mainImage")
-      ? `<img class="cover" src="${mainImage}" alt="cover" />`
+    const imageBlock = show("mainImage")
+      ? `<div class="image-container">
+           <img class="cover" src="${esc(mainImage)}" alt="cover" />
+           ${
+             deepUrl
+               ? `<a href="${esc(
+                   deepUrl
+                 )}" class="view-property-btn-overlay">View Property →</a>`
+               : ""
+           }
+         </div>`
       : "";
 
     const priceBlock = show("price")
-      ? `
-      <section class="price">
-        <div class="left">
-          <div class="label">Property Price</div>
-          <div class="value priceVal">${currency(p.price)}</div>
-        </div>
-        ${
-          pricePerSqFt
-            ? `
-          <div class="right">
-            <div class="label">Per Sq Ft</div>
-            <div class="value">₹${pricePerSqFt.toLocaleString("en-IN")}</div>
-          </div>`
-            : ""
-        }
-      </section>`
+      ? `<section class="price">
+           <div class="left">
+             <div class="label">Property Price</div>
+             <div class="value priceVal" style="color: green;">${currency(
+               p.price
+             )}</div>
+           </div>
+           ${
+             pricePerSqFt
+               ? `<div class="right"><div class="label">Per Sq Ft</div><div class="value" style="color: green;">₹${pricePerSqFt.toLocaleString(
+                   "en-IN"
+                 )}</div></div>`
+               : ""
+           }
+         </section>`
       : "";
 
-    const stats = [];
-    if (show("bedrooms"))
-      stats.push(
-        `<div class="kv"><span>Bedrooms</span><span>${safe(
-          p.bedrooms
-        )}</span></div>`
-      );
-    if (show("bathrooms"))
-      stats.push(
-        `<div class="kv"><span>Bathrooms</span><span>${safe(
-          p.bathrooms
-        )}</span></div>`
-      );
-    if (show("parking"))
-      stats.push(
-        `<div class="kv"><span>Parking</span><span>${safe(
-          p.parking
-        )}</span></div>`
-      );
-    if (show("carpetArea"))
-      stats.push(
-        `<div class="kv"><span>Carpet Area</span><span>${safe(
-          p.carpetArea
-        )} sq ft</span></div>`
-      );
-    const statsBlock = stats.length
-      ? `<section class="stats">${stats.join("")}</section>`
-      : "";
+    /* ----- STATS: force one row with 4 items (always visible) ----- */
+    const statsBlock = `
+      <section class="stats stats-4">
+        <div class="kv"><span>Bedrooms</span><span>${esc(
+          safe(p.bedrooms)
+        )}</span></div>
+        <div class="kv"><span>Bathrooms</span><span>${esc(
+          safe(p.bathrooms)
+        )}</span></div>
+        <div class="kv"><span>Parking</span><span>${esc(
+          safe(p.parking)
+        )}</span></div>
+        <div class="kv"><span>Carpet Area</span><span>${
+          p.carpetArea ? `${esc(safe(p.carpetArea))} sq ft` : "—"
+        }</span></div>
+      </section>`;
 
     const descriptionBlock =
       show("description") && p.description
-        ? `<section><h3>About Property</h3><p>${p.description}</p></section>`
+        ? `<section><h3>About Property</h3><p>${esc(
+            p.description
+          )}</p></section>`
         : "";
 
-    // details grid
     const detailItems = [];
     if (show("furnishing"))
       detailItems.push(
-        `<div><span class="k">Furnishing:</span><span class="v">${safe(
-          p.furnishing
+        `<div><span class="k">Furnishing:</span><span class="v">${esc(
+          safe(p.furnishing)
         )}</span></div>`
       );
     if (show("possession") && (p.possessionMonth || p.possessionYear)) {
@@ -252,21 +369,21 @@ exports.generateBrochurePDF = async (req, res) => {
         .filter(Boolean)
         .join(" ");
       detailItems.push(
-        `<div><span class="k">Possession:</span><span class="v">${
+        `<div><span class="k">Possession:</span><span class="v">${esc(
           pos || "—"
-        }</span></div>`
+        )}</span></div>`
       );
     }
     if (show("facing"))
       detailItems.push(
-        `<div><span class="k">Facing:</span><span class="v">${safe(
-          p.facing
+        `<div><span class="k">Facing:</span><span class="v">${esc(
+          safe(p.facing)
         )}</span></div>`
       );
     if (show("builtYear"))
       detailItems.push(
-        `<div><span class="k">Built Year:</span><span class="v">${safe(
-          p.builtYear || p.possessionYear
+        `<div><span class="k">Built Year:</span><span class="v">${esc(
+          safe(p.builtYear || p.possessionYear)
         )}</span></div>`
       );
     if (show("floor") && (p.raw.floor || p.raw.totalFloors)) {
@@ -275,30 +392,34 @@ exports.generateBrochurePDF = async (req, res) => {
           ? `${p.raw.floor} / ${p.raw.totalFloors}`
           : p.raw.floor ?? "—";
       detailItems.push(
-        `<div><span class="k">Floor:</span><span class="v">${f}</span></div>`
+        `<div><span class="k">Floor:</span><span class="v">${esc(
+          f
+        )}</span></div>`
       );
     }
     if (show("wing") && p.raw.wing)
       detailItems.push(
-        `<div><span class="k">Wing:</span><span class="v">${p.raw.wing}</span></div>`
+        `<div><span class="k">Wing:</span><span class="v">${esc(
+          p.raw.wing
+        )}</span></div>`
       );
     if (show("unitNo") && p.raw.unitNo)
       detailItems.push(
-        `<div><span class="k">Unit No:</span><span class="v">${p.raw.unitNo}</span></div>`
+        `<div><span class="k">Unit No:</span><span class="v">${esc(
+          p.raw.unitNo
+        )}</span></div>`
       );
     const detailsBlock = detailItems.length
-      ? `
-      <section>
-        <h3>Property Details</h3>
-        <div class="detailsGrid">${detailItems.join("")}</div>
-      </section>`
+      ? `<section><h3>Property Details</h3><div class="detailsGrid details-4">${detailItems.join(
+          ""
+        )}</div></section>`
       : "";
 
     const amenitiesBlock =
       show("amenities") && Array.isArray(p.amenities) && p.amenities.length
         ? `<section><h3>Amenities</h3><div class="chips">${p.amenities
             .slice(0, 12)
-            .map((a) => `<span>${a}</span>`)
+            .map((a) => `<span>${esc(a)}</span>`)
             .join("")}</div></section>`
         : "";
 
@@ -308,7 +429,7 @@ exports.generateBrochurePDF = async (req, res) => {
       p.furnishingItems.length
         ? `<section><h3>Furnishing Items</h3><div class="chips purple">${p.furnishingItems
             .slice(0, 12)
-            .map((a) => `<span>${a}</span>`)
+            .map((a) => `<span>${esc(a)}</span>`)
             .join("")}</div></section>`
         : "";
 
@@ -317,157 +438,193 @@ exports.generateBrochurePDF = async (req, res) => {
       Array.isArray(p.raw.nearby_places) &&
       p.raw.nearby_places.length
         ? `<section><h3>Nearby Places</h3><ul class="nearby">
-           ${p.raw.nearby_places
-             .slice(0, 6)
-             .map(
-               (pl) =>
-                 `<li>• ${pl.name || ""} ${
-                   pl.distance ? `(${pl.distance}${pl.unit || ""})` : ""
-                 }</li>`
-             )
-             .join("")}
-         </ul></section>`
+            ${p.raw.nearby_places
+              .slice(0, 6)
+              .map(
+                (pl) =>
+                  `<li>• ${esc(pl.name || "")} ${
+                    pl.distance
+                      ? `(${esc(pl.distance)}${esc(pl.unit || "")})`
+                      : ""
+                  }</li>`
+              )
+              .join("")}
+           </ul></section>`
         : "";
 
     const investItems = [];
     if (show("aiScore"))
       investItems.push(
-        `<div><span class="k">AI Score:</span><span class="v strong">${safe(
-          p.aiScore || "94"
+        `<div><span class="k">AI Score:</span><span class="v strong">${esc(
+          safe(p.aiScore || "94")
         )}/100</span></div>`
       );
     if (show("priceGrowth"))
       investItems.push(
-        `<div><span class="k">Growth:</span><span class="v strong green">${safe(
-          p.priceGrowth || "+12.5%"
+        `<div><span class="k">Growth:</span><span class="v strong green">${esc(
+          safe(p.priceGrowth || "+12.5%")
         )}</span></div>`
       );
     if (show("investmentGrade"))
       investItems.push(
-        `<div><span class="k">Investment:</span><span class="v strong blue">${safe(
-          p.investmentGrade || "A+"
+        `<div><span class="k">Investment:</span><span class="v strong blue">${esc(
+          safe(p.investmentGrade || "A+")
         )}</span></div>`
       );
-    if (show("roiPotential"))
-      investItems.push(
-        `<div><span class="k">ROI Potential:</span><span class="v strong orange">18.2%</span></div>`
-      );
-    if (show("marketPosition"))
-      investItems.push(
-        `<div><span class="k">Market:</span><span class="v strong purple">Top 10%</span></div>`
-      );
     const investmentBlock = investItems.length
-      ? `
-      <section class="invest">
-        <h3>AI Investment Analysis</h3>
-        <div class="detailsGrid">${investItems.join("")}</div>
-      </section>`
+      ? `<section class="invest"><h3>AI Investment Analysis</h3><div class="detailsGrid details-4">${investItems.join(
+          ""
+        )}</div></section>`
       : "";
 
     const activityItems = [];
     if (show("views"))
       activityItems.push(
-        `<div class="kv"><span>Total Views</span><span>${safe(
-          p.views
+        `<div class="kv"><span>Total Views</span><span>${esc(
+          safe(p.views)
         )}</span></div>`
       );
     if (show("listedDays"))
       activityItems.push(
         `<div class="kv"><span>Listed</span><span>${
-          p.listedDays ? `${p.listedDays} days ago` : "—"
+          p.listedDays ? `${esc(p.listedDays)} days ago` : "—"
         }</span></div>`
       );
     const activityBlock = activityItems.length
-      ? `<section><h3>Property Activity</h3><div class="stats">${activityItems.join(
+      ? `<section><h3>Property Activity</h3><div class="stats stats-4">${activityItems.join(
           ""
         )}</div></section>`
       : "";
 
     const contactBlock =
       show("agentInfo") || show("contactDetails")
-        ? `
-      <section class="contact">
-        <h3>Contact</h3>
-        ${
-          show("agentInfo") && p.agent.name
-            ? `<div><strong>Agent:</strong> ${p.agent.name}</div>`
-            : ""
-        }
-        ${
-          show("contactDetails") && p.agent.phone
-            ? `<div><strong>Phone:</strong> ${p.agent.phone}</div>`
-            : ""
-        }
-      </section>`
+        ? `<section class="contact"><h3>Contact</h3>
+             ${
+               show("agentInfo") && p.agent.name
+                 ? `<div><strong>Agent:</strong> ${esc(p.agent.name)}</div>`
+                 : ""
+             }
+             ${
+               show("contactDetails") && p.agent.phone
+                 ? `<div><strong>Phone:</strong> ${esc(p.agent.phone)}</div>`
+                 : ""
+             }
+           </section>`
         : "";
 
     const watermarkBlock = theme.watermark
       ? `<footer>Powered by ResaleExpert • Generated on ${new Date().toLocaleDateString()}</footer>`
       : "";
 
-    // --- HTML template ---
+    /* ----------------- full HTML ----------------- */
     const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
-<title>${p.title}</title>
+<title>${esc(makeTitleText(p))}</title>
 <style>
-  @page { size: A4; margin: 18mm 14mm 18mm 14mm; }
+  @page { size: A4; margin: 10mm 14mm 18mm 14mm; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Poppins", "Segoe UI", Roboto, Arial, sans-serif; margin:0; color:#111; }
-  .container { padding: 0; }
-  h1 { color: ${theme.primary}; font-size: 26px; margin: 0 0 4px 0; }
   h3 { font-size: 14px; margin: 0 0 8px 0; color:#111; }
-  .location { color:#6B7280; margin: 2px 0 8px; }
-  .badges { display:flex; gap:8px; }
-  .featured { background: linear-gradient(45deg,#F59E0B,#EF4444); color:#fff; font-weight:700; font-size:10px; padding:4px 10px; border-radius:999px; }
-  .verified { background:#10B981; color:#fff; font-weight:700; font-size:10px; padding:4px 10px; border-radius:999px; }
-  .cover { width:100%; height: 260px; object-fit:cover; border-radius:10px; margin: 10px 0 14px; }
+  section { margin:10px 0 12px; }
+
+  /* Header card */
+  .header-card{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    background: linear-gradient(135deg, ${theme.primary} 0%, #0b3856 100%);
+    color:#fff; padding:8px 14px; border-radius:12px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    margin:0 0 10px 0; position:relative; overflow:hidden;
+  }
+  .header-card:before{
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(1200px 300px at -5% -20%, rgba(255,255,255,.15), transparent 60%);
+    pointer-events:none;
+  }
+  .header-left{ position:relative; z-index:1; max-width:76%; display:flex; align-items:flex-start; gap:10px; }
+  .title-location-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .title-row{ font-weight:800; font-size:20px; line-height:1.3; margin:0; }
+  .location-inline { font-size: 13px; font-weight: 500; opacity: 0.9; line-height: 1.3; }
+  .id-pill {
+    display: inline-block;
+    background: linear-gradient(135deg, #0B3856 0%, #10507A 50%, #1373A3 100%);
+    border: 1px solid rgba(11, 56, 86, 0.6);
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    -webkit-font-smoothing: antialiased;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .header-right{ display:flex; gap:8px; z-index:1; }
+  .badges{ display:flex; gap:8px; }
+  .badge{ background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.24); color:#fff; font-weight:800; font-size:10px; padding:4px 10px; border-radius:999px; letter-spacing:.3px; }
+
+  /* Image container with overlay button */
+  .image-container { position: relative; width: 100%; margin: 10px 0 14px; }
+  .cover { width:100%; height:260px; object-fit:cover; border-radius:10px; display: block; }
+  .view-property-btn-overlay {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: linear-gradient(135deg, #0B3856 0%, #1373A3 100%);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.3s;
+  }
+  .view-property-btn-overlay:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+
   .price { display:flex; justify-content:space-between; align-items:flex-end; border:1px solid #E5E7EB; border-radius:10px; padding:10px 12px; background:linear-gradient(90deg,#F3F4F6,#EEF2FF); }
   .price .label { color:#6B7280; font-size:11px; }
   .price .value { font-size:16px; font-weight:600; }
   .price .priceVal { color:${
     theme.secondary
   }; font-size:20px; font-weight:700; }
-  .stats { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin: 12px 0; }
+
+  /* one row, 4 columns for stats */
+  .stats.stats-4 { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin:12px 0; }
   .kv { display:flex; justify-content:space-between; border:1px dashed #E5E7EB; padding:8px 10px; border-radius:8px; font-size:12px; }
-  section { margin: 10px 0 12px; }
-  .detailsGrid { display:grid; grid-template-columns: 1fr 1fr; gap:6px 14px; font-size:12px; }
+
+  /* property details: 4 columns */
+  .detailsGrid.details-4 { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px 12px; font-size:12px; }
   .k { color:#6B7280; margin-right:6px; }
   .v { font-weight:600; }
   .v.strong { font-weight:700; }
   .v.green { color:#059669; }
   .v.blue { color:#2563EB; }
   .v.orange { color:#EA580C; }
-  .v.purple { color:#7C3AED; }
+
   .chips { display:flex; flex-wrap:wrap; gap:6px; }
   .chips span { background:#E0E7FF; color:#4338CA; padding:4px 10px; border-radius:999px; font-size:11px; }
   .chips.purple span { background:#F3E8FF; color:#7C3AED; }
-  .nearby { list-style:none; padding:0; margin: 2px 0 0; }
-  .nearby li { font-size:12px; color:#374151; margin: 2px 0; }
-  .invest { background: linear-gradient(90deg, #F5F3FF, #EFF6FF); border:1px solid #E5E7EB; border-radius:10px; padding:10px; }
+
+  .nearby { list-style:none; padding:0; margin:2px 0 0; }
+  .nearby li { font-size:12px; color:#374151; margin:2px 0; }
+
+  .invest { background:linear-gradient(90deg,#F5F3FF,#EFF6FF); border:1px solid #E5E7EB; border-radius:10px; padding:10px; }
   .contact { border:1px solid #E5E7EB; border-radius:10px; padding:10px; }
+
   footer { text-align:center; margin-top:16px; font-size:11px; color:#9CA3AF; }
-  .header { margin-bottom: 8px; }
-   .watermark {
-    position: fixed;
-    top: 40%;
-    left: 0;
-    right: 0;
-    text-align: center;
-    opacity: 0.08; /* light */
-    font-size: 80px;
-    color: #4F46E5; /* same as theme.primary */
-    transform: rotate(-30deg);
-    pointer-events: none;
-    z-index: 0;
-  }
+
+  .watermark { position:fixed; top:40%; left:0; right:0; text-align:center; opacity:0.06; font-size:80px; color:${
+    theme.primary
+  }; transform:rotate(-30deg); pointer-events:none; z-index:0; }
 </style>
 </head>
 <body>
   ${theme.watermark ? `<div class="watermark">ResaleExpert.in</div>` : ""}
   <div class="container">
     ${headerBlock}
-    ${mainImageBlock}
+    ${imageBlock}
     ${priceBlock}
     ${statsBlock}
     ${descriptionBlock}
@@ -483,38 +640,907 @@ exports.generateBrochurePDF = async (req, res) => {
 </body>
 </html>`;
 
-    // output directory
+    /* ------------- render PDF with gradient footer ------------- */
     const folder = path.join(__dirname, "../uploads/brochures");
     await fs.ensureDir(folder);
-    const filePath = path.join(folder, `property_${p.id}.pdf`);
+    const outPath = path.join(folder, `property_${p.id}_${Date.now()}.pdf`);
 
-    // Puppeteer
-    const browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle2" });
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+      const page = await browser.newPage();
+      await page.emulateMediaType("screen");
+      await page.setContent(html, {
+        waitUntil: ["domcontentloaded", "networkidle0"],
+      });
+      await page.pdf({
+        path: outPath,
+        format: "A4",
+        printBackground: true,
+        margin: { top: "10mm", right: "14mm", bottom: "0mm", left: "14mm" },
+        displayHeaderFooter: true,
+        headerTemplate: `<div style="font-size:8px; color:#6B7280; padding-left:12px; width:100%; text-align:left;"></div>`,
+        footerTemplate: `<div style="width:100%; height:44px; background: linear-gradient(135deg, #0B3856 0%, #1373A3 100%); color:#fff; display:flex; flex-direction:row; justify-content:space-between; align-items:center; padding:0 30px; font-size:10px; margin:0; box-sizing:border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; box-shadow: 0 -3px 10px rgba(0,0,0,0.15); position:fixed; bottom:0; left:0; right:0;">
+          <div style="display:flex; align-items:center; gap:8px; flex:1;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" fill="#fff"/>
+            </svg>
+            <a href="tel:+918795748906" style="color:#fff; text-decoration:none; font-weight:700; font-size:14px; letter-spacing:0.3px;">+91 879574896</a>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex:1; justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;">
+              <circle cx="12" cy="12" r="10" stroke="#fff" stroke-width="2" fill="none"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="#fff" stroke-width="2" fill="none"/>
+            </svg>
+            <a href="https://www.resaleexpert.in" style="color:#fff; text-decoration:none; font-weight:600; font-size:13px;">www.resaleexpert.in</a>
+          </div>
+          <div style="display:flex; flex-direction:row; align-items:center; gap:12px; flex:1; justify-content:flex-end;">
+             <a href="https://www.instagram.com/resaleexpert.in/"
+     aria-label="Instagram"
+     style="width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center;">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%;">
+      <defs>
+        <linearGradient id="ig-grad-dark" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#B03024"/>      <!-- darker red -->
+          <stop offset="50%" style="stop-color:#8B1C70"/>    <!-- darker magenta -->
+          <stop offset="100%" style="stop-color:#1C3C9B"/>   <!-- darker blue -->
+        </linearGradient>
+      </defs>
+      <path fill="url(#ig-grad-dark)" d="M12 2.163c3.204 0 3.584.012 4.85.07 1.17.055 1.97.24 2.427.403.61.222 1.047.488 1.504.945.457.457.723.894.945 1.504.163.457.348 1.257.403 2.427.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.055 1.17-.24 1.97-.403 2.427a3.86 3.86 0 0 1-.945 1.504 3.86 3.86 0 0 1-1.504.945c-.457.163-1.257.348-2.427.403-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.17-.055-1.97-.24-2.427-.403a3.86 3.86 0 0 1-1.504-.945 6.27 6.27 0 0 0-1.4-2.153c-.295-.774-.49-1.657-.548-2.937C-.043 8.39-.057 8.8-.057 12s.014 3.61.072 4.889c.058 1.28.253 2.163.548 2.937.31.8.724 1.477 1.4 2.153.774.295 1.657.49 2.937.548C8.39 23.957 8.8 23.971 12 23.971s3.61-.014 4.889-.072c1.28-.058 2.163-.253 2.937-.548a6.27 6.27 0 0 0 2.153-1.4 6.27 6.27 0 0 0 1.4-2.153c.295-.774.49-1.657.548-2.937.058-1.279.072-1.689.072-4.889s-.014-3.61-.072-4.889c-.058-1.28-.253-2.163-.548-2.937a6.27 6.27 0 0 0-1.4-2.153 6.27 6.27 0 0 0-2.153-1.4c-.774-.295-1.657-.49-2.937-.548C15.61.014 15.2 0 12 0Zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324Zm6.406-1.244a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88Z"/>
+    </svg>
+  </a>
 
-    await page.pdf({
-      path: filePath,
-      format: "A4",
-      printBackground: true,
-      margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
-    });
+  <!-- Facebook -->
+  <a href="https://www.facebook.com/resaleexpert.i"
+     aria-label="Facebook"
+     style="width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center;">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:90%; height:90%;">
+      <path fill="#0D3C80" d="M22.676 0H1.324C.593 0 0 .593 0 1.324v21.352C0 23.407.593 24 1.324 24H12.82v-9.294H9.692V11.06h3.127V8.41c0-3.1 1.892-4.79 4.658-4.79 1.325 0 2.463.099 2.796.143v3.242l-1.92.001c-1.505 0-1.797.716-1.797 1.767v2.318h3.59l-.467 3.646h-3.123V24h6.127C23.407 24 24 23.407 24 22.676V1.324C24 .593 23.407 0 22.676 0z"/>
+    </svg>
+  </a>
+            <a href="https://www.youtube.com/channel/UCYuJPmp-d7HIdfPgSejWzvg" aria-label="YouTube" style="width:22px; height:22px; display:inline-flex;">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%;"><path fill="#FF0000" d="M23.498 6.186a3.01 3.01 0 0 0-2.12-2.13C19.62 3.5 12 3.5 12 3.5s-7.62 0-9.378.556A3.01 3.01 0 0 0 .502 6.186 31.63 31.63 0 0 0 0 12a31.63 31.63 0 0 0 .502 5.814 3.01 3.01 0 0 0 2.12 2.13C4.38 20.5 12 20.5 12 20.5s7.62 0 9.378-.556a3.01 3.01 0 0 0 2.12-2.13A31.63 31.63 0 0 0 24 12a31.63 31.63 0 0 0-.502-5.814ZM9.75 15.568V8.432L15.818 12 9.75 15.568Z"/></svg>
+            </a>
+          </div>
+        </div>`,
+      });
+    } catch (err) {
+      console.error("Single PDF render error:", err);
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to render PDF" });
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {}
+      }
+    }
 
-    await browser.close();
-
+    // stream + cleanup
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="property_${p.id}.pdf"`
-    );
-    fs.createReadStream(filePath).pipe(res);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    fs.createReadStream(outPath)
+      .on("close", async () => {
+        try {
+          await fs.remove(outPath);
+        } catch {}
+      })
+      .pipe(res);
   } catch (err) {
     console.error("Error generating brochure:", err);
     res
       .status(500)
       .json({ success: false, message: "Failed to generate brochure" });
   }
+};
+
+exports.generateBrochuresBulkSinglePDF = async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : [];
+  if (!ids.length)
+    return res.status(400).json({ success: false, message: "ids[] required" });
+
+  const sel = new Set(
+    (req.body?.customizations?.selectedContent || []).filter(Boolean)
+  );
+  const theme = {
+    primary: req.body?.customizations?.primaryColor || "#0b3856",
+    secondary: req.body?.customizations?.secondaryColor || "#E6761D",
+    font: req.body?.customizations?.fontStyle || "modern",
+    layout: req.body?.customizations?.layout || "standard",
+    watermark: Boolean(req.body?.customizations?.watermark ?? true),
+  };
+  const includeCover = Boolean(req.body?.includeCover ?? true);
+  const includeTOC = Boolean(req.body?.includeTOC ?? true);
+  const publicBaseUrl = String(req.body?.publicBaseUrl || "").replace(
+    /\/+$/,
+    ""
+  );
+  const fileName =
+    (req.body?.fileName && String(req.body.fileName).trim()) ||
+    `property-brochures-${Date.now()}.pdf`;
+
+  /* helpers */
+  const esc = (s = "") =>
+    String(s).replace(
+      /[&<>"]/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+    );
+  const safe = (v, d = "—") =>
+    v == null || (typeof v === "string" && v.trim() === "") ? d : v;
+  const num = (v) => {
+    if (v == null || v === "") return 0;
+    const n = Number(String(v).replace(/[^\d.-]/g, ""));
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const currency = (val) => {
+    const n = num(val);
+    if (n >= 1e7) return `₹${(n / 1e7).toFixed(1)} Cr`;
+    if (n >= 1e5) return `₹${(n / 1e5).toFixed(1)} L`;
+    return `₹${n.toLocaleString("en-IN")}`;
+  };
+  const monthName = (m) => {
+    const n = typeof m === "string" ? parseInt(m, 10) : m;
+    if (!n || n < 1 || n > 12) return "";
+    return new Date(0, n - 1).toLocaleString("en", { month: "long" });
+  };
+  const slugify = (s = "") =>
+    s
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+  const pickFirstStr = (...vals) =>
+    vals
+      .map((v) => (typeof v === "string" ? v : v == null ? "" : String(v)))
+      .map((s) => s.trim())
+      .find(Boolean) || "";
+  const splitPrimaryAndCity = (s) => {
+    const parts = s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      const city = parts[parts.length - 1];
+      const primary = parts.slice(0, parts.length - 1).join(", ");
+      return { primary, city };
+    }
+    return { primary: s.trim(), city: "" };
+  };
+
+  /** Normalize DB row → canonical shape (types + locationNormalized + city fixes) */
+  const normalize = (db) => {
+    const type = pickFirstStr(
+      db.type,
+      db.property_type,
+      db.propertyType,
+      db.property_type_name
+    );
+    const unitType = pickFirstStr(db.unitType, db.unit_type, db.unitTypeName);
+    const subtype = pickFirstStr(
+      db.subtype,
+      db.property_subtype_name,
+      db.propertySubtype
+    );
+
+    let locationNormalized = pickFirstStr(
+      db.locationNormalized,
+      db.location_normalized,
+      db.normalized_location
+    );
+    let location = pickFirstStr(
+      db.location,
+      db.location_name,
+      db.locality,
+      db.area,
+      db.neighbourhood,
+      db.address?.line1,
+      db.address_line1
+    );
+    let city = pickFirstStr(
+      db.city,
+      db.city_name,
+      db.town,
+      db.address?.city,
+      db.address_city
+    );
+
+    if (!locationNormalized) {
+      const primary = location || "";
+      locationNormalized =
+        primary && city
+          ? `${primary}, ${city}`
+              .replace(/\s*,\s*/g, ", ")
+              .replace(/\s{2,}/g, " ")
+          : primary || city || "";
+    }
+    if (!city && locationNormalized) {
+      const { primary, city: inferredCity } =
+        splitPrimaryAndCity(locationNormalized);
+      if (inferredCity) {
+        city = inferredCity;
+        if (!location) location = primary;
+      }
+    }
+
+    const id = db.id ?? db.property_id ?? db.propertyId;
+    const propertyId = db.propertyId ?? db.property_id ?? db.id;
+    const slug = pickFirstStr(db.slug, db.property_slug, db.seo_slug);
+    const photos = Array.isArray(db.photos)
+      ? db.photos
+      : db.photos
+      ? [db.photos]
+      : [];
+
+    return {
+      id,
+      propertyId,
+      slug,
+      title: db.title || db.society_name || "",
+      type,
+      unitType,
+      subtype,
+      location,
+      locationNormalized,
+      city,
+      carpetArea: db.carpetArea || db.carpet_area || db.square_feet || "",
+      price: db.price || db.final_price || db.budget || 0,
+      bedrooms: db.bedrooms ?? db.bhk ?? "",
+      bathrooms: db.bathrooms ?? db.bath ?? "",
+      parking: db.parking ?? "",
+      furnishing: db.furnishing || "",
+      possessionMonth: db.possessionMonth || db.possession_month || "",
+      possessionYear:
+        db.possessionYear || db.possession_year || db.built_year || "",
+      facing: db.facing || "",
+      builtYear: db.builtYear || db.built_year || "",
+      verified: Boolean(db.verified),
+      featured: Boolean(db.featured),
+      views: db.views ?? "",
+      listedDays: db.listedDays ?? "",
+      aiScore: db.aiScore ?? "",
+      priceGrowth: db.priceGrowth ?? "",
+      investmentGrade: db.investmentGrade ?? "",
+      description: db.description || db.details || "",
+      photos,
+      amenities: Array.isArray(db.amenities)
+        ? db.amenities
+        : db.amenities
+        ? [db.amenities]
+        : [],
+      furnishingItems: Array.isArray(db.furnishingItems)
+        ? db.furnishingItems
+        : [],
+      agent: {
+        name: db.agent_name || db.seller_name || "",
+        phone: db.agent_phone || db.seller_phone || db.seller?.phone || "",
+      },
+      raw: {
+        floor: db.floor,
+        totalFloors: db.total_floors || db.totalFloors,
+        wing: db.wing,
+        unitNo: db.unit_no || db.unitNo,
+        nearby_places: db.nearby_places || [],
+        address: db.address || db.raw_address || "",
+      },
+    };
+  };
+
+  /** Prefer normalized → avoid repeating city */
+  const computeLocationLine = (p) => {
+    const primaryRaw = p.locationNormalized || p.location || "";
+    const cityRaw = p.city || "";
+    const primary = primaryRaw.trim();
+    const city = cityRaw.trim();
+    if (!primary && !city) return "";
+    if (!primary) return city;
+    if (!city) return primary;
+    if (primary.toLowerCase().includes(city.toLowerCase())) return primary;
+    return `${primary}, ${city}`;
+  };
+
+  const buildDeepUrl = (p) => {
+    if (!sel.has("propertyUrl")) return "";
+    if (!publicBaseUrl) return "";
+    const slug =
+      p.slug ||
+      slugify(
+        `${p.type || ""}-${p.unitType || ""}-${p.title || ""}-${p.city || ""}`
+      );
+    const suffix = slug || p.id || "";
+    return `${publicBaseUrl}/properties/${suffix}`;
+  };
+
+  const show = (k) => sel.has(k);
+
+  /** ALWAYS prefer types for title; fallback to society/title only if empty */
+  const makeTitleText = (p) => {
+    const titleParts = [p.type, p.unitType, p.subtype]
+      .map((x) => (x || "").toString().trim())
+      .filter(Boolean);
+    const byTypes = titleParts
+      .join(" ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return byTypes || p.title || "Property";
+  };
+
+  /** Section with NEW header background card */
+  const sectionHtml = (p, index) => {
+    const imgs = p.photos?.length
+      ? p.photos
+      : ["https://images.pexels.com/photos/1396122/pexels-photo-1396122.jpeg"];
+    const mainImage = imgs[0];
+    const pricePerSqFt =
+      p.price && p.carpetArea
+        ? Math.round(num(p.price) / Math.max(1, num(p.carpetArea)))
+        : null;
+
+    const locationLineStr = computeLocationLine(p);
+    const url = buildDeepUrl(p);
+
+    /* Header card with ID pill, Title and Location in same section */
+    const headerBlock = `
+      <section class="header-card">
+        <div class="header-left">
+          <span class="id-pill">#${p.id ?? index + 1}</span>
+          <div class="title-location-wrap">
+            <div class="title-row">${esc(makeTitleText(p))}</div>
+            ${
+              show("location") && locationLineStr
+                ? `<div class="location-inline">${esc(locationLineStr)}</div>`
+                : ""
+            }
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="badges">
+            ${p.featured ? `<span class="badge featured">FEATURED</span>` : ""}
+            ${p.verified ? `<span class="badge verified">VERIFIED</span>` : ""}
+          </div>
+        </div>
+      </section>`;
+
+    /* Image with View Property button overlay */
+    const imageBlock = show("mainImage")
+      ? `<div class="image-container">
+           <img class="cover" src="${esc(mainImage)}" alt="cover" />
+           ${
+             url
+               ? `<a href="${esc(
+                   url
+                 )}" class="view-property-btn-overlay">View Property →</a>`
+               : ""
+           }
+         </div>`
+      : "";
+
+    const priceBlock = show("price")
+      ? `<section class="price">
+           <div class="left">
+             <div class="label">Property Price</div>
+           <div class="value priceVal" style="color: green;">${currency(
+             p.price
+           )}</div>
+
+           </div>
+           ${
+             pricePerSqFt
+               ? `<div class="right"><div class="label">Per Sq Ft</div><div class="value" style="color: green;">₹${pricePerSqFt.toLocaleString(
+                   "en-IN"
+                 )}</div></div>`
+               : ""
+           }
+         </section>`
+      : "";
+
+    const stats = [];
+    if (show("bedrooms"))
+      stats.push(
+        `<div class="kv"><span>Bedrooms</span><span>${esc(
+          safe(p.bedrooms)
+        )}</span></div>`
+      );
+    if (show("bathrooms"))
+      stats.push(
+        `<div class="kv"><span>Bathrooms</span><span>${esc(
+          safe(p.bathrooms)
+        )}</span></div>`
+      );
+    if (show("parking"))
+      stats.push(
+        `<div class="kv"><span>Parking</span><span>${esc(
+          safe(p.parking)
+        )}</span></div>`
+      );
+    if (show("carpetArea"))
+      stats.push(
+        `<div class="kv"><span>Carpet Area</span><span>${esc(
+          safe(p.carpetArea)
+        )} sq ft</span></div>`
+      );
+    const statsBlock = stats.length
+      ? `<section class="stats">${stats.join("")}</section>`
+      : "";
+
+    const descriptionBlock =
+      show("description") && p.description
+        ? `<section><h3>About Property</h3><p>${esc(
+            p.description
+          )}</p></section>`
+        : "";
+
+    const detailItems = [];
+    if (show("furnishing"))
+      detailItems.push(
+        `<div><span class="k">Furnishing:</span><span class="v">${esc(
+          safe(p.furnishing)
+        )}</span></div>`
+      );
+    if (show("possession") && (p.possessionMonth || p.possessionYear)) {
+      const pos = [monthName(p.possessionMonth), p.possessionYear]
+        .filter(Boolean)
+        .join(" ");
+      detailItems.push(
+        `<div><span class="k">Possession:</span><span class="v">${esc(
+          pos || "—"
+        )}</span></div>`
+      );
+    }
+    if (show("facing"))
+      detailItems.push(
+        `<div><span class="k">Facing:</span><span class="v">${esc(
+          safe(p.facing)
+        )}</span></div>`
+      );
+    if (show("builtYear"))
+      detailItems.push(
+        `<div><span class="k">Built Year:</span><span class="v">${esc(
+          safe(p.builtYear || p.possessionYear)
+        )}</span></div>`
+      );
+    if (show("floor") && (p.raw.floor || p.raw.totalFloors)) {
+      const f =
+        p.raw.floor && p.raw.totalFloors
+          ? `${p.raw.floor} / ${p.raw.totalFloors}`
+          : p.raw.floor ?? "—";
+      detailItems.push(
+        `<div><span class="k">Floor:</span><span class="v">${esc(
+          f
+        )}</span></div>`
+      );
+    }
+    if (show("wing") && p.raw.wing)
+      detailItems.push(
+        `<div><span class="k">Wing:</span><span class="v">${esc(
+          p.raw.wing
+        )}</span></div>`
+      );
+    if (show("unitNo") && p.raw.unitNo)
+      detailItems.push(
+        `<div><span class="k">Unit No:</span><span class="v">${esc(
+          p.raw.unitNo
+        )}</span></div>`
+      );
+    const detailsBlock = detailItems.length
+      ? `<section><h3>Property Details</h3><div class="detailsGrid">${detailItems.join(
+          ""
+        )}</div></section>`
+      : "";
+
+    const amenitiesBlock =
+      show("amenities") && p.amenities?.length
+        ? `<section><h3>Amenities</h3><div class="chips">${p.amenities
+            .slice(0, 12)
+            .map((a) => `<span>${esc(a)}</span>`)
+            .join("")}</div></section>`
+        : "";
+
+    const furnishingItemsBlock =
+      show("furnishingItems") && p.furnishingItems?.length
+        ? `<section><h3>Furnishing Items</h3><div class="chips purple">${p.furnishingItems
+            .slice(0, 12)
+            .map((a) => `<span>${esc(a)}</span>`)
+            .join("")}</div></section>`
+        : "";
+
+    const nearbyBlock =
+      show("nearbyPlaces") && p.raw.nearby_places?.length
+        ? `<section><h3>Nearby Places</h3><ul class="nearby">${p.raw.nearby_places
+            .slice(0, 6)
+            .map(
+              (pl) =>
+                `<li>• ${esc(pl.name || "")} ${
+                  pl.distance
+                    ? `(${esc(pl.distance)}${esc(pl.unit || "")})`
+                    : ""
+                }</li>`
+            )
+            .join("")}</ul></section>`
+        : "";
+
+    const investItems = [];
+    if (show("aiScore"))
+      investItems.push(
+        `<div><span class="k">AI Score:</span><span class="v strong">${esc(
+          safe(p.aiScore || "94")
+        )}/100</span></div>`
+      );
+    if (show("priceGrowth"))
+      investItems.push(
+        `<div><span class="k">Growth:</span><span class="v strong green">${esc(
+          safe(p.priceGrowth || "+12.5%")
+        )}</span></div>`
+      );
+    if (show("investmentGrade"))
+      investItems.push(
+        `<div><span class="k">Investment:</span><span class="v strong blue">${esc(
+          safe(p.investmentGrade || "A+")
+        )}</span></div>`
+      );
+    const investmentBlock = investItems.length
+      ? `<section class="invest"><h3>AI Investment Analysis</h3><div class="detailsGrid">${investItems.join(
+          ""
+        )}</div></section>`
+      : "";
+
+    const activityItems = [];
+    if (show("views"))
+      activityItems.push(
+        `<div class="kv"><span>Total Views</span><span>${esc(
+          safe(p.views)
+        )}</span></div>`
+      );
+    if (show("listedDays"))
+      activityItems.push(
+        `<div class="kv"><span>Listed</span><span>${
+          p.listedDays ? `${esc(p.listedDays)} days ago` : "—"
+        }</span></div>`
+      );
+    const activityBlock = activityItems.length
+      ? `<section><h3>Property Activity</h3><div class="stats">${activityItems.join(
+          ""
+        )}</div></section>`
+      : "";
+
+    const contactBlock =
+      show("agentInfo") || show("contactDetails")
+        ? `<section class="contact"><h3>Contact</h3>
+           ${
+             show("agentInfo") && p.agent.name
+               ? `<div><strong>Agent:</strong> ${esc(p.agent.name)}</div>`
+               : ""
+           }
+           ${
+             show("contactDetails") && p.agent.phone
+               ? `<div><strong>Phone:</strong> ${esc(p.agent.phone)}</div>`
+               : ""
+           }
+         </section>`
+        : "";
+
+    const watermarkBlock = theme.watermark
+      ? `<footer>Powered by ResaleExpert • Generated on ${new Date().toLocaleDateString()}</footer>`
+      : "";
+
+    return `
+      <div class="prop-section" id="prop-${p.id}">
+        ${headerBlock}
+        ${imageBlock}
+        ${priceBlock}
+        ${statsBlock}
+        ${descriptionBlock}
+        ${detailsBlock}
+        ${amenitiesBlock}
+        ${furnishingItemsBlock}
+        ${nearbyBlock}
+        ${investmentBlock}
+        ${activityBlock}
+        ${contactBlock}
+        ${watermarkBlock}
+      </div>
+      <div class="page-break"></div>`;
+  };
+
+  // fetch & build (parallel for speed)
+  const rows = await Promise.all(
+    ids.map((rawId) => Property.getById(String(rawId)).catch(() => null))
+  );
+  const parts = [];
+  const toc = [];
+  rows.forEach((dbProp, i) => {
+    if (!dbProp) return;
+    const p = normalize(dbProp);
+    toc.push({
+      id: p.id,
+      title: makeTitleText(p),
+      location: computeLocationLine(p),
+    });
+    parts.push(sectionHtml(p, parts.length));
+  });
+  if (!parts.length)
+    return res
+      .status(404)
+      .json({ success: false, message: "No valid properties found" });
+
+  const coverHtml = includeCover
+    ? `<div class="cover-page">
+         <div class="brand">ResaleExpert</div>
+         <div class="title">Property Brochure Pack</div>
+         <div class="subtitle">${
+           parts.length
+         } Properties • ${new Date().toLocaleDateString()}</div>
+       </div>
+       <div class="page-break"></div>`
+    : "";
+
+  const tocHtml = includeTOC
+    ? `<div class="toc">
+         <h2>Table of Contents</h2>
+         <ol>${toc
+           .map(
+             (t, i) =>
+               `<li><span>${i + 1}.</span> <strong>${esc(
+                 t.title
+               )}</strong> <em>${esc(t.location || "—")}</em></li>`
+           )
+           .join("")}</ol>
+       </div>
+       <div class="page-break"></div>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Property Brochures</title>
+<style>
+  @page { size: A4; margin: 10mm 14mm 18mm 14mm; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Poppins", "Segoe UI", Roboto, Arial, sans-serif; margin:0; color:#111; }
+  h2 { color:#111; font-size: 20px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 0 0 8px 0; color:#111; }
+  section { margin:10px 0 12px; }
+
+  /* Header card with ID, Title, and Location */
+  .header-card{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    background: linear-gradient(135deg, ${theme.primary} 0%, #0b3856 100%);
+    color:#fff; padding:8px 14px; border-radius:12px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    margin:0 0 10px 0; position:relative; overflow:hidden;
+  }
+  .header-card:before{
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(1200px 300px at -5% -20%, rgba(255,255,255,.15), transparent 60%);
+    pointer-events:none;
+  }
+  .header-left{ position:relative; z-index:1; max-width:76%; display:flex; align-items:flex-start; gap:10px; }
+  .title-location-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .title-row{ font-weight:800; font-size:20px; line-height:1.3; margin:0; }
+  .location-inline { font-size: 13px; font-weight: 500; opacity: 0.9; line-height: 1.3; }
+  .id-pill {
+    display: inline-block;
+    background: linear-gradient(135deg, #0B3856 0%, #10507A 50%, #1373A3 100%);
+    border: 1px solid rgba(11, 56, 86, 0.6);
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    -webkit-font-smoothing: antialiased;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .header-right{ display:flex; gap:8px; z-index:1; }
+  .badges{ display:flex; gap:8px; }
+  .badge{ background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.24); color:#fff; font-weight:800; font-size:10px; padding:4px 10px; border-radius:999px; letter-spacing:.3px; }
+
+  /* Image container with overlay button */
+  .image-container { position: relative; width: 100%; margin: 10px 0 14px; }
+  .cover { width:100%; height:260px; object-fit:cover; border-radius:10px; display: block; }
+  .view-property-btn-overlay {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: linear-gradient(135deg, #0B3856 0%, #1373A3 100%);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.3s;
+  }
+  .view-property-btn-overlay:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+
+  .price { display:flex; justify-content:space-between; align-items:flex-end; border:1px solid #E5E7EB; border-radius:10px; padding:10px 12px; background:linear-gradient(90deg,#F3F4F6,#EEF2FF); }
+  .price .label { color:#6B7280; font-size:11px; }
+  .price .value { font-size:16px; font-weight:600; }
+  .price .priceVal { color:${
+    theme.secondary
+  }; font-size:20px; font-weight:700; }
+
+  .stats { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin:12px 0; }
+  .kv { display:flex; justify-content:space-between; border:1px dashed #E5E7EB; padding:8px 10px; border-radius:8px; font-size:12px; }
+
+  .detailsGrid { display:grid; grid-template-columns: repeat(4, 1fr); gap:6px 10px; font-size:12px; }
+  .k { color:#6B7280; margin-right:4px; }
+  .v { font-weight:600; }
+  .v.strong { font-weight:700; }
+  .v.green { color:#059669; }
+  .v.blue { color:#2563EB; }
+  .v.orange { color:#EA580C; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chips span { background:#E0E7FF; color:#4338CA; padding:4px 10px; border-radius:999px; font-size:11px; }
+  .chips.purple span { background:#F3E8FF; color:#7C3AED; }
+
+  .nearby { list-style:none; padding:0; margin:2px 0 0; }
+  .nearby li { font-size:12px; color:#374151; margin:2px 0; }
+
+  .invest { background:linear-gradient(90deg,#F5F3FF,#EFF6FF); border:1px solid #E5E7EB; border-radius:10px; padding:10px; }
+  .contact { border:1px solid #E5E7EB; border-radius:10px; padding:10px; }
+
+  footer { text-align:center; margin-top:16px; font-size:11px; color:#9CA3AF; }
+
+  .watermark { position:fixed; top:40%; left:0; right:0; text-align:center; opacity:0.06; font-size:80px; color:${
+    theme.primary
+  }; transform:rotate(-30deg); pointer-events:none; z-index:0; }
+  .page-break { page-break-after:always; }
+  .prop-section { position:relative; z-index:1; }
+  
+  .cover-page { display:flex; flex-direction:column; justify-content:center; align-items:center; height:85vh; text-align:center; }
+  .cover-page .brand { font-size:18px; letter-spacing:2px; color:${
+    theme.secondary
+  }; text-transform:uppercase; }
+  .cover-page .title { font-size:36px; font-weight:800; color:${
+    theme.primary
+  }; margin-top:10px; }
+  .cover-page .subtitle { font-size:14px; color:#6B7280; margin-top:8px;}
+  .toc { padding:0 6px; }
+  .toc ol { margin:0; padding-left:18px; }
+  .toc li { margin:4px 0; font-size:12px; }
+  .toc li em { color:#6B7280; font-style:normal; margin-left:6px; }
+  
+  /* Social media colorful icons */
+  .social {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .social a {
+    text-decoration: none;
+    width: 16px; 
+    height: 16px;
+    display: inline-flex;
+    transition: transform 0.2s;
+  }
+  .social a:hover {
+    transform: scale(1.1);
+  }
+  .social a svg {
+    width: 100%; 
+    height: 100%;
+    display: block;
+  }
+</style>
+</head>
+<body>
+  ${theme.watermark ? `<div class="watermark">ResaleExpert.in</div>` : ""}
+  ${includeCover ? coverHtml : ""}
+  ${includeTOC ? tocHtml : ""}
+  ${parts.join("\n")}
+</body>
+</html>`;
+
+  // Render PDF
+  const tempFolder = path.join(__dirname, "../uploads/brochures");
+  await fs.ensureDir(tempFolder);
+  const outPath = path.join(tempFolder, `merged_${Date.now()}.pdf`);
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    const page = await browser.newPage();
+    await page.emulateMediaType("screen");
+    await page.setContent(html, {
+      waitUntil: ["domcontentloaded", "networkidle0"],
+    });
+    await page.pdf({
+      path: outPath,
+      format: "A4",
+      printBackground: true,
+      margin: { top: "10mm", right: "14mm", bottom: "0mm", left: "14mm" },
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="font-size:8px; color:#6B7280; padding-left:12px; width:100%; text-align:left;"></div>`,
+      footerTemplate: `<div style="width:100%; height:44px; background: linear-gradient(135deg, #0B3856 0%, #1373A3 100%); color:#fff; display:flex; flex-direction:row; justify-content:space-between; align-items:center; padding:0 30px; font-size:10px; margin:0; box-sizing:border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; box-shadow: 0 -3px 10px rgba(0,0,0,0.15); position:fixed; bottom:0; left:0; right:0;">
+        
+        <!-- Left: Phone -->
+        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" fill="#fff"/>
+          </svg>
+          <a href="tel:+918795748906" style="color:#fff; text-decoration:none; font-weight:700; font-size:14px; letter-spacing:0.3px;">
+            +91 879574896
+          </a>
+        </div>
+
+        <!-- Center: Website -->
+        <div style="display:flex; align-items:center; gap:8px; flex:1; justify-content:center;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;">
+            <circle cx="12" cy="12" r="10" stroke="#fff" stroke-width="2" fill="none"/>
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="#fff" stroke-width="2" fill="none"/>
+          </svg>
+          <a href="https://www.resaleexpert.in" style="color:#fff; text-decoration:none; font-weight:600; font-size:13px;">
+            www.resaleexpert.in
+          </a>
+        </div>
+
+        <!-- Right: Social Media Icons (Colorful) - Row Layout -->
+        <div style="display:flex; flex-direction:row; align-items:center; gap:12px; flex:1; justify-content:flex-end;">
+          <!-- Instagram (Gradient Pink/Orange) -->
+          <a href="https://www.instagram.com/resaleexpert.in/" aria-label="Instagram" style="width:22px; height:22px; display:inline-flex;">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%;">
+              <defs>
+                <linearGradient id="ig-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:#FD5949;stop-opacity:1" />
+                  <stop offset="50%" style="stop-color:#D6249F;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#285AEB;stop-opacity:1" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#ig-grad)" d="M12 2.163c3.204 0 3.584.012 4.85.07 1.17.055 1.97.24 2.427.403.61.222 1.047.488 1.504.945.457.457.723.894.945 1.504.163.457.348 1.257.403 2.427.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.055 1.17-.24 1.97-.403 2.427a3.86 3.86 0 0 1-.945 1.504 3.86 3.86 0 0 1-1.504.945c-.457.163-1.257.348-2.427.403-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.17-.055-1.97-.24-2.427-.403a3.86 3.86 0 0 1-1.504-.945 3.86 3.86 0 0 1-.945-1.504c-.163-.457-.348-1.257-.403-2.427C2.175 15.584 2.163 15.204 2.163 12s.012-3.584.07-4.85c.055-1.17.24-1.97.403-2.427.222-.61.488-1.047.945-1.504.457-.457.894-.723 1.504-.945.457-.163 1.257-.348 2.427-.403C8.416 2.175 8.796 2.163 12 2.163ZM12 0C8.741 0 8.332.014 7.053.072 5.773.13 4.89.325 4.116.62c-.8.31-1.477.724-2.153 1.4A6.27 6.27 0 0 0 .563 4.173c-.295.774-.49 1.657-.548 2.937C-.043 8.39-.057 8.8-.057 12s.014 3.61.072 4.889c.058 1.28.253 2.163.548 2.937.31.8.724 1.477 1.4 2.153a6.27 6.27 0 0 0 2.153 1.4c.774.295 1.657.49 2.937.548C8.39 23.957 8.8 23.971 12 23.971s3.61-.014 4.889-.072c1.28-.058 2.163-.253 2.937-.548a6.27 6.27 0 0 0 2.153-1.4 6.27 6.27 0 0 0 1.4-2.153c.295-.774.49-1.657.548-2.937.058-1.279.072-1.689.072-4.889s-.014-3.61-.072-4.889c-.058-1.28-.253-2.163-.548-2.937a6.27 6.27 0 0 0-1.4-2.153 6.27 6.27 0 0 0-2.153-1.4c-.774-.295-1.657-.49-2.937-.548C15.61.014 15.2 0 12 0Zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324Zm0 10.186a4.024 4.024 0 1 1 0-8.048 4.024 4.024 0 0 1 0 8.048ZM18.406 4.594a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88Z"/>
+            </svg>
+          </a>
+
+          <!-- Facebook (Blue) -->
+          <a href="https://www.facebook.com/resaleexpert.i" aria-label="Facebook" style="width:22px; height:22px; display:inline-flex;">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%;">
+              <path fill="#1877F2" d="M22.676 0H1.324C.593 0 0 .593 0 1.324v21.352C0 23.407.593 24 1.324 24H12.82v-9.294H9.692V11.06h3.127V8.41c0-3.1 1.892-4.79 4.658-4.79 1.325 0 2.463.099 2.796.143v3.242l-1.92.001c-1.505 0-1.797.716-1.797 1.767v2.318h3.59l-.467 3.646h-3.123V24h6.127C23.407 24 24 23.407 24 22.676V1.324C24 .593 23.407 0 22.676 0z"/>
+            </svg>
+          </a>
+
+          <!-- YouTube (Red) -->
+          <a href="https://www.youtube.com/channel/UCYuJPmp-d7HIdfPgSejWzvg" aria-label="YouTube" style="width:22px; height:22px; display:inline-flex;">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%;">
+              <path fill="#FF0000" d="M23.498 6.186a3.01 3.01 0 0 0-2.12-2.13C19.62 3.5 12 3.5 12 3.5s-7.62 0-9.378.556A3.01 3.01 0 0 0 .502 6.186 31.63 31.63 0 0 0 0 12a31.63 31.63 0 0 0 .502 5.814 3.01 3.01 0 0 0 2.12 2.13C4.38 20.5 12 20.5 12 20.5s7.62 0 9.378-.556a3.01 3.01 0 0 0 2.12-2.13A31.63 31.63 0 0 0 24 12a31.63 31.63 0 0 0-.502-5.814ZM9.75 15.568V8.432L15.818 12 9.75 15.568Z"/>
+            </svg>
+          </a>
+        </div>
+      </div>`,
+    });
+  } catch (err) {
+    console.error("Bulk single PDF render error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to render PDF" });
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {}
+    }
+  }
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+  fs.createReadStream(outPath)
+    .on("close", async () => {
+      try {
+        await fs.remove(outPath);
+      } catch {}
+    })
+    .pipe(res);
 };

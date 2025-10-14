@@ -99,4 +99,5 @@ router.post("/migrate", propertyController.migratePropertyData);
 router.get("/city-locations", propertyController.searchCityLocationsStrict);
 
 router.post('/:id/brochure', brochureCtrl.generateBrochurePDF);
+router.post('/:id/BrochuresBulkSinglePDF', brochureCtrl.generateBrochuresBulkSinglePDF);
 module.exports = router;
