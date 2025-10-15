@@ -41,6 +41,8 @@ const eSignRoutes = require("./routes/eSign.routes");
 
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
+const emailIntegrationRoutes = require("./routes/emailIntegrationRoutes");
+
 
 const app = express();
 
@@ -109,6 +111,7 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
 
 app.use("/api/esign", eSignRoutes);
+app.use("/api/email-integration", emailIntegrationRoutes);
 
 // for use for loacal
 // app.use(
