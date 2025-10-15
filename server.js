@@ -196,6 +196,7 @@ app.use("/api/rss-sources", rssRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/ai-blogs', aiBlogRoutes)
 app.use("/api/home-hero", homeHeroRoutes);
+
 // Root
 app.get("/", (req, res) => {
   res.json({

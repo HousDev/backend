@@ -2,10 +2,9 @@ const express = require("express");
 const router = express.Router();
 const MasterController = require("../controllers/masterController");
 const multer = require("multer");
-const { verifyToken, isAdmin } = require("../middleware/authJwt");
 
 const upload = multer({ dest: "uploads/" });
-router.use(verifyToken, isAdmin);
+
 
 // Master Types Routes
 
