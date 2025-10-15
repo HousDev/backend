@@ -15,10 +15,17 @@ const isHttpLike = (s) => typeof s === 'string' && /^https?:\/\//i.test(s);
 function ensureDir(p) { fs.mkdirSync(p, { recursive: true }); }
 function sha256(buf) { return createHash('sha256').update(buf).digest('hex'); }
 function atomicWrite(filePath, buf) {
-  const tmp = `${filePath}.tmp-${Date.now()}`;
+  const dir = path.dirname(filePath);
+  // make sure dir exists
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(
+    dir,
+    `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`
+  );
   fs.writeFileSync(tmp, buf);
-  fs.renameSync(tmp, filePath);
+  fs.renameSync(tmp, filePath); // same FS rename; will throw on permission/SELinux issues
 }
+
 function interpolate(html, vars = {}) {
   return String(html).replace(/{{\s*([\w.]+)\s*}}/g, (_, key) => {
     const val = key.split('.').reduce((o, k) => (o ? o[k] : undefined), vars);
@@ -386,10 +393,7 @@ async function loadEsignVars(documentId, poolConn) {
 
 
 /* ------------------- more helpers ------------------- */
-const {
-  toPublicUrl,      // (not used here, but safe to keep for future)
-  makeUploadTarget, // used by savePdfToStorage
-} = require('../middleware/upload');
+const {toPublicUrl,      makeUploadTarget, } = require('../middleware/upload');
 
 function getActorIds(req, body = {}) {
   const authId = req.user?.id ?? req.user?.user_id;
@@ -676,6 +680,14 @@ const DocumentsGeneratedController = {
   },
 
   async savePdfToStorage(req, res) {
+    // TOP of savePdfToStorage (after id/page parsing)
+// console.log('[savePdfToStorage] ENV', {
+//   UPLOAD_ROOT: process.env.UPLOAD_ROOT,
+//   UPLOAD_PUBLIC_BASE: process.env.UPLOAD_PUBLIC_BASE,
+//   cwd: process.cwd(),
+//   node_user: (process.getuid && process.getuid()) || 'win/no-getuid'
+// });
+
     try {
       const id = Number(req.params.id);
       if (!id) return res.status(400).json({ ok: false, error: 'invalid document id' });
@@ -704,7 +716,20 @@ const DocumentsGeneratedController = {
       if (!size || size < 1000) return res.status(500).json({ ok: false, error: 'invalid pdf generated' });
 
       // 4) target
-      const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
+   const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
+   
+// --- add these lines right after makeUploadTarget:
+const dirPath = path.dirname(absPath);
+const normalizedAbs = absPath.replace(/\\/g, '/');
+console.log('[savePdfToStorage] target', { dirPath, absPath: normalizedAbs });
+
+try {
+  fs.accessSync(dirPath, fs.constants.W_OK);
+  console.log('[savePdfToStorage] dir is writable');
+} catch (e) {
+  console.error('[savePdfToStorage] dir NOT writable:', e.message);
+  return res.status(500).json({ ok:false, error:'dir_not_writable', details: e.message, dirPath });
+}
 
       // 5) write + hash
       const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
