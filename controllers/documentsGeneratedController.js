@@ -679,25 +679,29 @@ const DocumentsGeneratedController = {
     }
   },
 
+  /* SAVE & PERSIST PDF TO DISK (+DB) */
   async savePdfToStorage(req, res) {
-    // TOP of savePdfToStorage (after id/page parsing)
-// console.log('[savePdfToStorage] ENV', {
-//   UPLOAD_ROOT: process.env.UPLOAD_ROOT,
-//   UPLOAD_PUBLIC_BASE: process.env.UPLOAD_PUBLIC_BASE,
-//   cwd: process.cwd(),
-//   node_user: (process.getuid && process.getuid()) || 'win/no-getuid'
-// });
-
+    const ctx = { stage: 'start' }; // to know exactly where it fails on server
     try {
       const id = Number(req.params.id);
-      if (!id) return res.status(400).json({ ok: false, error: 'invalid document id' });
+      if (!id) return res.status(400).json({ ok:false, error:'invalid_document_id' });
 
+      // --- ENV sanity (prevents silent failures when env not loaded)
+      ctx.stage = 'env_check';
+      const root = process.env.UPLOAD_ROOT;
+      const pubBase = process.env.UPLOAD_PUBLIC_BASE;
+      if (!root || !pubBase) {
+        return res.status(500).json({ ok:false, error:'env_missing', details:{ UPLOAD_ROOT: root, UPLOAD_PUBLIC_BASE: pubBase }});
+      }
+
+      // inputs
       const pageParam = String(req.query.page || req.body?.page || 'A4');
       const esignSessionId = req.body?.esign_session_id || req.query.esign_session_id || null;
 
       // 1) fetch document
+      ctx.stage = 'load_row';
       const row = await Model.getById(id);
-      if (!row) return res.status(404).json({ ok: false, error: 'document not found' });
+      if (!row) return res.status(404).json({ ok:false, error:'document_not_found' });
 
       // 2) filename
       const overrideNameRaw = req.body?.output_name || req.query?.output_name || '';
@@ -705,36 +709,33 @@ const DocumentsGeneratedController = {
       const safeName = makeSafePdfName(wantedName);
 
       // 3) wrap & render
+      ctx.stage = 'render_pdf';
       const desired = pageParam.toLowerCase() === 'legal' ? 'Legal' : 'A4';
-
       const vars = await buildVarsForDoc(row);
       const filled = interpolate(row.content || '', vars);
       const html = applyPageShell(filled, desired);
-
-      const pdfBuffer = await renderPdfBuffer(html);
+      const pdfBuffer = await renderPdfBuffer(html, desired);
       const size = Buffer.isBuffer(pdfBuffer) ? pdfBuffer.length : (pdfBuffer?.byteLength ?? 0);
-      if (!size || size < 1000) return res.status(500).json({ ok: false, error: 'invalid pdf generated' });
+      if (!size || size < 1000) return res.status(500).json({ ok:false, error:'invalid_pdf_generated', size });
 
       // 4) target
-   const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
-   
-// --- add these lines right after makeUploadTarget:
-const dirPath = path.dirname(absPath);
-const normalizedAbs = absPath.replace(/\\/g, '/');
-console.log('[savePdfToStorage] target', { dirPath, absPath: normalizedAbs });
+      ctx.stage = 'target_build';
+      const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
+      const dirPath = path.dirname(absPath);
+      const normalizedAbs = absPath.replace(/\\/g, '/');
 
-try {
-  fs.accessSync(dirPath, fs.constants.W_OK);
-  console.log('[savePdfToStorage] dir is writable');
-} catch (e) {
-  console.error('[savePdfToStorage] dir NOT writable:', e.message);
-  return res.status(500).json({ ok:false, error:'dir_not_writable', details: e.message, dirPath });
-}
+      // ensure dir exists + is writable
+      ctx.stage = 'ensure_dir';
+      ensureDir(dirPath);
+      try { fs.accessSync(dirPath, fs.constants.W_OK); }
+      catch (e) {
+        return res.status(500).json({ ok:false, error:'dir_not_writable', details:e.message, dirPath });
+      }
 
       // 5) write + hash
+      ctx.stage = 'write_file';
       const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
       const hash = sha256(buf);
-      ensureDir(path.dirname(absPath));
       atomicWrite(absPath, buf);
 
       // 6) urls
@@ -744,6 +745,7 @@ try {
         : `${req.protocol}://${req.get('host')}${file_url}`;
 
       // 7) persist on the document row
+      ctx.stage = 'persist_db';
       let persisted = true;
       try {
         const authId = req.user?.id ?? req.user?.user_id ?? null;
@@ -760,10 +762,11 @@ try {
         );
       } catch (e) {
         persisted = false;
-        console.error('documents_generated update failed:', e);
+        console.error('[savePdfToStorage] DB update failed:', e.message);
       }
 
-      // 8) tie to e-sign session if provided
+      // 8) tie to e-sign session if provided (optional)
+      ctx.stage = 'update_esign_session';
       let updatedEsign = false;
       if (esignSessionId) {
         try {
@@ -779,16 +782,17 @@ try {
           );
           updatedEsign = true;
         } catch (e) {
-          console.error('esign session update failed:', e);
+          console.error('[savePdfToStorage] esign session update failed:', e.message);
         }
       }
 
       // 9) respond
+      ctx.stage = 'done';
       return res.json({
         ok: true,
         status: 'pdf_saved',
         document_id: id,
-        file_path: absPath,
+        file_path: normalizedAbs,
         file_url,
         file_url_http,
         file_name: safeName,
@@ -797,10 +801,17 @@ try {
         updated_esign_session: updatedEsign,
       });
     } catch (e) {
-      console.error('documents-generated:savePdfToStorage', e);
-      return res.status(500).json({ ok: false, error: 'Failed to save PDF' });
+      console.error('documents-generated:savePdfToStorage failed at', ctx.stage, e);
+      return res.status(500).json({
+        ok: false,
+        error: 'Failed to save PDF',
+        stage: ctx.stage,
+        message: e.message,
+        code: e.code || null
+      });
     }
   },
+
 
   /* GET ONE with relations */
   async getOneWithRelations(req, res) {
@@ -992,68 +1003,106 @@ try {
   },
 
   /* FINAL PDF (prefer signed, append 1-page audit with VERIFIED TIMESTAMPS) */
-  async downloadFinalPdf(req, res) {
-    try {
-      const id = Number(req.params.id);
-      if (!id) return res.status(400).json({ error: 'invalid id' });
+ /* FINAL PDF (prefer signed, append 1-page audit with VERIFIED TIMESTAMPS) */
+async downloadFinalPdf(req, res) {
+  const ctx = { stage: 'start' };
+  try {
+    ctx.stage = 'parse_id';
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid id' });
 
-      // 1) fetch base doc + latest esign session
-      const row = await Model.getById(id);
-      if (!row) return res.status(404).json({ error: 'Not found' });
+    ctx.stage = 'load_row_session';
+    const row = await Model.getById(id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    const session = await getLatestEsignSession(id);
 
-      const session = await getLatestEsignSession(id);
+    // 2) vars (timestamps/status only; NO OTPs)
+    ctx.stage = 'build_vars';
+    const base = safeParseVariables(row.variables);
+    const esignVars = await loadEsignVars(row.id, pool);
+    const now = new Date();
+    const vars = {
+      ...base,
+      ...esignVars,
+      current_date: now.toLocaleDateString('en-IN'),
+      current_datetime: now.toLocaleString('en-IN'),
+      document_id: base?.document_id ?? row?.id ?? '',
+      document_date: base?.document_date ?? now.toISOString().slice(0, 10),
+      company_name: base?.company_name ?? base?.company?.name ?? '',
+    };
 
-      // 2) vars (ONLY timestamps/status; NO OTP codes)
-      const base = safeParseVariables(row.variables);
-      const esignVars = await loadEsignVars(row.id, pool);
-      const now = new Date();
-      const vars = {
-        ...base,
-        ...esignVars,
-        current_date: now.toLocaleDateString('en-IN'),
-        current_datetime: now.toLocaleString('en-IN'),
-        document_id: base?.document_id ?? row?.id ?? '',
-        document_date: base?.document_date ?? (now.toISOString().slice(0,10)),
-        company_name: base?.company_name ?? base?.company?.name ?? '',
-      };
-
-      // 3) build 1-page AUDIT PDF
-      const auditHtmlInner = buildAuditHtml({ doc: row, vars, session });
-      const auditWrapped = applyPageShell(auditHtmlInner, 'A4');
-      const auditPdf = await renderPdfBuffer(auditWrapped);
-
-      // 4) base PDF: prefer signed PDF if exists, else render from HTML
-      let basePdfBuffer;
-      if (session?.signed_pdf_path && fs.existsSync(session.signed_pdf_path)) {
-        basePdfBuffer = fs.readFileSync(session.signed_pdf_path);
-      } else {
-        const filled = interpolate(row.content || '', vars);
-        const html = applyPageShell(filled, 'A4');
-        basePdfBuffer = await renderPdfBuffer(html);
-      }
-
-      // 5) merge: base pages + audit last page
-      const baseDoc = await PDFDocument.load(Buffer.isBuffer(basePdfBuffer) ? basePdfBuffer : Buffer.from(basePdfBuffer));
-      const auditDoc = await PDFDocument.load(Buffer.isBuffer(auditPdf) ? auditPdf : Buffer.from(auditPdf));
-
-      const merged = await PDFDocument.create();
-      const basePages = await merged.copyPages(baseDoc, baseDoc.getPageIndices());
-      basePages.forEach(p => merged.addPage(p));
-      const [auditPage] = await merged.copyPages(auditDoc, [0]);
-      merged.addPage(auditPage);
-
-      const finalBuf = await merged.save();
-
-      // 6) send
-      const fname = `${slugify(row.name || 'document')}_final.pdf`;
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
-      return res.send(Buffer.from(finalBuf));
-    } catch (e) {
-      console.error('documents-generated:downloadFinalPdf', e);
-      return res.status(500).json({ error: 'Failed to prepare final PDF' });
+    // 3) build 1-page AUDIT PDF
+    ctx.stage = 'render_audit';
+    const auditHtmlInner = buildAuditHtml({ doc: row, vars, session });
+    const auditWrapped = applyPageShell(auditHtmlInner, 'A4');
+    const auditPdf = await renderPdfBuffer(auditWrapped);
+    const auditSize = Buffer.isBuffer(auditPdf) ? auditPdf.length : (auditPdf?.byteLength ?? 0);
+    if (!auditSize || auditSize < 1000) {
+      return res.status(500).json({ error: 'audit_pdf_invalid', size: auditSize });
     }
-  },
+
+    // 4) base PDF: prefer existing file paths, else render from HTML
+    ctx.stage = 'resolve_base_pdf';
+    const pathCandidates = [
+      session?.signed_pdf_path,
+      row?.signed_pdf_path,
+      row?.pdf_path,
+      row?.original_pdf_path,
+    ].filter(Boolean);
+
+    let basePdfBuffer = null;
+    for (const p of pathCandidates) {
+      try {
+        if (p && fs.existsSync(p)) {
+          const buf = fs.readFileSync(p);
+          const len = Buffer.isBuffer(buf) ? buf.length : (buf?.byteLength ?? 0);
+          if (len && len > 1000) { basePdfBuffer = buf; break; }
+        }
+      } catch { /* try next */ }
+    }
+
+    if (!basePdfBuffer) {
+      ctx.stage = 'render_base_html';
+      const filled = interpolate(row.content || '', vars);
+      const html = applyPageShell(filled, 'A4');
+      basePdfBuffer = await renderPdfBuffer(html);
+      const baseSize = Buffer.isBuffer(basePdfBuffer) ? basePdfBuffer.length : (basePdfBuffer?.byteLength ?? 0);
+      if (!baseSize || baseSize < 1000) {
+        return res.status(500).json({ error: 'base_pdf_invalid_after_render', size: baseSize });
+      }
+    }
+
+    // 5) merge: base pages + audit last page
+    ctx.stage = 'merge_pdf';
+    const baseDoc = await PDFDocument.load(Buffer.isBuffer(basePdfBuffer) ? basePdfBuffer : Buffer.from(basePdfBuffer));
+    const auditDoc = await PDFDocument.load(Buffer.isBuffer(auditPdf) ? auditPdf : Buffer.from(auditPdf));
+
+    const merged = await PDFDocument.create();
+    const basePages = await merged.copyPages(baseDoc, baseDoc.getPageIndices());
+    basePages.forEach(p => merged.addPage(p));
+    const [auditPage] = await merged.copyPages(auditDoc, [0]);
+    merged.addPage(auditPage);
+
+    const finalBuf = await merged.save();
+
+    // 6) send
+    ctx.stage = 'send';
+    const fname = `${slugify(row.name || 'document')}_final.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    return res.send(Buffer.from(finalBuf));
+
+  } catch (e) {
+    console.error('documents-generated:downloadFinalPdf failed at', ctx.stage, e);
+    return res.status(500).json({
+      error: 'Failed to prepare final PDF',
+      stage: ctx.stage,
+      message: e.message,
+      code: e.code || null
+    });
+  }
+}
+,
 
   /* BACKEND-ONLY SUMMARY (no frontend input) */
   async verificationSummary(req, res) {
