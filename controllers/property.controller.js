@@ -1328,6 +1328,23 @@ const PublicgetProperty = async (req, res) => {
   }
 };
 
+importBulk = async (req, res) => {
+  const rows = req.body.rows; // array of objects
+  const results = [];
+  for (const row of rows) {
+    try {
+      await Property.create(row);
+      results.push({ success: true });
+    } catch (err) {
+      results.push({ success: false, error: err.message });
+    }
+  }
+  res.json({
+    success: true,
+    imported: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+  });
+};
 
 
 
@@ -1348,6 +1365,7 @@ module.exports = {
   saveFilterContextHandler,
   getFilterContextHandler,
   searchCityLocationsStrict,
+  importBulk,
 
   //Public
 
