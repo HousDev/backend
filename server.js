@@ -8,7 +8,7 @@ const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
-const path = require("path");   //for local
+// const path = require("path");   //for local
 
 const fs = require("fs"); //for server
 
@@ -41,8 +41,6 @@ const eSignRoutes = require("./routes/eSign.routes");
 
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
-const emailIntegrationRoutes = require("./routes/emailIntegrationRoutes");
-
 
 const app = express();
 
@@ -111,7 +109,6 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
 
 app.use("/api/esign", eSignRoutes);
-app.use("/api/email-integration", emailIntegrationRoutes);
 
 // for use for loacal
 // app.use(

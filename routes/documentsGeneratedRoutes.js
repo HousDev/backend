@@ -32,7 +32,7 @@ router.get('/with-relations/:id', ctrl.getOneWithRelations);
 router.post('/bulk-download', ctrl.bulkDownloadZip);
 
 router.post('/:id/save-pdf', ctrl.savePdfToStorage);
-
+router.get('/documents/:id/preview.pdf', ctrl.previewPdfInline);
 
 router.get('/:id/final-pdf', ctrl.downloadFinalPdf);
 router.get('/documents/:id/verification-summary', ctrl.verificationSummary);
