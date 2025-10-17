@@ -164,7 +164,7 @@ app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
-app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
+app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
 app.use("/api/razorpay-integration", require("./routes/razorpayRoutes"));
 const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
