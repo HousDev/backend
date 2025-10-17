@@ -64,6 +64,12 @@ router.get("/get-all", propertyController.PublicgetAllProperties);
 router.get("/pro-page/:slug", propertyController.PublicgetPropertyBySlug);
 router.get("/get-one/:id", propertyController.PublicgetProperty);
 
+
+
+
+// routes/property.routes.js
+router.post('/import-bulk', upload.none(), propertyController.importBulk);
+
 // Create
 router.post(
   "/create",

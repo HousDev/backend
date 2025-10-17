@@ -6,65 +6,22 @@
 //   handleUploadErrors,
 //   attachPublicUrls,
 // } = require("../middleware/upload");
-
-// // READ
-// router.get("/get-all", ctrl.listPosts);
-// router.get("/get/:id", ctrl.getPost);
-// router.get("/:slug", ctrl.getPostBySlug);
-
-// // CREATE
-// router.post(
-//   "/",
-//   uploadBlog.single("featuredImage"),
-//   handleUploadErrors,
-//   attachPublicUrls,
-//   ctrl.createPost
-// );
-
-// // UPDATE (single)
-// router.put(
-//   "/update/:id",
-//   uploadBlog.single("featuredImage"),
-//   handleUploadErrors,
-//   attachPublicUrls,
-//   ctrl.updatePost
-// );
-
-// // BULK UPDATE (publish etc.)
-// router.put("/bulk-update", ctrl.bulkUpdatePosts);
-
-// // BULK DELETE (two compatible endpoints for your frontend)
-// router.post("/bulk-delete", ctrl.bulkDeletePosts);
-// router.post("/delete-many", ctrl.bulkDeletePosts); // alias
-
-// // DELETE (single)
-// router.delete("/delete/:id", ctrl.deletePost);
-
-// module.exports = router;
-
-
-// const express = require("express");
-// const router = express.Router();
-// const ctrl = require("../controllers/blog.controller");
-// const {
-//   uploadBlog,
-//   handleUploadErrors,
-//   attachPublicUrls,
-// } = require("../middleware/upload");
+// const { verifyToken } = require("../middleware/authJwt"); // ✅ add this
 
 // /* ---------------- Public (published-only) ---------------- */
 // router.get("/public/get-all", ctrl.listPublicPosts);
 // router.get("/public/:slug", ctrl.getPublicPostBySlug);
 
-// /* ---------------- Admin / Mixed (guarded inside controller) ---------------- */
+// /* ---------------- Admin / Mixed (protected) ---------------- */
 // // READ
-// router.get("/get-all", ctrl.listPosts);
-// router.get("/get/:id", ctrl.getPost);
-// router.get("/:slug", ctrl.getPostBySlug);
+// router.get("/get-all", verifyToken, ctrl.listPosts);
+// router.get("/get/:id", verifyToken, ctrl.getPost);
+// router.get("/:slug", verifyToken, ctrl.getPostBySlug);
 
 // // CREATE
 // router.post(
 //   "/",
+//   verifyToken,
 //   uploadBlog.single("featuredImage"),
 //   handleUploadErrors,
 //   attachPublicUrls,
@@ -74,6 +31,7 @@
 // // UPDATE (single)
 // router.put(
 //   "/update/:id",
+//   verifyToken,
 //   uploadBlog.single("featuredImage"),
 //   handleUploadErrors,
 //   attachPublicUrls,
@@ -81,14 +39,14 @@
 // );
 
 // // BULK UPDATE (publish, etc.)
-// router.put("/bulk-update", ctrl.bulkUpdatePosts);
+// router.put("/bulk-update", verifyToken, ctrl.bulkUpdatePosts);
 
-// // BULK DELETE (two compatible endpoints)
-// router.post("/bulk-delete", ctrl.bulkDeletePosts);
-// router.post("/delete-many", ctrl.bulkDeletePosts); // alias
+// // BULK DELETE
+// router.post("/bulk-delete", verifyToken, ctrl.bulkDeletePosts);
+// router.post("/delete-many", verifyToken, ctrl.bulkDeletePosts); // alias
 
 // // DELETE (single)
-// router.delete("/delete/:id", ctrl.deletePost);
+// router.delete("/delete/:id", verifyToken, ctrl.deletePost);
 
 // module.exports = router;
 
@@ -100,7 +58,7 @@ const {
   handleUploadErrors,
   attachPublicUrls,
 } = require("../middleware/upload");
-const { verifyToken } = require("../middleware/authJwt"); // ✅ add this
+const { verifyToken } = require("../middleware/authJwt");
 
 /* ---------------- Public (published-only) ---------------- */
 router.get("/public/get-all", ctrl.listPublicPosts);
