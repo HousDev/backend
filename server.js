@@ -57,8 +57,8 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
-  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+  origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
+  // origin: process.env.CORS_ORIGIN || "http://investordeal.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
