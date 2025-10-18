@@ -689,107 +689,119 @@ const DocumentsGeneratedController = {
     }
   },
 
-  async savePdfToStorage(req, res) {
+async savePdfToStorage(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ ok: false, error: 'invalid document id' });
+
+    const pageParam = String(req.query.page || req.body?.page || 'A4');
+    const esignSessionId = req.body?.esign_session_id || req.query.esign_session_id || null;
+
+    // 1) fetch document
+    const row = await Model.getById(id);
+    if (!row) return res.status(404).json({ ok: false, error: 'document not found' });
+
+    // 2) filename
+    const overrideNameRaw = req.body?.output_name || req.query?.output_name || '';
+    const wantedName = overrideNameRaw ? overrideNameRaw : (row.name || row.title || `document-${id}`);
+    const safeName = makeSafePdfName(wantedName);
+
+    // 3) wrap & render
+    const desired = pageParam.toLowerCase() === 'legal' ? 'Legal' : 'A4';
+
+    const vars = await buildVarsForDoc(row);
+    const filled = interpolate(row.content || '', vars);
+    const html = applyPageShell(filled, desired);
+
+    const pdfBuffer = await renderPdfBuffer(html);
+    const size = Buffer.isBuffer(pdfBuffer) ? pdfBuffer.length : (pdfBuffer?.byteLength ?? 0);
+    if (!size || size < 1000) return res.status(500).json({ ok: false, error: 'invalid pdf generated' });
+
+    // 4) target
+    const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
+
+    // 5) write to disk + make Base64 (NO sha256)
+    const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    const pdfBase64 = buf.toString('base64'); // ← store this in DB, return in API
+    ensureDir(path.dirname(absPath));
+    atomicWrite(absPath, buf);
+
+    // 6) urls
+    const file_url = publicUrl;
+    const file_url_http = isHttpLike(file_url)
+      ? file_url
+      : `${req.protocol}://${req.get('host')}${file_url}`;
+
+    // 7) persist on the document row
+    let persisted = true;
     try {
-      const id = Number(req.params.id);
-      if (!id) return res.status(400).json({ ok: false, error: 'invalid document id' });
+      const authId = req.user?.id ?? req.user?.user_id ?? null;
 
-      const pageParam = String(req.query.page || req.body?.page || 'A4');
-      const esignSessionId = req.body?.esign_session_id || req.query.esign_session_id || null;
+      // NOTE: requires documents_generated.pdf_base64 column
+      await pool.execute(
+        `UPDATE documents_generated
+           SET pdf_path              = ?,
+               pdf_url               = ?,
+               pdf_base64            = ?,   -- store raw Base64
+               last_pdf_generated_at = CURRENT_TIMESTAMP,
+               updated_by            = ?,
+               updated_at            = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [absPath, file_url, pdfBase64, authId, id]
+      );
 
-      // 1) fetch document
-      const row = await Model.getById(id);
-      if (!row) return res.status(404).json({ ok: false, error: 'document not found' });
+      // (Optional) अगर पुराना pdf_hash था और उसे हटाना हो तो NULL कर सकते हो:
+      // await pool.execute(`UPDATE documents_generated SET pdf_hash=NULL WHERE id=?`, [id]);
 
-      // 2) filename
-      const overrideNameRaw = req.body?.output_name || req.query?.output_name || '';
-      const wantedName = overrideNameRaw ? overrideNameRaw : (row.name || row.title || `document-${id}`);
-      const safeName = makeSafePdfName(wantedName);
-
-      // 3) wrap & render
-      const desired = pageParam.toLowerCase() === 'legal' ? 'Legal' : 'A4';
-
-      const vars = await buildVarsForDoc(row);
-      const filled = interpolate(row.content || '', vars);
-      const html = applyPageShell(filled, desired);
-
-      const pdfBuffer = await renderPdfBuffer(html);
-      const size = Buffer.isBuffer(pdfBuffer) ? pdfBuffer.length : (pdfBuffer?.byteLength ?? 0);
-      if (!size || size < 1000) return res.status(500).json({ ok: false, error: 'invalid pdf generated' });
-
-      // 4) target
-      const { absPath, publicUrl } = makeUploadTarget('documents', String(id), safeName);
-
-      // 5) write + hash
-      const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
-      const hash = sha256(buf);
-      ensureDir(path.dirname(absPath));
-      atomicWrite(absPath, buf);
-
-      // 6) urls
-      const file_url = publicUrl;
-      const file_url_http = isHttpLike(file_url)
-        ? file_url
-        : `${req.protocol}://${req.get('host')}${file_url}`;
-
-      // 7) persist on the document row
-      let persisted = true;
-      try {
-        const authId = req.user?.id ?? req.user?.user_id ?? null;
-        await pool.execute(
-          `UPDATE documents_generated
-             SET pdf_path              = ?,
-                 pdf_url               = ?,
-                 pdf_hash              = ?,
-                 last_pdf_generated_at = CURRENT_TIMESTAMP,
-                 updated_by            = ?,
-                 updated_at            = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [absPath, file_url, hash, authId, id]
-        );
-      } catch (e) {
-        persisted = false;
-        console.error('documents_generated update failed:', e);
-      }
-
-      // 8) tie to e-sign session if provided
-      let updatedEsign = false;
-      if (esignSessionId) {
-        try {
-          await pool.execute(
-            `UPDATE document_esign_sessions
-               SET original_pdf_path = ?,
-                   original_pdf_name = ?,
-                   original_sha256   = ?,
-                   status            = COALESCE(status, 'pdf_saved'),
-                   updated_at        = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [absPath, safeName, hash, esignSessionId]
-          );
-          updatedEsign = true;
-        } catch (e) {
-          console.error('esign session update failed:', e);
-        }
-      }
-
-      // 9) respond
-      return res.json({
-        ok: true,
-        status: 'pdf_saved',
-        document_id: id,
-        file_path: absPath,
-        file_url,
-        file_url_http,
-        file_name: safeName,
-        sha256: hash,
-        persisted,
-        updated_esign_session: updatedEsign,
-      });
     } catch (e) {
-      console.error('documents-generated:savePdfToStorage', e);
-      return res.status(500).json({ ok: false, error: 'Failed to save PDF' });
+      persisted = false;
+      console.error('documents_generated update failed:', e);
     }
-  },
+
+    // 8) tie to e-sign session if provided
+    let updatedEsign = false;
+    if (esignSessionId) {
+      try {
+        // NOTE: requires document_esign_sessions.original_pdf_base64 column
+        await pool.execute(
+          `UPDATE document_esign_sessions
+             SET original_pdf_path   = ?,
+                 original_pdf_name   = ?,
+                 original_pdf_base64 = ?,  -- store Base64 for provider if needed
+                 status              = COALESCE(status, 'pdf_saved'),
+                 updated_at          = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [absPath, safeName, pdfBase64, esignSessionId]
+        );
+
+        // (Optional) पुराना original_sha256 हटा/NULL कर सकते हैं:
+        // await pool.execute(`UPDATE document_esign_sessions SET original_sha256=NULL WHERE id=?`, [esignSessionId]);
+
+        updatedEsign = true;
+      } catch (e) {
+        console.error('esign session update failed:', e);
+      }
+    }
+
+    // 9) respond (return Base64 instead of sha256)
+    return res.json({
+      ok: true,
+      status: 'pdf_saved',
+      document_id: id,
+      file_path: absPath,
+      file_url,
+      file_url_http,
+      file_name: safeName,
+      pdf_base64: pdfBase64,      // ← here
+      persisted,
+      updated_esign_session: updatedEsign,
+    });
+  } catch (e) {
+    console.error('documents-generated:savePdfToStorage', e);
+    return res.status(500).json({ ok: false, error: 'Failed to save PDF' });
+  }
+}
+,
   /* PREVIEW: stream best-available PDF inline for iframe */
 async previewPdfInline(req, res) {
   try {
