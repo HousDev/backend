@@ -1,4 +1,4 @@
-const RSSSourceModel = require("../models/RSSSourceModel");
+const RSSSourceModel = require("../models/rssSourceModel");
 const BlogPostModel = require("../models/BlogPost");
 const { fetchAndFilter } = require("../utils/rssFetcher");
 const Parser = require("rss-parser");
