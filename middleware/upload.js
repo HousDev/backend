@@ -165,12 +165,9 @@ const makeStorage = (folder) =>
 
 // Convert absolute file path under UPLOAD_ROOT to public URL under UPLOAD_PUBLIC_BASE
 const toPublicUrl = (absFilePath) => {
-  // Normalize slashes first
   const normalized = absFilePath.replace(/\\/g, "/");
   const normalizedRoot = UPLOAD_ROOT.replace(/\\/g, "/").replace(/\/+$/, "");
-  const publicBase = UPLOAD_PUBLIC_BASE.replace(/\/+$/, "");
-  // Replace prefix
-  return normalized.replace(normalizedRoot, publicBase);
+  return normalized.replace(normalizedRoot, UPLOAD_PUBLIC_BASE);
 };
 
 // Common middleware to attach publicUrl to req.file / req.files

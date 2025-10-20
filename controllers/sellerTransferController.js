@@ -1,9 +1,26 @@
 // controllers/transferToSeller.js
-const pool = require("../config/database");
-const Property = require("../models/Property");
-const SellerModel = require("../models/SellerModel");
+const pool = require("../config/database"); // mysql2/promise pool
+require("dotenv").config();
 
-// helpers
+/* ------------ helpers ------------ */
+function toSqlDate(isoOrDate) {
+  if (!isoOrDate) return null;
+  const d = new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function toSqlTime(isoOrDate) {
+  if (!isoOrDate) return null;
+  const d = new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mi}:${ss}`;
+}
 function toSqlDateTime(isoOrDate) {
   if (!isoOrDate) return null;
   const d = new Date(isoOrDate);
@@ -16,164 +33,42 @@ function toSqlDateTime(isoOrDate) {
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
-
 function asIntOrNull(v) {
   if (v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
-
-function ensureJsonString(v) {
-  if (v == null) return null;
-  if (typeof v === "string") {
-    const s = v.trim();
-    if (s === "") return null;
-    try {
-      JSON.parse(s);
-      return s;
-    } catch {
-      const arr = s
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean);
-      return arr.length ? JSON.stringify(arr) : null;
-    }
+function isValidTimeString(t) {
+  // Accepts "HH:MM" or "HH:MM:SS"
+  return typeof t === "string" && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(t);
+}
+function toSqlTimeOrNull(v) {
+  if (isValidTimeString(v)) {
+    // Normalize to HH:MM:SS
+    return v.length === 5 ? `${v}:00` : v;
   }
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return null;
-  }
+  return toSqlTime(v);
 }
 
-// Build property payload: use human-readable budget string (from overrides or lead)
-function buildPropertyPayload(overrides, lead, createdBy) {
-  // include lead fields as fallback so budget from lead is used if overrides missing
-  const rawBudget =
-    overrides.budget ??
-    overrides.budget_range ??
-    overrides.price ??
-    lead.budget ??
-    lead.budget_range ??
-    lead.price ??
-    null;
-
-  const photosJson = ensureJsonString(overrides.photos ?? null);
-  const amenitiesJson = ensureJsonString(overrides.amenities ?? null);
-  const furnishingJson = ensureJsonString(
-    overrides.furnishing_items ?? overrides.furnishingItems ?? null
-  );
-  const nearbyJson = ensureJsonString(
-    overrides.nearby_places ??
-      overrides.nearbyplaces ??
-      overrides.nearbyLocations ??
-      null
-  );
-
-  return {
-    seller_name: overrides.seller_name ?? lead.name ?? null,
-    seller_id: overrides.seller_id ?? null,
-    assigned_to: overrides.assigned_to ?? overrides.assigned_executive ?? null,
-    property_type_name:
-      overrides.property_type ??
-      overrides.propertyType ??
-      lead.property_type ??
-      null,
-    property_subtype_name:
-      overrides.property_subtype ??
-      overrides.property_subtype_name ??
-      lead.property_subtype ??
-      null,
-    unit_type: overrides.unit_type ?? overrides.unitType ?? null,
-    wing: overrides.wing ?? null,
-    unit_no: overrides.unit_no ?? null,
-    furnishing: overrides.furnishing ?? null,
-    parking_type: overrides.parking_type ?? null,
-    parking_qty: overrides.parking_qty ?? null,
-    city_name: overrides.city ?? lead.city ?? null,
-    location_name: overrides.location ?? lead.location ?? null,
-    society_name: overrides.society ?? overrides.society_name ?? null,
-    floor: overrides.floor ?? null,
-    total_floors: overrides.total_floors ?? null,
-    carpet_area: overrides.carpet_area ?? overrides.carpetArea ?? null,
-    builtup_area: overrides.builtup_area ?? null,
-
-    // store human-readable budget string directly (e.g., "80L", "2Cr")
-    budget: rawBudget ? String(rawBudget) : null,
-
-    address: overrides.address ?? null,
-    status: overrides.status ?? lead.status ?? null,
-    lead_source: overrides.lead_source ?? lead.lead_source ?? null,
-    possession_month: overrides.possession_month ?? null,
-    possession_year: overrides.possession_year ?? null,
-    purchase_month: overrides.purchase_month ?? null,
-    purchase_year: overrides.purchase_year ?? null,
-    selling_rights: overrides.selling_rights ?? null,
-    ownership_doc_path: overrides.ownership_doc_path ?? null,
-    photos: photosJson,
-    amenities: amenitiesJson,
-    furnishing_items: furnishingJson,
-    nearby_places: nearbyJson,
-    description: overrides.description ?? null,
-    is_public: overrides.is_public ?? false,
-    publication_date: overrides.publication_date ?? null,
-    created_at:
-      toSqlDateTime(overrides.created_at) ??
-      toSqlDateTime(new Date().toISOString()),
-    updated_at:
-      toSqlDateTime(overrides.updated_at) ??
-      toSqlDateTime(new Date().toISOString()),
-    lead_id: String(lead.id),
-    created_by:
-      asIntOrNull(createdBy) ?? asIntOrNull(overrides.created_by) ?? null,
-    updated_by:
-      asIntOrNull(createdBy) ?? asIntOrNull(overrides.updated_by) ?? null,
-  };
-}
-
-// Build seller payload: **NOTE: no `notes` field here** (we dropped it)
-function buildSellerPayload(overrides, lead, propertyId, createdBy) {
-  return {
-    salutation: overrides.salutation ?? lead.salutation ?? null,
-    name: overrides.name ?? lead.name ?? null,
-    phone: overrides.phone ?? lead.phone ?? null,
-    whatsapp:
-      overrides.whatsapp ??
-      overrides.whatsapp_number ??
-      lead.whatsapp_number ??
-      null,
-    email: overrides.email ?? lead.email ?? null,
-    source: overrides.lead_source ?? lead.lead_source ?? null,
-    leadType: overrides.lead_type ?? lead.lead_type ?? null,
-    status: overrides.status ?? lead.status ?? null,
-    created_by:
-      asIntOrNull(createdBy) ??
-      asIntOrNull(overrides.created_by) ??
-      asIntOrNull(lead.created_by) ??
-      null,
-    assigned_to:
-      overrides.assigned_executive ??
-      overrides.assigned_to ??
-      lead.assigned_executive ??
-      null,
-    assigned_to_name:
-      overrides.assigned_executive_name ?? overrides.assigned_to_name ?? null,
-    lead_id: String(lead.id),
-    property_id: propertyId ?? null,
-    created_at:
-      toSqlDateTime(overrides.created_at) ??
-      toSqlDateTime(new Date().toISOString()),
-    updated_at:
-      toSqlDateTime(overrides.updated_at) ??
-      toSqlDateTime(new Date().toISOString()),
-    is_active: overrides.is_active != null ? (overrides.is_active ? 1 : 0) : 1,
-  };
-}
-
-// Main controller
+/**
+ * POST /api/transfer-to-seller
+ * Body:
+ * {
+ *   leadId: string|number,
+ *   createdBy?: number,
+ *   seller: {...},
+ *   my_property: {...},
+ *   seller_followups: [...]
+ * }
+ */
 async function transferToSeller(req, res) {
-  const { leadId, overrides = {}, createdBy } = req.body || {};
-  console.log(req.body);
+  const {
+    leadId,
+    createdBy,
+    seller = {},
+    my_property = {},
+    seller_followups = [],
+  } = req.body || {};
   if (!leadId) return res.status(400).json({ error: "leadId is required" });
 
   let conn;
@@ -181,221 +76,285 @@ async function transferToSeller(req, res) {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // load lead
+    // 1) Load lead (sanity)
     const [leadRows] = await conn.query(
       "SELECT * FROM client_leads WHERE id = ? LIMIT 1",
       [leadId]
     );
-    const lead =
-      Array.isArray(leadRows) && leadRows.length ? leadRows[0] : null;
+    const lead = Array.isArray(leadRows) && leadRows.length ? leadRows[0] : null;
     if (!lead) {
       await conn.rollback();
-      conn.release();
       return res.status(404).json({ error: "Lead not found" });
     }
 
-    // load followups
-    const [followupRows] = await conn.query(
-      "SELECT * FROM followups WHERE lead_id = ?",
-      [leadId]
-    );
-    const followups = Array.isArray(followupRows) ? followupRows : [];
+    const now = toSqlDateTime(new Date().toISOString());
 
-    // 1) create property (transactional insert using conn)
-    const propertyPayload = buildPropertyPayload(overrides, lead, createdBy);
+    // 2) Insert seller
+    const sellerRow = {
+      salutation: seller.salutation ?? lead.salutation ?? null,
+      name: seller.name ?? lead.name ?? null,
+      phone: seller.phone ?? lead.phone ?? null,
+      whatsapp: seller.whatsapp ?? lead.whatsapp_number ?? null,
+      email: seller.email ?? lead.email ?? null,
+      state: seller.state ?? lead.state ?? null,
+      city: seller.city ?? lead.city ?? null,
+      location: seller.location ?? lead.location ?? null,
+      countryCode: seller.countryCode ?? null,
 
-    // optional debug: uncomment to inspect payload before insert
-    // console.log("propertyPayload:", JSON.stringify(propertyPayload, null, 2));
+      stage: seller.stage ?? lead.stage ?? null,
+      leadType: seller.leadType ?? lead.lead_type ?? null,
+      priority: seller.priority ?? lead.priority ?? null,
+      status: seller.status ?? lead.status ?? null,
+      source: seller.source ?? lead.lead_source ?? null,
+      notes: seller.notes ?? null,
 
-    const propCols = Object.keys(propertyPayload).filter(
-      (k) => propertyPayload[k] !== undefined
-    );
-    const propPlaceholders = propCols.map(() => "?").join(", ");
-    const propValues = propCols.map((k) => propertyPayload[k]);
-    const propSql = `INSERT INTO my_properties (${propCols.join(
-      ", "
-    )}) VALUES (${propPlaceholders})`;
-    const [propInsertRes] = await conn.query(propSql, propValues);
+      seller_dob: seller.seller_dob ?? null,
+      expected_close: seller.expected_close ?? null,
+      last_activity: seller.last_activity
+        ? toSqlDateTime(seller.last_activity)
+        : now,
+      lead_score: seller.lead_score ?? null,
+      deal_value: seller.deal_value ?? null,
+      visits: seller.visits ?? 0,
+      total_visits: seller.total_visits ?? 0,
+      stage_progress: seller.stage_progress ?? null,
+      deal_potential: seller.deal_potential ?? null,
+      response_rate: seller.response_rate ?? null,
+      avg_response_time: seller.avg_response_time ?? null,
 
-    const propertyId =
-      propInsertRes &&
-      (propInsertRes.insertId ||
-        (Array.isArray(propInsertRes) &&
-          propInsertRes[0] &&
-          propInsertRes[0].insertId))
-        ? propInsertRes.insertId || propInsertRes[0].insertId
-        : null;
-    if (!propertyId) throw new Error("Failed to insert property");
+      assigned_to:
+        asIntOrNull(seller.assigned_to) ??
+        asIntOrNull(lead.assigned_executive) ??
+        null,
+      assigned_to_name: seller.assigned_to_name ?? null,
+      notifications: seller.notifications ?? null,
 
-    const [propRows] = await conn.query(
-      "SELECT * FROM my_properties WHERE id = ? LIMIT 1",
-      [propertyId]
-    );
-    const createdProperty =
-      Array.isArray(propRows) && propRows.length ? propRows[0] : null;
+      is_active: seller.is_active != null ? (seller.is_active ? 1 : 0) : 1,
+      created_at: toSqlDateTime(seller.created_at) ?? now,
+      updated_at: toSqlDateTime(seller.updated_at) ?? now,
+      current_stage: seller.current_stage ?? lead.stage ?? null,
+    };
 
-    // 2) create seller (transactional)
-    const sellerPayload = buildSellerPayload(
-      overrides,
-      lead,
-      propertyId,
-      createdBy
-    );
-
-    // dynamic insert using sellerPayload keys (so we won't try to write dropped columns)
-    const sellerCols = Object.keys(sellerPayload).filter(
-      (k) => sellerPayload[k] !== undefined
-    );
-    const sellerPlaceholders = sellerCols.map(() => "?").join(", ");
-    const sellerValues = sellerCols.map((k) => sellerPayload[k]);
+    const sellerCols = Object.keys(sellerRow);
     const sellerSql = `INSERT INTO sellers (${sellerCols.join(
-      ", "
-    )}) VALUES (${sellerPlaceholders})`;
-    const [sellerInsertRes] = await conn.query(sellerSql, sellerValues);
-
-    const createdSellerId =
-      sellerInsertRes &&
-      (sellerInsertRes.insertId ||
-        (Array.isArray(sellerInsertRes) &&
-          sellerInsertRes[0] &&
-          sellerInsertRes[0].insertId))
-        ? sellerInsertRes.insertId || sellerInsertRes[0].insertId
-        : null;
-    if (!createdSellerId) throw new Error("Failed to insert seller");
-
-    const [sellerRows] = await conn.query(
-      "SELECT * FROM sellers WHERE id = ? LIMIT 1",
-      [createdSellerId]
+      ","
+    )}) VALUES (${sellerCols.map(() => "?").join(",")})`;
+    const [sellerRes] = await conn.query(
+      sellerSql,
+      sellerCols.map((k) => sellerRow[k])
     );
-    const createdSeller =
-      Array.isArray(sellerRows) && sellerRows.length ? sellerRows[0] : null;
+    const sellerId = sellerRes.insertId;
 
-    // 3) map followups -> seller_followups (best-effort)
-    if (Array.isArray(followups) && followups.length > 0) {
-      const followupRowsToInsert = followups.map((fu) => {
-        const scheduleDateTime =
-          fu.scheduled_date ??
-          fu.scheduledDate ??
-          fu.scheduled_at ??
-          fu.scheduledAt ??
+    // 3) Compute budget (₹) from incoming payload (new or legacy)
+    const CRORE_TO_RUPEE = 10_000_000;
+    const budgetFromPayload =
+      asIntOrNull(my_property.budget) || // new FE (rupees)
+      asIntOrNull(my_property.price_max_rupees) || // legacy rupees
+      (Number(my_property.price_max_cr)
+        ? Math.trunc(Number(my_property.price_max_cr) * CRORE_TO_RUPEE)
+        : null); // legacy crore
+
+    // 3b) Insert my_properties (single)
+    const propRow = {
+      seller_name: sellerRow.name ?? null,
+      seller_id: sellerId,
+      lead_id: String(lead.id),
+      assigned_to:
+        asIntOrNull(my_property.assigned_to) ?? sellerRow.assigned_to ?? null,
+
+      property_type_name: my_property.property_type_name ?? null,
+      property_subtype_name: my_property.property_subtype_name ?? null,
+      unit_type: my_property.unit_type ?? null,
+      wing: my_property.wing ?? null,
+      unit_no: my_property.unit_no ?? null,
+      furnishing: my_property.furnishing ?? null,
+      bedrooms: my_property.bedrooms ?? null,
+      bathrooms: my_property.bathrooms ?? null,
+      facing: my_property.facing ?? null,
+      parking_type: my_property.parking_type ?? null,
+      parking_qty: my_property.parking_qty ?? null,
+
+      city_name: my_property.city_name ?? sellerRow.city ?? null,
+      location_name: my_property.location_name ?? sellerRow.location ?? null,
+      society_name: my_property.society_name ?? null,
+      floor: my_property.floor ?? null,
+      total_floors: my_property.total_floors ?? null,
+
+      carpet_area: my_property.carpet_area ?? null,
+      builtup_area: my_property.builtup_area ?? null,
+
+      // ✅ Persist rupees for budget
+      budget: budgetFromPayload ?? null,
+
+      address: my_property.address ?? null,
+
+      status: my_property.status ?? "new",
+      lead_source: my_property.lead_source ?? lead.lead_source ?? null,
+      possession_month: my_property.possession_month ?? null,
+      possession_year: my_property.possession_year ?? null,
+      purchase_month: my_property.purchase_month ?? null,
+      purchase_year: my_property.purchase_year ?? null,
+      selling_rights: my_property.selling_rights ?? null,
+
+      ownership_doc_path: my_property.ownership_doc_path ?? null,
+      photos: my_property.photos ?? null,
+      amenities: my_property.amenities ?? null,
+      furnishing_items: my_property.furnishing_items ?? null,
+
+      description: my_property.description ?? null,
+
+      created_at: toSqlDateTime(my_property.created_at) ?? now,
+      updated_at: toSqlDateTime(my_property.updated_at) ?? now,
+      is_public:
+        my_property.is_public != null ? (my_property.is_public ? 1 : 0) : 0,
+      publication_date: toSqlDateTime(my_property.publication_date) ?? null,
+      created_by:
+        asIntOrNull(my_property.created_by) ?? asIntOrNull(createdBy) ?? null,
+      updated_by:
+        asIntOrNull(my_property.updated_by) ?? asIntOrNull(createdBy) ?? null,
+      public_views: my_property.public_views ?? 0,
+      public_inquiries: my_property.public_inquiries ?? 0,
+      slug: my_property.slug ?? null,
+    };
+
+    const propCols = Object.keys(propRow);
+    const propSql = `INSERT INTO my_properties (${propCols.join(
+      ","
+    )}) VALUES (${propCols.map(() => "?").join(",")})`;
+    const [propRes] = await conn.query(
+      propSql,
+      propCols.map((k) => propRow[k])
+    );
+    const propertyId = propRes.insertId;
+
+    // 4) Insert seller_followups (bulk) – parity with buyer richness
+    if (Array.isArray(seller_followups) && seller_followups.length > 0) {
+      const rows = seller_followups.map((f) => {
+        // Prefer explicit schedule; otherwise allow explicit followup_date/time; else NULL (no fake 1970 defaults)
+        const scheduledSrc =
+          f.scheduled_date ?? f.scheduledDate ?? f.scheduled_at ?? f.scheduledAt ?? null;
+        const completedSrc =
+          f.completed_date ?? f.completedDate ?? f.completed_at ?? null;
+
+        const scheduledDt = scheduledSrc ? new Date(scheduledSrc) : null;
+        const hasValidScheduled = scheduledDt && !Number.isNaN(scheduledDt.getTime());
+        const completedDt = completedSrc ? new Date(completedSrc) : null;
+        const hasValidCompleted = completedDt && !Number.isNaN(completedDt.getTime());
+
+        // Respect provided date/time strings if already SQL-like
+        const finalDateSql = hasValidScheduled
+          ? toSqlDate(scheduledDt)
+          : (toSqlDate(f.followup_date) || null);
+
+        const finalTimeSql =
+          toSqlTimeOrNull(f.followup_time) ||
+          (hasValidScheduled ? toSqlTime(scheduledDt) : null);
+
+        const assignedExec =
+          asIntOrNull(f.assigned_executive) ??
+          asIntOrNull(f.assigned_to) ??
+          asIntOrNull(sellerRow.assigned_to) ??
+          asIntOrNull(createdBy) ??
           null;
-        const completedDate =
-          fu.completed_date ?? fu.completedDate ?? fu.completed_at ?? null;
+
+        const createdByForRow =
+          asIntOrNull(f.created_by) ?? asIntOrNull(createdBy) ?? null;
+        const updatedByForRow =
+          asIntOrNull(f.updated_by) ?? asIntOrNull(createdBy) ?? null;
+
+        // Merge notes from remark/customRemark if notes not provided
+        const notesNormalized =
+          f.notes ??
+          f.remark ??
+          f.custom_remark ??
+          f.customRemark ??
+          null;
+
         return {
-          seller_id: createdSellerId,
-          lead_id: fu.lead_id ?? lead.id ?? null,
-          followup_id: fu.id ?? null,
-          followup_type: fu.type ?? fu.followup_type ?? "other",
-          seller_lead_stage: fu.stage ?? null,
-          seller_lead_status: fu.status ?? null,
-          notes: fu.notes ?? null,
-          next_action: fu.next_action ?? fu.nextAction ?? null,
-          completed_date: completedDate ? toSqlDateTime(completedDate) : null,
-          schedule_date: scheduleDateTime
-            ? toSqlDateTime(scheduleDateTime)
-            : null,
-          schedule_time: scheduleDateTime
-            ? new Date(scheduleDateTime).toTimeString().split(" ")[0]
-            : null,
-          priority: fu.priority ?? "Medium",
-          created_by:
-            asIntOrNull(fu.created_by) ?? asIntOrNull(createdBy) ?? null,
-          updated_by:
-            asIntOrNull(fu.updated_by) ?? asIntOrNull(createdBy) ?? null,
-          created_at:
-            toSqlDateTime(fu.created_at) ??
-            toSqlDateTime(new Date().toISOString()),
-          updated_at:
-            toSqlDateTime(fu.updated_at) ??
-            toSqlDateTime(new Date().toISOString()),
+          // Existing columns (keep names)
+          followup_id: f.followup_id ?? f.id ?? null,        // VARCHAR(36) recommended
+          lead_id: String(lead.id),                           // align with buyer flow (UUID-safe)
+          seller_id: sellerId,
+          followup_type: f.followup_type ?? f.type ?? "other",
+          followup_date: finalDateSql,
+          followup_time: finalTimeSql,
+          status: f.status ?? null,
+          priority: f.priority ?? "Medium",
+          assigned_to: assignedExec,
+          reminder: f.reminder != null ? (f.reminder ? 1 : 0) : 0,
+          notes: notesNormalized,
+
+          // Rich parity (additive; safe if columns exist)
+          seller_lead_stage: f.seller_lead_stage ?? f.stage ?? null,
+          seller_lead_status: f.seller_lead_status ?? f.status ?? null,
+          remark: f.remark ?? null,
+          custom_remark: f.custom_remark ?? f.customRemark ?? null,
+          next_action: f.next_action ?? f.nextAction ?? null,
+          completed_date: hasValidCompleted ? toSqlDateTime(completedDt) : null,
+          schedule_date: hasValidScheduled ? toSqlDate(scheduledDt) : (toSqlDate(f.schedule_date) || null),
+
+          transferred_from_lead:
+            f.transferred_from_lead != null ? (f.transferred_from_lead ? 1 : 0) : 1,
+          transferred_at: toSqlDateTime(f.transferred_at) ?? now,
+          transferred_by: asIntOrNull(f.transferred_by) ?? asIntOrNull(createdBy) ?? null,
+          transfer_type: f.transfer_type ?? "lead_transfer",
+
+          assigned_executive: assignedExec,
+          created_by: createdByForRow,
+          updated_by: updatedByForRow,
+          created_at: toSqlDateTime(f.created_at) ?? now,
+          updated_at: toSqlDateTime(f.updated_at) ?? now,
         };
       });
 
-      if (followupRowsToInsert.length > 0) {
-        // remove columns that are null for all rows to avoid 'unknown column' if table differs
-        const cols = Object.keys(followupRowsToInsert[0]).filter((c) =>
-          followupRowsToInsert.some((r) => r[c] !== undefined)
-        );
-        const placeholders = followupRowsToInsert
-          .map(() => `(${cols.map(() => "?").join(", ")})`)
-          .join(", ");
-        const values = [];
-        followupRowsToInsert.forEach((row) =>
-          cols.forEach((c) => values.push(row[c]))
-        );
-        const insertSql = `INSERT INTO seller_followups (${cols.join(
-          ", "
-        )}) VALUES ${placeholders}`;
-        try {
-          await conn.query(insertSql, values);
-        } catch (e) {
-          console.warn(
-            "seller_followups insert failed (non-fatal):",
-            e && e.message
-          );
-        }
-      }
+      // filter out rows that somehow have neither date nor time if your DB requires one
+      const cols = Object.keys(rows[0]);
+      const placeholders = rows.map(() => `(${cols.map(() => "?").join(",")})`).join(",");
+      const values = [];
+      rows.forEach((r) => cols.forEach((c) => values.push(r[c])));
+
+      const fSql = `INSERT INTO seller_followups (${cols.join(",")}) VALUES ${placeholders}`;
+      await conn.query(fSql, values);
     }
 
-    // 4) update lead
-    const nowSql = toSqlDateTime(new Date().toISOString());
-    const leadUpdateSql = `
+    // 5) Update client_leads (soft hide, mark transferred)
+    const updLeadSql = `
       UPDATE client_leads
       SET
-        status = ?,
-        stage = ?,
-        updated_at = ?,
-        updated_by = ?,
         transferred_to_seller = 1,
         transferred_to_seller_at = ?,
         transferred_to_seller_by = ?,
-        is_listed = 0
+        is_listed = 0,
+        updated_at = ?
       WHERE id = ?
     `;
-    const leadStatus = overrides.status ?? lead.status ?? null;
-    const leadStage = overrides.stage ?? lead.stage ?? null;
-    await conn.query(leadUpdateSql, [
-      leadStatus,
-      leadStage,
-      nowSql,
+    await conn.query(updLeadSql, [
+      now,
       asIntOrNull(createdBy) ?? null,
-      nowSql,
-      asIntOrNull(createdBy) ?? null,
+      now,
       leadId,
     ]);
 
     await conn.commit();
-    conn.release();
 
     return res.status(201).json({
       success: true,
-      message: "Lead transferred to property + seller successfully",
-      property: createdProperty,
-      seller: createdSeller,
-      transferred_followups_count: Array.isArray(followups)
-        ? followups.length
-        : 0,
+      message: "Lead transferred to seller with property and followups.",
+      seller_id: sellerId,
+      property_id: propertyId,
     });
   } catch (err) {
-    console.error(
-      "transferToSeller error:",
-      err && err.message ? err.message : err
-    );
+    console.error("transferToSeller error:", err);
     try {
-      if (conn) {
-        await conn.rollback();
-        conn.release();
-      }
-    } catch (rbErr) {
-      console.error(
-        "Rollback error:",
-        rbErr && rbErr.message ? rbErr.message : rbErr
-      );
-    }
-    return res.status(500).json({
-      error: "Transfer failed",
-      details: (err && err.message) || String(err),
-    });
+      if (conn) await conn.rollback();
+    } catch {}
+    return res
+      .status(500)
+      .json({ error: "Transfer failed", details: String(err?.message || err) });
+  } finally {
+    try {
+      if (conn) conn.release();
+    } catch {}
   }
 }
 

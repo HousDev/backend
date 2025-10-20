@@ -1,4 +1,5 @@
 // server.js
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -7,8 +8,7 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
-require("dotenv").config();
-const path = require("path");   //for local
+// const path = require("path");   //for local
 
 const fs = require("fs"); //for server
 
@@ -41,8 +41,6 @@ const eSignRoutes = require("./routes/eSign.routes");
 
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
-const emailIntegrationRoutes = require("./routes/emailIntegrationRoutes");
-
 
 const app = express();
 
@@ -51,7 +49,7 @@ app.set("trust proxy", 1);
 app.use(helmet());
 
 // Body parsing
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
@@ -111,7 +109,6 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
 
 app.use("/api/esign", eSignRoutes);
-app.use("/api/email-integration", emailIntegrationRoutes);
 
 // for use for loacal
 // app.use(
@@ -167,7 +164,7 @@ app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
-app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
+app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
 app.use("/api/razorpay-integration", require("./routes/razorpayRoutes"));
 const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
