@@ -100,32 +100,128 @@ class Property {
   /* =========================
      READ
      ========================= */
-  static async getAll() {
-    const [rows] = await db.execute(
-      "SELECT * FROM my_properties ORDER BY created_at DESC"
-    );
-    return rows.map((row) => {
-      row.photos = safeJsonParse(row.photos, []);
-      row.amenities = safeJsonParse(row.amenities, []);
-      row.furnishing_items = safeJsonParse(row.furnishing_items, []);
-      row.nearby_places = safeJsonParse(row.nearby_places, []);
-      return row;
-    });
-  }
+  // static async getAll() {
+  //   const [rows] = await db.execute(
+  //     "SELECT * FROM my_properties ORDER BY created_at DESC"
+  //   );
+  //   return rows.map((row) => {
+  //     row.photos = safeJsonParse(row.photos, []);
+  //     row.amenities = safeJsonParse(row.amenities, []);
+  //     row.furnishing_items = safeJsonParse(row.furnishing_items, []);
+  //     row.nearby_places = safeJsonParse(row.nearby_places, []);
+  //     return row;
+  //   });
+  // }
+static async getAll() {
+  const [rows] = await db.execute(`
+    SELECT 
+      p.*,
 
-  static async getById(id) {
-    const [rows] = await db.execute(
-      "SELECT * FROM my_properties WHERE id = ?",
-      [id]
-    );
-    const property = rows[0];
-    if (!property) return null;
-    property.photos = safeJsonParse(property.photos, []);
-    property.amenities = safeJsonParse(property.amenities, []);
-    property.furnishing_items = safeJsonParse(property.furnishing_items, []);
-    property.nearby_places = safeJsonParse(property.nearby_places, []);
-    return property;
-  }
+      -- Assigned executive (users)
+      CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
+      u.email  AS executive_email,
+      u.phone  AS executive_phone,
+
+      -- Seller (sellers)
+      CONCAT_WS(' ', s.salutation, s.name) AS seller_name,
+      s.email  AS seller_email,
+      s.phone  AS seller_phone
+
+    FROM my_properties AS p
+    LEFT JOIN users   AS u ON p.assigned_to = u.id
+    LEFT JOIN sellers AS s ON p.seller_id   = s.id
+    ORDER BY p.created_at DESC
+  `);
+
+  return rows.map((row) => {
+    // safely parse JSON fields
+    row.photos           = safeJsonParse(row.photos, []);
+    row.amenities        = safeJsonParse(row.amenities, []);
+    row.furnishing_items = safeJsonParse(row.furnishing_items, []);
+    row.nearby_places    = safeJsonParse(row.nearby_places, []);
+
+    // ✅ executive info
+    row.assignedTo = {
+      name:  row.executive_name || null,
+      email: row.executive_email || null,
+      phone: row.executive_phone || null,
+    };
+
+    // ✅ seller info
+    row.seller = {
+      name:  row.seller_name || null,  // salutation + name
+      email: row.seller_email || null,
+      phone: row.seller_phone || null,
+    };
+
+    return row;
+  });
+}
+
+
+static async getById(id) {
+  const [rows] = await db.execute(
+    `
+    SELECT 
+      p.*,
+
+      -- Assigned executive (users)
+      CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
+      u.email  AS executive_email,
+      u.phone  AS executive_phone,
+
+      -- Seller (sellers)
+      CONCAT_WS(' ', s.salutation, s.name) AS seller_name,
+      s.email  AS seller_email,
+      s.phone  AS seller_phone
+
+    FROM my_properties AS p
+    LEFT JOIN users   AS u ON p.assigned_to = u.id
+    LEFT JOIN sellers AS s ON p.seller_id   = s.id
+    WHERE p.id = ?
+    `,
+    [id]
+  );
+
+  const property = rows[0];
+  if (!property) return null;
+
+  property.photos           = safeJsonParse(property.photos, []);
+  property.amenities        = safeJsonParse(property.amenities, []);
+  property.furnishing_items = safeJsonParse(property.furnishing_items, []);
+  property.nearby_places    = safeJsonParse(property.nearby_places, []);
+
+  property.assignedTo = {
+    name:  property.executive_name || null,
+    email: property.executive_email || null,
+    phone: property.executive_phone || null,
+  };
+
+  property.seller = {
+    name:  property.seller_name || null,  // ✅ salutation + name
+    email: property.seller_email || null,
+    phone: property.seller_phone || null,
+  };
+
+  return property;
+}
+
+
+  // static async getById(id) {
+  //   const [rows] = await db.execute(
+  //     "SELECT * FROM my_properties WHERE id = ?",
+  //     [id]
+  //   );
+  //   const property = rows[0];
+  //   if (!property) return null;
+  //   property.photos = safeJsonParse(property.photos, []);
+  //   property.amenities = safeJsonParse(property.amenities, []);
+  //   property.furnishing_items = safeJsonParse(property.furnishing_items, []);
+  //   property.nearby_places = safeJsonParse(property.nearby_places, []);
+  //   return property;
+  // }
+
+
 
   /* =========================
      UPDATE (full-row)
@@ -575,7 +671,18 @@ static async recordEvent({
   }
   
 }
+ static async updateAssignedTo(propertyId, assigned_to, assigned_by = null) {
+    if (!propertyId) return { success: false, message: "propertyId required" };
 
+    const [r] = await db.execute(
+      `UPDATE my_properties
+         SET assigned_to = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [assigned_to ?? null, assigned_by ?? null, propertyId]
+    );
+
+    return { success: true, affected: r.affectedRows };
+  }
 }
 async function recordPropertyViewHandler(req, res) {
   try {
@@ -635,6 +742,7 @@ async function recordPropertyViewHandler(req, res) {
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
+  
 }
 
 module.exports = Property;

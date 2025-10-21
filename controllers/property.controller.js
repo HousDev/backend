@@ -1346,7 +1346,36 @@ importBulk = async (req, res) => {
   });
 };
 
+const updateAssignedTo = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: "Invalid property id" });
 
+    const assigned_to = (req.body && "assigned_to" in req.body) ? req.body.assigned_to : undefined;
+    if (assigned_to === undefined) {
+      return res.status(400).json({ success: false, message: "assigned_to required (number|null)" });
+    }
+
+    const assigned_by = req.user?.id ?? null;
+
+    // Optional debug:
+    // console.log("Has method?", typeof Property.updateAssignedTo);
+
+    const result = await Property.updateAssignedTo(id, assigned_to, assigned_by);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message || "Failed" });
+    }
+    return res.json({
+      success: true,
+      affected: result.affected,
+      message: result.affected ? "assigned_to updated" : "No rows updated",
+    });
+  } catch (err) {
+    console.error("updateAssignedTo error:", err);
+    return res.status(500).json({ success: false, message: err?.message || "Server error" });
+  }
+};
 
 
 module.exports = {
@@ -1372,4 +1401,5 @@ module.exports = {
   PublicgetAllProperties,
   PublicgetPropertyBySlug,
   PublicgetProperty,
+  updateAssignedTo
 };

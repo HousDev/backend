@@ -35,5 +35,9 @@ router.delete('/delete/:userId', [isAdmin], userController.deleteUser);
 router.post('/create', [isAdmin], userController.createUser);
 router.get('/filter', [isAdmin], userController.filterData);
 
+router.get("/by-dept-role", [isAdmin], userController.getByDeptRole);
+
+// e.g. GET /api/users/sales-executives?is_active=1
+router.get("/sales-executives", [isAdmin], userController.getSalesExecutives);
 
 module.exports = router;

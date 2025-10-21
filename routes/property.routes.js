@@ -106,4 +106,6 @@ router.get("/city-locations", propertyController.searchCityLocationsStrict);
 
 router.post('/:id/brochure', brochureCtrl.generateBrochurePDF);
 router.post('/:id/BrochuresBulkSinglePDF', brochureCtrl.generateBrochuresBulkSinglePDF);
+
+router.patch("/:id/assigned-to", propertyController.updateAssignedTo);
 module.exports = router;
