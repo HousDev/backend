@@ -193,6 +193,7 @@ app.use("/api/rss-sources", rssRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/ai-blogs', aiBlogRoutes)
 app.use("/api/home-hero", homeHeroRoutes);
+app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
 
 // Root
 app.get("/", (req, res) => {
