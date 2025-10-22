@@ -377,6 +377,65 @@ static async updateById(id, user) {
       throw err;
     }
   }
+  // ✅ Add these new static methods somewhere inside the User class
+
+/** Generic fetch by department + role (with optional is_active filter) */
+static async getByDepartmentAndRole(department, role, { is_active, limit = 200, offset = 0 } = {}) {
+  const fields = [
+    "id", "username", "salutation", "first_name", "last_name", "email", "phone",
+    "role", "is_active", "avatar", "designation", "department",
+    "total_leads", "total_properties", "total_revenue",
+    "module_permissions", "last_login", "dob", "blood_group",
+    "buyer_id", "seller_id",
+    "created_at", "updated_at"
+  ];
+
+  const where = ["department = ?", "role = ?"];
+  const vals = [department, role];
+
+  if (typeof is_active !== "undefined" && is_active !== null && is_active !== "") {
+    // normalize truthy/falsey to 1/0
+    const toTinyInt = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        if (["1", "true", "yes", "active"].includes(s)) return 1;
+        if (["0", "false", "no", "inactive"].includes(s)) return 0;
+        const n = Number(s);
+        return Number.isNaN(n) ? 0 : (n ? 1 : 0);
+      }
+      if (v === true) return 1;
+      if (v === false) return 0;
+      const n = Number(v);
+      return Number.isNaN(n) ? 0 : (n ? 1 : 0);
+    };
+    where.push("is_active = ?");
+    vals.push(toTinyInt(is_active));
+  }
+
+  const sql = `
+    SELECT ${fields.join(", ")}
+    FROM users
+    WHERE ${where.join(" AND ")}
+    ORDER BY first_name, last_name
+    LIMIT ? OFFSET ?
+  `;
+  vals.push(Number(limit) || 200, Number(offset) || 0);
+
+  try {
+    const [rows] = await db.query(sql, vals);
+    return rows;
+  } catch (err) {
+    console.error("Error fetching users by department & role:", err);
+    throw err;
+  }
+}
+
+/** Convenience: exactly sales + executive (with optional is_active) */
+static async getSalesExecutives({ is_active, limit = 200, offset = 0 } = {}) {
+  return this.getByDepartmentAndRole("sales", "executive", { is_active, limit, offset });
+}
+
 }
 
 module.exports = User;

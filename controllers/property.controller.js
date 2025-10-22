@@ -1133,9 +1133,7 @@ const searchCityLocationsStrict = async (req, res) => {
     // Build WHERE clause
     const whereClause = filters.length > 0 ? " WHERE " + filters.join(" AND ") : "";
     
-    console.log("=== SQL Query Debug ===");
-    console.log("WHERE clause:", whereClause);
-    console.log("Values array:", values);
+  
     
     // Count query
     const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
@@ -1346,7 +1344,129 @@ importBulk = async (req, res) => {
   });
 };
 
+const updateAssignedTo = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: "Invalid property id" });
 
+    const assigned_to = (req.body && "assigned_to" in req.body) ? req.body.assigned_to : undefined;
+    if (assigned_to === undefined) {
+      return res.status(400).json({ success: false, message: "assigned_to required (number|null)" });
+    }
+
+    const assigned_by = req.user?.id ?? null;
+
+    // Optional debug:
+    // console.log("Has method?", typeof Property.updateAssignedTo);
+
+    const result = await Property.updateAssignedTo(id, assigned_to, assigned_by);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message || "Failed" });
+    }
+    return res.json({
+      success: true,
+      affected: result.affected,
+      message: result.affected ? "assigned_to updated" : "No rows updated",
+    });
+  } catch (err) {
+    console.error("updateAssignedTo error:", err);
+    return res.status(500).json({ success: false, message: err?.message || "Server error" });
+  }
+};
+// Add this to your controllers/property.controller.js
+
+/* =========================
+   SIMILAR PROPERTIES
+   ========================= */
+const getSimilarProperties = async (req, res) => {
+  try {
+    const q = req.query || {};
+
+    // Helpers
+    const normStr = (v) => (v == null ? undefined : String(v).trim());
+    const toInt = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const toBool = (v) => {
+      if (typeof v === "boolean") return v;
+      if (v == null) return undefined;
+      const s = String(v).trim().toLowerCase();
+      if (["1", "true", "yes", "y"].includes(s)) return true;
+      if (["0", "false", "no", "n"].includes(s)) return false;
+      return undefined;
+    };
+    const normLocation = (v) =>
+      v == null ? undefined : String(v).replace(/\+/g, " ").trim();
+
+    // Extract query parameters (new + legacy)
+    const property_id     = toInt(q.property_id);
+    const type            = normStr(q.type);
+    const typeLegacy      = normStr(q.property_type);
+    const subtype         = normStr(q.subtype) || normStr(q.property_subtype);
+    const unit_type       = normStr(q.unit_type) || normStr(q.unitType);
+    const location        = normLocation(q.location);
+    const city            = normStr(q.city);
+    const bedrooms        = toInt(q.bedrooms);
+    const furnishing      = normStr(q.furnishing);
+    const limit           = toInt(q.limit) ?? 6;
+    const exclude_current = toBool(q.exclude_current);
+
+    // Validation
+    if (!property_id && !city && !location) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one of property_id, city, or location is required",
+      });
+    }
+
+    // Build filters object
+    const filters = {
+      propertyId: property_id,
+      type: type || typeLegacy,
+      subtype,
+      unitType: unit_type,
+      city,
+      location,
+      bedrooms,
+      furnishing,
+      limit: Math.max(1, limit),
+      excludeCurrent: exclude_current !== undefined ? exclude_current : true,
+    };
+
+    // Auto-fill from base property if needed
+    if (property_id) {
+      try {
+        const current = await Property.getById(property_id);
+        if (current) {
+          filters.city       = filters.city       || current.city_name;
+          filters.location   = filters.location   || current.location_name;
+          filters.type       = filters.type       || current.property_type_name;
+          filters.subtype    = filters.subtype    || current.property_subtype_name;
+          filters.unitType   = filters.unitType   || current.unit_type;
+          filters.bedrooms   = filters.bedrooms   ?? current.bedrooms;
+          filters.furnishing = filters.furnishing || current.furnishing;
+        }
+      } catch (e) {
+        // Silent fail - no console warning
+      }
+    }
+
+    const similarProperties = await Property.getSimilarProperties(filters);
+
+    return res.json({
+      success: true,
+      data: similarProperties,
+      count: Array.isArray(similarProperties) ? similarProperties.length : 0,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch similar properties",
+    });
+  }
+};
 
 
 module.exports = {
@@ -1372,4 +1492,6 @@ module.exports = {
   PublicgetAllProperties,
   PublicgetPropertyBySlug,
   PublicgetProperty,
+  updateAssignedTo,
+  getSimilarProperties
 };
