@@ -683,66 +683,234 @@ static async recordEvent({
 
     return { success: true, affected: r.affectedRows };
   }
+
+
+// ALTERNATIVE: Calculate similarity score after query (more secure)
+static async getSimilarProperties(opts = {}) {
+  const {
+    propertyId,
+    type,
+    subtype,
+    unitType,
+    city,
+    location,
+    bedrooms,
+    furnishing,
+    limit = 6,
+    excludeCurrent = true,
+  } = opts;
+
+  // Helpers
+  const toStr = v => (typeof v === 'string' ? v.trim() : '');
+  const lc = v => toStr(v).toLowerCase();
+  const toNum = v => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.floor(n) : null;
+  };
+
+  const cityLC = lc(city);
+  const locLC = lc(location);
+  const locToken = locLC ? locLC.split(',')[0].trim() : null;
+
+  // Start building query parts
+  let sql = `
+    SELECT
+      p.id,
+      p.slug,
+      p.property_type_name AS type,
+      p.property_subtype_name AS subtype,
+      p.unit_type,
+      p.bedrooms AS beds,
+      p.bathrooms AS baths,
+      p.carpet_area AS area,
+      p.city_name AS city,
+      p.location_name AS location,
+      p.furnishing,
+      p.possession_month,
+      p.possession_year,
+      p.photos,
+      p.amenities,
+      p.created_at,
+      CONCAT_WS(' ', p.property_type_name, p.unit_type, p.property_subtype_name) AS title,
+      CONCAT_WS(', ', p.location_name, p.city_name) AS locationNormalized
+    FROM my_properties p
+    WHERE p.is_public = 1
+  `;
+
+  const params = [];
+
+  // Add essential filters to SQL
+  if (excludeCurrent && toNum(propertyId) !== null) {
+    sql += ' AND p.id != ?';
+    params.push(toNum(propertyId));
+  }
+  
+  if (cityLC) {
+    sql += ' AND LOWER(p.city_name) = ?';
+    params.push(cityLC);
+  }
+  
+  if (locToken) {
+    sql += ' AND (LOWER(p.location_name) LIKE ? OR LOWER(p.city_name) LIKE ?)';
+    params.push(`%${locToken}%`);
+    params.push(cityLC || `%${locToken}%`);
+  }
+
+  sql += ' ORDER BY p.created_at DESC LIMIT ?';
+  
+  const fetchLimit = Math.min(toNum(limit) * 5 || 30, 100);
+  params.push(fetchLimit);
+
+  // Execute query
+  let rows;
+  try {
+    const [result] = await db.query(sql, params);
+    rows = result;
+  } catch (error) {
+    try {
+      [rows] = await db.execute(sql, params);
+    } catch (execError) {
+      throw execError;
+    }
+  }
+
+  // JavaScript scoring with flexible matching
+  const scoredRows = rows.map(row => {
+    let score = 0;
+    
+    // City match - high priority
+    if (cityLC && lc(row.city) === cityLC) {
+      score += 10;
+    }
+    
+    // Location match - medium priority
+    if (locToken && lc(row.location).includes(locToken)) {
+      score += 8;
+    } else if (cityLC && lc(row.city) === cityLC) {
+      // Same city but different location
+      score += 3;
+    }
+    
+    // Property type match
+    if (toStr(type) && row.type === type) {
+      score += 6;
+    }
+    
+    // Subtype match
+    if (toStr(subtype) && row.subtype === subtype) {
+      score += 4;
+    }
+    
+    // Unit type match
+    if (toStr(unitType) && row.unit_type === unitType) {
+      score += 4;
+    }
+    
+    // Bedrooms match (flexible - within 1 bedroom)
+    if (toNum(bedrooms) !== null) {
+      const bedDiff = Math.abs(row.beds - toNum(bedrooms));
+      if (bedDiff === 0) {
+        score += 5;
+      } else if (bedDiff === 1) {
+        score += 2;
+      }
+    }
+    
+    // Furnishing match
+    if (toStr(furnishing) && row.furnishing === furnishing) {
+      score += 2;
+    }
+
+    return { ...row, sim_score: score };
+  });
+
+  const finalLimit = toNum(limit) || 6;
+  
+  // Sort by score (descending) then by date (newest first)
+  const sortedRows = scoredRows.sort((a, b) => {
+    const scoreDiff = b.sim_score - a.sim_score;
+    const dateDiff = new Date(b.created_at) - new Date(a.created_at);
+    return scoreDiff || dateDiff;
+  });
+
+  const finalResults = sortedRows.slice(0, finalLimit);
+
+  return finalResults;
+}
+
+  
 }
 async function recordPropertyViewHandler(req, res) {
   try {
     const idRaw = req.params.id;
-    const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, '')) : null;
-
+    const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, "")) : null;
     if (!propertyId || Number.isNaN(propertyId)) {
-      return res.status(400).json({ success: false, message: 'Missing or invalid property id' });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing or invalid property id" });
     }
 
-    // Get session ID from middleware
-    const sessionId = req.sessionId;
-
-    // safe header parsing
+    const sessionId = req.sessionId; // ensure your session middleware sets this
     const ip = getClientIp(req);
-    const userAgent = req.get ? (req.get('User-Agent') || null) : (req.headers && req.headers['user-agent']) || null;
-    const referrer = req.get ? (req.get('Referrer') || req.get('Referer') || null) : (req.headers && (req.headers.referer || req.headers.referrer)) || null;
+    const userAgent =
+      (req.get && (req.get("User-Agent") || null)) ||
+      req.headers?.["user-agent"] ||
+      null;
+    const referrer =
+      (req.get && (req.get("Referrer") || req.get("Referer") || null)) ||
+      req.headers?.referer ||
+      req.headers?.referrer ||
+      null;
 
-    // canonical payload for model
     const payload = {
       property_id: propertyId,
       slug: req.body?.slug ?? null,
-      dedupe_key: sessionId, // Use session ID as primary dedupe key
+      dedupe_key: sessionId,
       session_id: sessionId,
-      source: req.body?.source ?? 'api',
+      source: req.body?.source ?? "api",
       path: (req.body?.path ?? (req.originalUrl || req.path)) || null,
       referrer,
       ip,
       user_agent: userAgent,
-      minutes_window: 1440, // 24 hour window for session deduplication
-      event_type: 'view',
+      minutes_window: 1440,
+      event_type: "view",
     };
 
-    if (!Views || typeof Views.recordView !== 'function') {
-      return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
+    if (!Views || typeof Views.recordView !== "function") {
+      return res
+        .status(500)
+        .json({ success: false, message: "Server misconfiguration (views model missing)" });
     }
 
     const result = await Views.recordView(payload);
-    // normalize result
     const recorded = !!(result && result.inserted);
     const deduped = result?.meta?.deduped || false;
-    
-    // Log for debugging
+
     if (recorded) {
-      console.log(`[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+      console.log(
+        `[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${String(
+          sessionId || ""
+        ).slice(0, 8)}...`
+      );
     } else {
-      console.log(`[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${sessionId.slice(0,8)}...`);
+      console.log(
+        `[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${String(
+          sessionId || ""
+        ).slice(0, 8)}...`
+      );
     }
-    
+
     return res.json({
       success: true,
       recorded,
       meta: result?.meta ?? {},
       deduped,
-      session_id: sessionId.slice(0,8) + '...' // Return partial session ID for debugging
+      session_id: String(sessionId || "").slice(0, 8) + "...",
     });
   } catch (err) {
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: "Server error" });
   }
-  
 }
+
 
 module.exports = Property;
