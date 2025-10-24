@@ -1,6 +1,7 @@
 // controllers/transferToSeller.js
 const pool = require("../config/database"); // mysql2/promise pool
 require("dotenv").config();
+const { slugifyTextParts } = require("../utils/slugify"); // ✅ add import
 
 /* ------------ helpers ------------ */
 function toSqlDate(isoOrDate) {
@@ -214,7 +215,7 @@ async function transferToSeller(req, res) {
         asIntOrNull(my_property.updated_by) ?? asIntOrNull(createdBy) ?? null,
       public_views: my_property.public_views ?? 0,
       public_inquiries: my_property.public_inquiries ?? 0,
-      slug: my_property.slug ?? null,
+      slug: my_property.slug ?? null, // may be null; we'll compute after insert
     };
 
     const propCols = Object.keys(propRow);
@@ -226,6 +227,30 @@ async function transferToSeller(req, res) {
       propCols.map((k) => propRow[k])
     );
     const propertyId = propRes.insertId;
+
+    // 🔗 3c) Generate slug now that we have propertyId
+    // Only if no slug was provided in payload
+    if (!propRow.slug || String(propRow.slug).trim() === "") {
+      const ptype  = propRow.property_type_name;
+      const utype  = propRow.unit_type;
+      const psub   = propRow.property_subtype_name;
+      const loc    = propRow.location_name;
+      const city   = propRow.city_name;
+
+      const newSlug = slugifyTextParts(
+        propertyId,
+        ptype,
+        utype,
+        psub,
+        loc,
+        city
+      );
+
+      await conn.query(
+        "UPDATE my_properties SET slug = ? WHERE id = ?",
+        [newSlug, propertyId]
+      );
+    }
 
     // 4) Insert seller_followups (bulk) – parity with buyer richness
     if (Array.isArray(seller_followups) && seller_followups.length > 0) {
