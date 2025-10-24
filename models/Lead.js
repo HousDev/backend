@@ -1138,6 +1138,41 @@ class Lead {
     );
     return result.affectedRows > 0;
   }
+  static async bulkUpdateAssignedExecutive(ids = [], assigned_executive = null) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new Error("IDs array is required");
+  }
+
+  // Ensure unique IDs
+  const uniqueIds = [...new Set(ids.map(String))];
+
+  // Step 1: Get which IDs exist
+  const [existingRows] = await db.execute(
+    `SELECT id FROM client_leads WHERE id IN (${uniqueIds.map(() => '?').join(',')})`,
+    uniqueIds
+  );
+  const existingIds = existingRows.map((r) => String(r.id));
+  const notFoundIds = uniqueIds.filter((id) => !existingIds.includes(id));
+
+  // Step 2: Update existing ones
+  let affectedCount = 0;
+  if (existingIds.length > 0) {
+    const [result] = await db.execute(
+      `UPDATE client_leads 
+       SET assigned_executive = ?, updated_at = NOW() 
+       WHERE id IN (${existingIds.map(() => '?').join(',')})`,
+      [assigned_executive, ...existingIds]
+    );
+    affectedCount = result.affectedRows || 0;
+  }
+
+  return {
+    affectedCount,
+    affectedIds: existingIds,
+    notFoundIds,
+  };
+}
+
 
   static async findByIds(ids) {
     if (!ids || ids.length === 0) return [];

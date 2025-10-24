@@ -242,110 +242,289 @@ exports.bulkDeleteLeads = async (req, res) => {
   }
 };
 
-
 exports.importLeads = async (req, res) => {
+  let connection;
   try {
     const leads = req.body;
-
-    if (!Array.isArray(leads) || leads.length === 0) {
-      return res.status(400).json({ success: false, message: "No leads provided" });
-    }
-
     const createdBy = req.userId || 1;
     const skipped = [];
     let insertedCount = 0;
 
-    // ✅ Get all existing leads once (correct table name)
-    const [existingLeads] = await db.query("SELECT email, phone FROM client_leads");
+    if (!Array.isArray(leads) || leads.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No leads provided" 
+      });
+    }
 
-    // Create lookup sets
-    const existingEmails = new Set(
-      existingLeads.map((l) => (l.email ? l.email.toLowerCase() : null)).filter(Boolean)
-    );
-    const existingPhones = new Set(
-      existingLeads.map((l) => (l.phone ? String(l.phone) : null)).filter(Boolean)
-    );
+    // Get connection and start transaction
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-    // ✅ Loop through new leads
-    for (const [index, lead] of leads.entries()) {
-      const email = lead.email ? lead.email.toLowerCase() : null;
-      const phone = lead.phone ? String(lead.phone) : null;
+    // Phone parsing function (frontend के साथ identical)
+    const parsePhoneNumber = (phoneValue) => {
+      if (!phoneValue || String(phoneValue).trim() === "") return null;
+      
+      let phoneStr = String(phoneValue).trim();
+      
+      // Handle scientific notation
+      if (phoneStr.includes("E+") || phoneStr.includes("e+")) {
+        try {
+          const number = parseFloat(phoneStr);
+          if (!isNaN(number)) {
+            phoneStr = Math.round(number).toString();
+          }
+        } catch (error) {
+          console.warn("Error parsing phone:", phoneStr);
+        }
+      }
+      
+      // Clean phone number - frontend जैसा ही
+      phoneStr = phoneStr.replace(/[^\d+]/g, "");
+      
+      // Format consistently with frontend
+      if (phoneStr.startsWith("+91")) {
+        return phoneStr;
+      } else if (phoneStr.startsWith("91") && phoneStr.length > 10) {
+        return "+" + phoneStr;
+      } else {
+        phoneStr = phoneStr.replace(/^0+/, "");
+        return phoneStr.length >= 10 ? phoneStr : null;
+      }
+    };
 
-      // Duplicate checks
-      if (email && existingEmails.has(email)) {
+    // Extract phones and emails for batch duplicate checking
+    const phonesToCheck = [];
+    const emailsToCheck = [];
+    
+    const processedLeads = leads.map(lead => {
+      const phone = parsePhoneNumber(lead.phone);
+      const email = lead.email ? lead.email.toLowerCase().trim() : "";
+      const whatsappNumber = lead.whatsapp_number ? parsePhoneNumber(lead.whatsapp_number) : "";
+      
+      if (phone) phonesToCheck.push(phone);
+      if (email && email !== '') emailsToCheck.push(email);
+      
+      return { ...lead, parsedPhone: phone, parsedEmail: email, parsedWhatsapp: whatsappNumber };
+    });
+
+    // Batch check for existing duplicates
+    const existingPhones = new Set();
+    const existingEmails = new Set();
+
+    if (phonesToCheck.length > 0 || emailsToCheck.length > 0) {
+      let queryParts = [];
+      const params = [];
+      
+      if (phonesToCheck.length > 0) {
+        queryParts.push("phone IN (?)");
+        params.push(phonesToCheck);
+      }
+      
+      if (emailsToCheck.length > 0) {
+        if (phonesToCheck.length > 0) queryParts.push(" OR ");
+        queryParts.push("email IN (?)");
+        params.push(emailsToCheck);
+      }
+
+      const query = `SELECT phone, email FROM client_leads WHERE ${queryParts.join('')}`;
+      const [existingLeads] = await connection.query(query, params);
+
+      existingLeads.forEach(lead => {
+        if (lead.phone) {
+          const parsedPhone = parsePhoneNumber(lead.phone);
+          if (parsedPhone) existingPhones.add(parsedPhone);
+        }
+        if (lead.email && lead.email !== '') {
+          existingEmails.add(lead.email.toLowerCase());
+        }
+      });
+    }
+
+    // Process each lead
+    for (const [index, leadData] of processedLeads.entries()) {
+      const { 
+        parsedPhone: phone, 
+        parsedEmail: email, 
+        parsedWhatsapp: whatsappNumber,
+        ...originalLead 
+      } = leadData;
+
+      // ✅ Mandatory field validation - FRONTEND के according
+      const missingFields = [];
+      if (!originalLead.salutation?.trim()) missingFields.push('Salutation');
+      if (!originalLead.name?.trim()) missingFields.push('Name');
+      if (!phone) missingFields.push('Phone');
+      
+      if (missingFields.length > 0) {
         skipped.push({
           row: index + 2,
-          reason: `Email already exists (${email})`,
-          data: lead,
+          reason: `Missing mandatory fields: ${missingFields.join(', ')}`,
+          data: { ...originalLead, parsedPhone: phone }
         });
         continue;
       }
-      if (phone && existingPhones.has(phone)) {
+
+      // ✅ Phone format validation
+      const phoneRegex = /^[\+]?[\d]{10,13}$/;
+      if (!phoneRegex.test(phone)) {
         skipped.push({
           row: index + 2,
-          reason: `Phone already exists (${phone})`,
-          data: lead,
+          reason: `Invalid phone format: ${phone}`,
+          data: { ...originalLead, parsedPhone: phone }
+        });
+        continue;
+      }
+
+      // ✅ Email validation (if provided)
+      if (email && email !== '') {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          skipped.push({
+            row: index + 2,
+            reason: `Invalid email format: ${email}`,
+            data: { ...originalLead, parsedPhone: phone }
+          });
+          continue;
+        }
+      }
+
+      // ✅ Duplicate check
+      let duplicateReason = '';
+      if (email && email !== '' && existingEmails.has(email)) {
+        duplicateReason = `Duplicate email: ${email}`;
+      } else if (phone && existingPhones.has(phone)) {
+        duplicateReason = `Duplicate phone: ${phone}`;
+      }
+
+      if (duplicateReason) {
+        skipped.push({
+          row: index + 2,
+          reason: duplicateReason,
+          data: { ...originalLead, parsedPhone: phone }
         });
         continue;
       }
 
       try {
-        // ✅ Insert into DB
-        await db.query(
+        // ✅ Insert into database with EXACT column mapping
+        await connection.query(
           `INSERT INTO client_leads 
-          (salutation, name, phone, email, lead_type, lead_source, whatsapp_number, 
-           state, city, location, status, stage, priority, assigned_executive, 
-           created_by, updated_by, created_at, updated_at) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          (id, salutation, name, phone, whatsapp_number, email, lead_type, lead_source, 
+           stage, status, priority, state, city, location, assigned_executive,
+           created_by, updated_by, created_at, updated_at,
+           transferred_to_buyer, transferred_to_seller, is_listed) 
+          VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?)`,
           [
-            lead.salutation || "",
-            lead.name || "",
+            // Basic lead info
+            originalLead.salutation || "",
+            originalLead.name.trim(),
             phone,
-            email,
-            lead.lead_type || "",
-            lead.lead_source || "",
-            lead.whatsapp_number || "",
-            lead.state || "",
-            lead.city || "",
-            lead.location || "",
-            lead.status || "",
-            lead.stage || "",
-            lead.priority || "",
-            lead.assigned_executive || "",
+            whatsappNumber || "",
+            email || "",
+            originalLead.lead_type || "",
+            originalLead.lead_source || "",
+            
+            // Status fields with defaults
+            originalLead.stage || "",
+            originalLead.status || "new",
+            originalLead.priority || "medium",
+            
+            // Location info
+            originalLead.state || "",
+            originalLead.city || "",
+            originalLead.location || "",
+            originalLead.assigned_executive || null,
+            
+            // User tracking
             createdBy,
             createdBy,
+            
+            // Default values for transfer flags
+            0, // transferred_to_buyer
+            0, // transferred_to_seller  
+            0  // is_listed
           ]
         );
 
         insertedCount++;
 
-        // ✅ Add to sets so same file duplicates also get skipped
-        if (email) existingEmails.add(email);
+        // ✅ Add to duplicate check sets
+        if (email && email !== '') existingEmails.add(email);
         if (phone) existingPhones.add(phone);
+
       } catch (err) {
-        console.error("❌ Row insert error:", err);
+        // Individual row error - log but continue
+        console.error(`❌ Row ${index + 2} insert error:`, err);
+        
         skipped.push({
           row: index + 2,
-          reason: "Unexpected DB error",
-          data: lead,
+          reason: `Database error: ${err.sqlMessage || err.message}`,
+          data: { ...originalLead, parsedPhone: phone }
         });
+        
+        continue;
       }
     }
 
-    // ✅ Final response
-    res.status(201).json({
+    // ✅ Commit transaction
+    await connection.commit();
+
+    // ✅ Final response - Frontend के according structure
+    const response = {
       success: true,
-      message: "Import completed",
+      message: `Import completed successfully`,
       inserted: insertedCount,
       skipped: skipped.length,
-      skippedRows: skipped,
-    });
+      skippedRows: skipped // Frontend expects this field
+    };
+
+    res.status(201).json(response);
+
   } catch (err) {
-    console.error("❌ Import Error:", err);
+    // ✅ Rollback in case of error
+    if (connection) await connection.rollback();
+    
+    console.error("❌ Import process error:", err);
     res.status(500).json({
       success: false,
-      message: "Server error during import",
+      message: "Server error during import process",
       error: err.message,
     });
+  } finally {
+    // ✅ Release connection
+    if (connection) connection.release();
+  }
+};
+
+// controllers/leads.controller.js
+
+exports.bulkAssignExecutives = async (req, res) => {
+  try {
+    const { ids, assigned_executive } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "ids must be a non-empty array" });
+    }
+
+    // "Unassigned" or empty = null
+    const assignee =
+      assigned_executive === '' || assigned_executive === null || assigned_executive === 'Unassigned'
+        ? null
+        : assigned_executive;
+
+    const result = await Lead.bulkUpdateAssignedExecutive(ids, assignee);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        assignee == null
+          ? `Unassigned ${result.affectedCount} lead(s)`
+          : `Assigned ${result.affectedCount} lead(s) to executive ${assignee}`,
+      data: result,
+    });
+  } catch (err) {
+    console.error("Bulk assign failed:", err);
+    return res.status(500).json({ success: false, message: "Bulk assign failed", error: err.message });
   }
 };
