@@ -46,6 +46,8 @@ const webhookRouter = require("./routes/digioWebhook");
 
 
 const smsRoutes = require("./routes/smsRoutes");
+const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
+
 
 
 const app = express();
@@ -117,7 +119,7 @@ app.use("/api/doc-status", documentStatusRoutes);
 app.use("/api/esign", eSignRoutes);
 
 app.use("/api", smsRoutes);
-
+app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
