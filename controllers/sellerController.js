@@ -132,7 +132,15 @@ const createSeller = async (req, res) => {
 module.exports = { createSeller };
 
 // ---------- READ/UPDATE/DELETE ----------
-// getSellers.js
+
+// Utility: build user object from row aliases
+const pickUser = (row, pfx) => ({
+  id: row[`${pfx}_id`] ?? null,
+  name: row[`${pfx}_name`] ?? null,
+  email: row[`${pfx}_email`] ?? null,
+  phone: row[`${pfx}_phone`] ?? null,
+});
+
 const getSellers = async (_req, res) => {
   const tryQuery = async (sql, params = []) => {
     try {
@@ -153,9 +161,36 @@ const getSellers = async (_req, res) => {
   };
 
   try {
-    const [sellers] = await pool.query(`SELECT * FROM sellers ORDER BY id DESC`);
+    // 1) Sellers + user joins
+    const sellersSql = `
+      SELECT
+        s.*,
+
+        c.id   AS created_by_id,
+        CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
+        c.email AS created_by_email,
+        c.phone AS created_by_phone,
+
+        u.id   AS updated_by_id,
+        CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS updated_by_name,
+        u.email AS updated_by_email,
+        u.phone AS updated_by_phone,
+
+        a.id   AS assigned_to_id,
+        CONCAT_WS(' ', a.salutation, a.first_name, a.last_name) AS assigned_to_name,
+        a.email AS assigned_to_email,
+        a.phone AS assigned_to_phone
+
+      FROM sellers s
+      LEFT JOIN users c ON s.created_by = c.id
+      LEFT JOIN users u ON s.updated_by = u.id
+      LEFT JOIN users a ON s.assigned_to = a.id
+      ORDER BY s.id DESC
+    `;
+    const [sellers] = await pool.query(sellersSql);
     if (!sellers.length) return res.json({ success: true, data: [] });
 
+    // 2) Side tables (support legacy fallback names too)
     const [
       cosellerRows,
       activityRows,
@@ -170,6 +205,7 @@ const getSellers = async (_req, res) => {
       getTableRows("my_properties", null, "id DESC"),
     ]);
 
+    // 3) Bucket by seller_id
     const bySeller = (rows) =>
       rows.reduce((acc, r) => {
         const k = r.seller_id;
@@ -184,6 +220,7 @@ const getSellers = async (_req, res) => {
     const docBy = bySeller(documentRows);
     const propBy = bySeller(propertyRows);
 
+    // 4) Quick metrics
     const metricsBy = {};
     for (const s of sellers) {
       const sid = s.id;
@@ -205,14 +242,26 @@ const getSellers = async (_req, res) => {
       };
     }
 
+    // 5) Shape response (attach user objects)
     const data = sellers.map((s) => ({
       ...s,
+      created_by_user: pickUser(s, "created_by"),
+      updated_by_user: pickUser(s, "updated_by"),
+      assigned_to_user: pickUser(s, "assigned_to"),
+
       cosellers: cosBy[s.id] || [],
       activities: actBy[s.id] || [],
       followups: folBy[s.id] || [],
       documents: docBy[s.id] || [],
       properties: propBy[s.id] || [],
-      metrics: metricsBy[s.id] || { seller_id: s.id, activities_count: 0, followups_count: 0, documents_count: 0, last_activity_date: null },
+
+      metrics: metricsBy[s.id] || {
+        seller_id: s.id,
+        activities_count: 0,
+        followups_count: 0,
+        documents_count: 0,
+        last_activity_date: null,
+      },
     }));
 
     return res.json({ success: true, data });
@@ -226,25 +275,66 @@ module.exports = { getSellers };
 
 
 
-
 // get seller byu id
+// get seller by id (full)
 const getSellerById = async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ success: false, message: "Invalid seller id" });
 
-    // 1) Seller
-    const [sellerRows] = await pool.query(
-      `SELECT *
-       FROM sellers
-       WHERE id = ?
-       LIMIT 1`,
-      [id]
-    );
+    // 1) Seller with joined users
+    const sellerSql = `
+      SELECT
+        s.*,
+
+        c.id   AS created_by_id,
+        CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
+        c.email AS created_by_email,
+        c.phone AS created_by_phone,
+
+        u.id   AS updated_by_id,
+        CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS updated_by_name,
+        u.email AS updated_by_email,
+        u.phone AS updated_by_phone,
+
+        a.id   AS assigned_to_id,
+        CONCAT_WS(' ', a.salutation, a.first_name, a.last_name) AS assigned_to_name,
+        a.email AS assigned_to_email,
+        a.phone AS assigned_to_phone
+
+      FROM sellers s
+      LEFT JOIN users c ON s.created_by = c.id
+      LEFT JOIN users u ON s.updated_by = u.id
+      LEFT JOIN users a ON s.assigned_to = a.id
+      WHERE s.id = ?
+      LIMIT 1
+    `;
+    const [sellerRows] = await pool.query(sellerSql, [id]);
     if (!sellerRows.length) {
       return res.status(404).json({ success: false, message: "Seller not found" });
     }
-    const seller = sellerRows[0];
+    const sellerRow = sellerRows[0];
+    const seller = {
+      ...sellerRow,
+      created_by_user: {
+        id: sellerRow.created_by_id,
+        name: sellerRow.created_by_name,
+        email: sellerRow.created_by_email,
+        phone: sellerRow.created_by_phone,
+      },
+      updated_by_user: {
+        id: sellerRow.updated_by_id,
+        name: sellerRow.updated_by_name,
+        email: sellerRow.updated_by_email,
+        phone: sellerRow.updated_by_phone,
+      },
+      assigned_to_user: {
+        id: sellerRow.assigned_to_id,
+        name: sellerRow.assigned_to_name,
+        email: sellerRow.assigned_to_email,
+        phone: sellerRow.assigned_to_phone,
+      },
+    };
 
     // 2) Co-sellers
     const [cosellers] = await pool.query(
@@ -255,7 +345,7 @@ const getSellerById = async (req, res) => {
       [id]
     );
 
-    // 3) Activities
+    // 3) Activities (kept as-is; you can also join executed_by -> users if needed)
     const [activities] = await pool.query(
       `SELECT id, activity_type, description, activity_date, activity_time, stage,
               duration, outcome, next_action, executed_by, remarks, created_at
@@ -265,7 +355,7 @@ const getSellerById = async (req, res) => {
       [id]
     );
 
-    // 4) Followups
+    // 4) Followups (kept as-is; can join assigned_to -> users if needed)
     const [followups] = await pool.query(
       `SELECT id, followup_date, followup_type, followup_time, status, priority,
               assigned_to, reminder, notes
@@ -293,7 +383,7 @@ const getSellerById = async (req, res) => {
       [id]
     );
 
-    // 7) Small metrics (optional but useful)
+    // 7) Metrics
     const [[metrics]] = await pool.query(
       `SELECT
           (SELECT COUNT(*) FROM seller_activities WHERE seller_id = ?) AS activities_count,
@@ -313,14 +403,17 @@ const getSellerById = async (req, res) => {
         followups,
         documents,
         properties,
-        metrics
-      }
+        metrics,
+      },
     });
   } catch (err) {
     console.error("Get Seller by ID (full) error:", err);
     return res.status(500).json({ success: false, message: "Failed to fetch seller" });
   }
 };
+
+module.exports = { getSellers, getSellerById };
+
 
 // ---- date helpers ----
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -544,7 +637,110 @@ const getPropertiesByAssignedTo = async (req, res) => {
   }
 };
 
+const bulkImport = async (req, res) => {
+  try {
+    const body = req.body;
+    let sellers = [];
 
+    // Handle all possible payload shapes
+    if (Array.isArray(body)) {
+      sellers = body; // raw array
+    } else if (Array.isArray(body?.sellers)) {
+      sellers = body.sellers;
+    } else if (Array.isArray(body?.data)) {
+      sellers = body.data;
+    }
+
+    const created_by = body?.created_by || req.user?.id || null;
+
+    if (!sellers.length) {
+      return res.status(400).json({
+        success: false,
+        message: "No sellers found in request body.",
+      });
+    }
+
+    const result = await Seller.bulkImport(sellers, { created_by });
+    res.json(result);
+
+  } catch (e) {
+    console.error("Bulk import error:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+// Route Handlers - These are mostly correct, but add validation:
+
+const bulkAssignExecutive = async (req, res) => {
+  try {
+    const { sellerIds = [], executiveId = null, onlyEmpty = false } = req.body || {};
+    
+    // Additional validation
+    if (executiveId !== null && typeof executiveId !== 'string' && typeof executiveId !== 'number') {
+      return res.status(400).json({ success: false, error: "Invalid executiveId" });
+    }
+    
+    const result = await Seller.bulkAssignSameExecutive(sellerIds, executiveId, !!onlyEmpty);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+};
+
+const updateLeadField = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { field, value } = req.body || {};
+    
+    if (!id) {
+      return res.status(400).json({ success: false, error: "Seller ID is required" });
+    }
+    
+    const result = await Seller.updateLeadField(id, field, value);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+};
+
+const bulkUpdateLeadField = async (req, res) => {
+  try {
+    const { sellerIds = [], field, value, onlyEmpty = false } = req.body || {};
+    
+    if (!field || value === undefined) {
+      return res.status(400).json({ success: false, error: "Field and value are required" });
+    }
+    
+    const result = await Seller.bulkUpdateLeadField(sellerIds, field, value, !!onlyEmpty);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+};
+
+const bulkHardDeleteSellers = async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: "ids array is required" });
+    }
+
+    const result = await Seller.bulkHardDelete(ids);
+
+    if (!result.success) {
+      const status = result.code === 1451 ? 409 : 400;
+      return res.status(status).json(result);
+    }
+
+    return res.json({
+      success: true,
+      hardDeleted: result.deleted,
+      ids: result.ids || [],
+    });
+  } catch (err) {
+    console.error("bulkHardDeleteSellers error:", err);
+    return res.status(500).json({ success: false, error: err.message || "Internal error" });
+  }
+};
 module.exports = {
   createSeller,
   getSellers,
@@ -552,84 +748,14 @@ module.exports = {
   updateSeller,
   deleteSeller,
   getPropertiesBySellerId,
-  getPropertiesByAssignedTo
+  bulkAssignExecutive,
+  updateLeadField,
+  getPropertiesByAssignedTo,
+
+  bulkUpdateLeadField,
+
+  bulkImport,
+  bulkHardDeleteSellers
 };
 
 
-
-// // ------------------
-// const pool = require("../config/database");
-// const Seller = require("../models/SellerModel");
-
-// // ---------- CREATE ----------
-// const createSeller = async (req, res) => {
-//   try {
-//     const seller = await Seller.create(req.body);
-//     if (!seller) return res.status(400).json({ success: false, message: "Failed to create seller" });
-//     return res.status(201).json({ success: true, data: seller });
-//   } catch (err) {
-//     console.error("Create seller error:", err);
-//     return res.status(500).json({ success: false, message: "Failed to create seller" });
-//   }
-// };
-
-// // ---------- READ ----------
-// const getSellers = async (_req, res) => {
-//   try {
-//     const data = await Seller.getAll();
-//     return res.json({ success: true, data });
-//   } catch (err) {
-//     console.error("Get sellers error:", err);
-//     return res.status(500).json({ success: false, message: "Failed to fetch sellers" });
-//   }
-// };
-
-// const getSellerById = async (req, res) => {
-//   try {
-//     const id = Number(req.params.id);
-//     if (!id) return res.status(400).json({ success: false, message: "Invalid seller id" });
-//     const seller = await Seller.getByIdWithCoSellers(id);
-//     if (!seller) return res.status(404).json({ success: false, message: "Seller not found" });
-//     return res.json({ success: true, data: seller });
-//   } catch (err) {
-//     console.error("Get seller by id error:", err);
-//     return res.status(500).json({ success: false, message: "Failed to fetch seller" });
-//   }
-// };
-
-// // ---------- UPDATE ----------
-// const updateSeller = async (req, res) => {
-//   try {
-//     const id = Number(req.params.id);
-//     if (!id) return res.status(400).json({ success: false, message: "Invalid seller id" });
-
-//     const affected = await Seller.updateWithCoSellers(id, req.body, req.body.cosellers, req.body.deleteIds);
-//     if (!affected) return res.status(404).json({ success: false, message: "Seller not found" });
-
-//     const fresh = await Seller.getByIdWithCoSellers(id);
-//     return res.json({ success: true, message: "Seller updated successfully", data: fresh });
-//   } catch (err) {
-//     console.error("Update seller error:", err);
-//     return res.status(500).json({ success: false, message: "Failed to update seller" });
-//   }
-// };
-
-// // ---------- DELETE ----------
-// const deleteSeller = async (req, res) => {
-//   try {
-//     const affected = await Seller.delete(req.params.id);
-//     if (!affected) return res.status(404).json({ success: false, message: "Seller not found" });
-//     return res.json({ success: true, message: "Seller deleted successfully" });
-//   } catch (err) {
-//     console.error("Delete seller error:", err);
-//     return res.status(500).json({ success: false, message: "Failed to delete seller" });
-//   }
-// };
-
-// module.exports = {
-//   createSeller,
-//   getSellers,
-//   getSellerById,
-//   updateSeller,
-//   deleteSeller,
-// };
