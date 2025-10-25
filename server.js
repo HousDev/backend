@@ -41,7 +41,13 @@ const eSignRoutes = require("./routes/eSign.routes");
 
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
+
 const webhookRouter = require("./routes/digioWebhook");
+
+
+const smsRoutes = require("./routes/smsRoutes");
+
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -109,6 +115,8 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
 
 app.use("/api/esign", eSignRoutes);
+
+app.use("/api", smsRoutes);
 
 // for use for loacal
 // app.use(
