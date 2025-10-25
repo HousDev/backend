@@ -42,7 +42,11 @@ const eSignRoutes = require("./routes/eSign.routes");
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
 
+const webhookRouter = require("./routes/digioWebhook");
+
+
 const smsRoutes = require("./routes/smsRoutes");
+
 
 const app = express();
 
@@ -52,7 +56,7 @@ app.use(helmet());
 
 // Body parsing
 app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 
 // CORS
@@ -198,7 +202,13 @@ app.use('/api/receipts', receiptRoutes);
 app.use('/api/ai-blogs', aiBlogRoutes)
 app.use("/api/home-hero", homeHeroRoutes);
 app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
+app.use("/api/digio/", require("./routes/digioRoutes"));
 
+app.use(
+  "/api/digio/webhook",
+  express.raw({ type: "application/json" }),
+  webhookRouter
+);
 // Root
 app.get("/", (req, res) => {
   res.json({

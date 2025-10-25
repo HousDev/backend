@@ -29,39 +29,200 @@ exports.createBuyer = async (req, res) => {
 
 exports.getAllBuyers = async (req, res) => {
   try {
-    const [rows] = await db.execute("SELECT * FROM buyers ORDER BY created_at DESC");
+    const [rows] = await db.execute(`
+      SELECT
+        b.*,
 
-    // Ensure nested objects are strings
-    const safeBuyers = rows.map(buyer => ({
-      ...buyer,
-      requirements: typeof buyer.requirements === "object" 
-        ? JSON.stringify(buyer.requirements) 
-        : buyer.requirements,
-      financials: typeof buyer.financials === "object" 
-        ? JSON.stringify(buyer.financials) 
-        : buyer.financials,
-      budget: { min: buyer.budget_min, max: buyer.budget_max },
-    }));
+        -- creator
+        u1.id          AS created_user_id,
+        u1.salutation  AS created_user_salutation,
+        u1.first_name  AS created_user_first_name,
+        u1.last_name   AS created_user_last_name,
+        u1.email       AS created_user_email,
+        u1.phone       AS created_user_phone,
+
+        -- assignee
+        u2.id          AS assigned_user_id,
+        u2.salutation  AS assigned_user_salutation,
+        u2.first_name  AS assigned_user_first_name,
+        u2.last_name   AS assigned_user_last_name,
+        u2.email       AS assigned_user_email,
+        u2.phone       AS assigned_user_phone
+
+      FROM buyers b
+      LEFT JOIN users u1 ON u1.id = b.created_by
+      LEFT JOIN users u2 ON u2.id = b.assigned_executive
+      ORDER BY b.created_at DESC
+    `);
+
+    const makeName = (sal, first, last) =>
+      String([sal, first, last].filter(Boolean).join(" "))
+        .replace(/\s+/g, " ")
+        .trim() || null;
+
+    // ✅ Hard de-dupe by buyer.id (keeps first occurrence respecting ORDER BY)
+    const seenIds = new Set();
+    const safeBuyers = [];
+
+    for (const buyer of rows) {
+      if (seenIds.has(buyer.id)) continue;
+      seenIds.add(buyer.id);
+
+      const created_by_user = buyer.created_user_id
+        ? {
+            id: buyer.created_user_id,
+            name: makeName(
+              buyer.created_user_salutation,
+              buyer.created_user_first_name,
+              buyer.created_user_last_name
+            ),
+            email: buyer.created_user_email || null,
+            phone: buyer.created_user_phone || null,
+          }
+        : null;
+
+      const assigned_executive_user = buyer.assigned_user_id
+        ? {
+            id: buyer.assigned_user_id,
+            name: makeName(
+              buyer.assigned_user_salutation,
+              buyer.assigned_user_first_name,
+              buyer.assigned_user_last_name
+            ),
+            email: buyer.assigned_user_email || null,
+            phone: buyer.assigned_user_phone || null,
+          }
+        : null;
+
+      safeBuyers.push({
+        ...buyer,
+
+        // keep nested as strings for API consumers (as you had)
+        requirements:
+          typeof buyer.requirements === "object"
+            ? JSON.stringify(buyer.requirements)
+            : buyer.requirements,
+        financials:
+          typeof buyer.financials === "object"
+            ? JSON.stringify(buyer.financials)
+            : buyer.financials,
+
+        budget: { min: buyer.budget_min, max: buyer.budget_max },
+
+        created_by_user,
+        assigned_executive_user,
+      });
+    }
 
     res.status(200).json(safeBuyers);
   } catch (error) {
     console.error("Error fetching buyers:", error);
-    res.status(500).json({ error: "Failed to fetch buyers", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch buyers", details: error.message });
   }
 };
+
+
 
 
 // Get single buyer by ID
+// ==================== Get Buyer by ID ====================
 exports.getBuyerById = async (req, res) => {
   try {
-    const buyer = await Buyer.findById(req.params.id);
-    if (!buyer) return res.status(404).json({ error: "Buyer not found" });
-    res.status(200).json(buyer);
+    const { id } = req.params;
+
+    const [rows] = await db.execute(`
+      SELECT
+        b.*,
+
+        -- creator
+        u1.id          AS created_user_id,
+        u1.salutation  AS created_user_salutation,
+        u1.first_name  AS created_user_first_name,
+        u1.last_name   AS created_user_last_name,
+        u1.email       AS created_user_email,
+        u1.phone       AS created_user_phone,
+
+        -- assignee
+        u2.id          AS assigned_user_id,
+        u2.salutation  AS assigned_user_salutation,
+        u2.first_name  AS assigned_user_first_name,
+        u2.last_name   AS assigned_user_last_name,
+        u2.email       AS assigned_user_email,
+        u2.phone       AS assigned_user_phone
+
+      FROM buyers b
+      LEFT JOIN users u1 ON u1.id = b.created_by
+      LEFT JOIN users u2 ON u2.id = b.assigned_executive
+      WHERE b.id = ?
+      LIMIT 1
+    `, [id]);
+
+    if (!rows[0]) {
+      return res.status(404).json({ error: "Buyer not found" });
+    }
+
+    const buyer = rows[0];
+
+    const makeName = (sal, first, last) =>
+      String([sal, first, last].filter(Boolean).join(" "))
+        .replace(/\s+/g, " ")
+        .trim() || null;
+
+    const created_by_user = buyer.created_user_id
+      ? {
+          id: buyer.created_user_id,
+          name: makeName(
+            buyer.created_user_salutation,
+            buyer.created_user_first_name,
+            buyer.created_user_last_name
+          ),
+          email: buyer.created_user_email || null,
+          phone: buyer.created_user_phone || null,
+        }
+      : null;
+
+    const assigned_executive_user = buyer.assigned_user_id
+      ? {
+          id: buyer.assigned_user_id,
+          name: makeName(
+            buyer.assigned_user_salutation,
+            buyer.assigned_user_first_name,
+            buyer.assigned_user_last_name
+          ),
+          email: buyer.assigned_user_email || null,
+          phone: buyer.assigned_user_phone || null,
+        }
+      : null;
+
+    const safeBuyer = {
+      ...buyer,
+
+      requirements:
+        typeof buyer.requirements === "object"
+          ? JSON.stringify(buyer.requirements)
+          : buyer.requirements,
+      financials:
+        typeof buyer.financials === "object"
+          ? JSON.stringify(buyer.financials)
+          : buyer.financials,
+
+      budget: { min: buyer.budget_min, max: buyer.budget_max },
+
+      created_by_user,
+      assigned_executive_user,
+    };
+
+    res.status(200).json(safeBuyer);
   } catch (error) {
     console.error("Error fetching buyer:", error);
-    res.status(500).json({ error: "Failed to fetch buyer" });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch buyer", details: error.message });
   }
 };
+
 
 // Add these missing methods that your router references
 exports.getBuyers = exports.getAllBuyers; // Alias for router compatibility
@@ -159,29 +320,129 @@ exports.bulkDeleteBuyers = async (req, res) => {
   }
 };
 
+/* ==============================
+   🔹 Assign Executive (Single)
+============================== */
+exports.assignExecutive = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { executive_id } = req.body;
+
+    if (!id) return res.status(400).json({ error: "Buyer ID required" });
+
+    const result = await Buyer.assignExecutive(id, executive_id);
+    const updated = await Buyer.findById(id);
+
+    return res.json({
+      success: true,
+      message: `Executive ${executive_id ? "assigned" : "cleared"} successfully.`,
+      affected: result.affected,
+      buyer: updated,
+    });
+  } catch (err) {
+    console.error("assignExecutive error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/* ==============================
+   🔹 Bulk Assign Executive
+============================== */
+exports.bulkAssignExecutive = async (req, res) => {
+  try {
+    const { buyer_ids, executive_id, only_empty } = req.body;
+
+    if (!Array.isArray(buyer_ids) || buyer_ids.length === 0)
+      return res.status(400).json({ error: "buyer_ids array required" });
+
+    const result = await Buyer.bulkAssignSameExecutive(buyer_ids, executive_id, !!only_empty);
+
+    return res.json({
+      success: true,
+      message: `Executive ${executive_id ? "assigned" : "cleared"} for ${result.affected} buyers.`,
+      affected: result.affected,
+    });
+  } catch (err) {
+    console.error("bulkAssignExecutive error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+/* ============================
+   🔹 Update Single Lead Field
+============================ */
+exports.updateLeadField = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { field, value } = req.body;
+
+    const result = await Buyer.updateLeadField(id, field, value);
+    const updated = await Buyer.findById(id);
+
+    res.json({
+      success: true,
+      message: `${field} updated successfully.`,
+      affected: result.affected,
+      buyer: updated,
+    });
+  } catch (err) {
+    console.error("updateLeadField error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/* ============================
+   🔹 Bulk Update Lead Field
+============================ */
+exports.bulkUpdateLeadField = async (req, res) => {
+  try {
+    const { buyer_ids, field, value, only_empty } = req.body;
+
+    const result = await Buyer.bulkUpdateLeadField(buyer_ids, field, value, !!only_empty);
+
+    res.json({
+      success: true,
+      message: `${field} updated for ${result.affected} buyers.`,
+      affected: result.affected,
+    });
+  } catch (err) {
+    console.error("bulkUpdateLeadField error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 
 
 exports.importBuyers = async (req, res) => {
   try {
-    const buyers = req.body;
+    // accept either a plain array or { rows: [...] }
+    const buyers =
+      Array.isArray(req.body?.rows) ? req.body.rows :
+      (Array.isArray(req.body) ? req.body : []);
+
     if (!Array.isArray(buyers) || buyers.length === 0) {
       return res.status(400).json({ success: false, message: "No buyers provided for import" });
     }
 
-    const createdBy = req.userId || 1;
+    // pick user id from your auth middleware; keep fallbacks
+    const userId = req.user?.id || req.userId || null;
 
-    const result = await Buyer.bulkImport(buyers, createdBy);
+    const result = await Buyer.bulkImport(buyers, { created_by: userId });
 
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
       message: "Import completed",
       inserted: result.inserted,
       skipped: result.skipped,
       skippedRows: result.skippedRows,
+      updatedRows: result.updatedRows || [],
+      insertedRows: result.insertedRows || [],
     });
   } catch (err) {
     console.error("Import Buyers Error:", err);
-    return res.status(500).json({ success: false, message: "Server error during import", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Server error during import",
+    });
   }
 };
 
