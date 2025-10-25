@@ -35,7 +35,7 @@ function buildPrompt(body = {}) {
     includeSEO = true,
     includeImages = true,
     includeToc = true,
-    category = "AI Generated",
+    category = "Real Estate",
   } = body;
 
   const target = LENGTH_WORD_TARGET[length] || LENGTH_WORD_TARGET.medium;
@@ -285,7 +285,7 @@ exports.generateBlogFromTitle = async (req, res) => {
           ? json.tags
           : json?.seo?.keywords || ["Finance", "India", "Policy", "RBI"],
         aiImages: { hero: json.hero || null, inline: json.inline_images || [] },
-        category: req.body?.category || "AI Generated",
+        category: req.body?.category || " Real Estate",
         status: "draft",
       },
     });
