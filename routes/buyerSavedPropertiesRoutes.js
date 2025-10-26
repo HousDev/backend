@@ -20,4 +20,6 @@ router.delete("/:id", ctrl.removeById);
 // GET /api/buyer-saved-properties/count/by-property/:propertyId
 router.get("/count/by-property/:propertyId", ctrl.countByProperty);
 
+router.get("/count/by-buyer/:buyerId", ctrl.countByBuyer);
+
 module.exports = router;

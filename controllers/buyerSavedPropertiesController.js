@@ -1,5 +1,5 @@
 const BuyerSavedProperty = require("../models/BuyerSavedProperty");
-
+const pool=require("../config/database")
 exports.toggleSave = async (req, res) => {
   try {
     const { buyerId, propertyId, mode } = req.body || {};
@@ -99,5 +99,30 @@ exports.countByProperty = async (req, res) => {
   } catch (err) {
     console.error("countByProperty error:", err);
     res.status(500).json({ success: false, error: String(err.message || err) });
+  }
+};
+
+exports.countByBuyer = async (req, res) => {
+  try {
+    const buyerId = Number(req.params.buyerId || req.query.buyerId);
+    if (!buyerId) return res.status(400).json({ success: false, error: "buyerId is required" });
+
+    // Prefer model if present
+    if (typeof BuyerSavedProperty.countByBuyer === "function") {
+      const count = await BuyerSavedProperty.countByBuyer(buyerId);
+      return res.json({ success: true, count: Number(count) || 0 });
+    }
+
+    // Fallback: raw SQL here
+    const [rows] = await pool.query(
+      `SELECT COUNT(DISTINCT property_id) AS count
+       FROM buyer_saved_properties
+       WHERE buyer_id = ?`,
+      [buyerId]
+    );
+    return res.json({ success: true, count: rows?.[0]?.count ?? 0 });
+  } catch (err) {
+    console.error("countByBuyer error:", err);
+    return res.status(500).json({ success: false, error: String(err.message || err) });
   }
 };
