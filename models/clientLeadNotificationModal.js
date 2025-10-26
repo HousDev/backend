@@ -89,3 +89,35 @@ exports.markAllAsRead = async (userId) => {
   );
   return result.affectedRows; // number of notifications updated
 };
+
+exports.getById = async (id) => {
+  const [rows] = await db.query(`SELECT * FROM client_lead_notification WHERE id = ? LIMIT 1`, [id]);
+  return rows[0] || null;
+};
+
+/** ✅ Delete by ID (single row) */
+exports.deleteById = async (id) => {
+  const [result] = await db.query(
+    `DELETE FROM client_lead_notification WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  return result.affectedRows; // 0 ya 1
+};
+
+/** ✅ (Optional) Delete ALL for a user (use carefully) */
+exports.deleteAllByUserId = async (userId) => {
+  const [result] = await db.query(
+    `DELETE FROM client_lead_notification WHERE user_id = ?`,
+    [userId]
+  );
+  return result.affectedRows; // deleted count
+};
+
+/** ✅ (Optional) Delete only READ items for a user */
+exports.deleteReadByUserId = async (userId) => {
+  const [result] = await db.query(
+    `DELETE FROM client_lead_notification WHERE user_id = ? AND is_read = TRUE`,
+    [userId]
+  );
+  return result.affectedRows; // deleted count
+};

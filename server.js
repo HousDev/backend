@@ -48,7 +48,8 @@ const webhookRouter = require("./routes/digioWebhook");
 const smsRoutes = require("./routes/smsRoutes");
 const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
 
-
+const http = require('http');
+const { initSocket } = require('./utils/socket');
 
 const app = express();
 
@@ -221,6 +222,12 @@ app.get("/", (req, res) => {
   });
 });
 const slugRedirect = require("./middleware/slugRedirect");
+
+
+const server = http.createServer(app);
+initSocket(server);
+
+
 
 app.use(slugRedirect);
 
