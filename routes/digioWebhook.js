@@ -49,7 +49,6 @@ webhookRouter.post("/", (req, res) => {
     //   [event || payload?.status, JSON.stringify(payload), digioId]
     // );
 
-    console.log("✅ Webhook verified:", { event, digioId });
   } catch (e) {
     console.error("Webhook error:", e);
     if (!res.headersSent) res.status(200).json({ ok: true });
