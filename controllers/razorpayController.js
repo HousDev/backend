@@ -19,9 +19,8 @@ function getUserId(req) {
 // controllers/razorpayController.js (adjusted)
 exports.saveConfig = async (req, res) => {
   try {
-    console.log(">> Incoming /saveConfig body:", req.body);
+   
     const userId = getUserId(req);
-    console.log(">> detected userId:", userId);
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
     // accept both camelCase and snake_case
@@ -134,12 +133,10 @@ exports.resetIntegration = async (req, res) => {
     // accept id from params, body, or query
     const id = req.params?.id || req.body?.id || req.query?.id || null;
 
-    console.log(`[Razorpay] resetIntegration called by userId=${userId} id=${id || 'ALL'}`);
 
     const result = await RazorpayIntegrationModal.resetIntegration(userId, id);
 
     if (result && result.affectedRows && result.affectedRows > 0) {
-      console.log(`[Razorpay] resetIntegration success. affectedRows=${result.affectedRows}`);
       return res.json({
         success: true,
         message: id ? 'Razorpay integration deleted successfully' : 'All Razorpay integrations deleted successfully',

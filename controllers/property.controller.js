@@ -176,33 +176,15 @@ function extractFilterTokenFromReq(req) {
 
 // ---------------------
 // Controller Functions
-// ---------------------
 
-// CREATE
-// controller (e.g., controllers/propertyController.js)
 const createProperty = async (req, res) => {
-  console.log("=== DEBUG: File Upload ===");
-  console.log("CT:", req.headers["content-type"]);
-  console.log(
-    "Has files?:",
-    !!req.files,
-    "keys:",
-    req.files ? Object.keys(req.files) : []
-  );
-  console.log("Body keys:", Object.keys(req.body || {}));
-  console.log("Files received:", req.files);
-  console.log("Body received:", req.body);
+
 
   // Check if upload directory exists
   const uploadDir = path.join(process.cwd(), "uploads", "properties");
-  console.log("Upload directory exists:", fs.existsSync(uploadDir));
-  console.log("Upload directory path:", uploadDir);
-
   if (req.files) {
     Object.keys(req.files).forEach((key) => {
       req.files[key].forEach((file) => {
-        console.log(`File ${key}: ${file.filename} at ${file.path}`);
-        console.log(`File exists: ${fs.existsSync(file.path)}`);
       });
     });
   }
@@ -1068,25 +1050,21 @@ const getFilterContextHandler = async (req, res) => {
 // POST /api/properties/search/city-locations
 const searchCityLocationsStrict = async (req, res) => {
   try {
-    // Debug logging
-    console.log("=== Search Request Debug ===");
-    console.log("Query params:", req.query);
-    console.log("Full URL:", req.originalUrl);
+   
     
     // Get city from query parameters
     const cityInput = (req.query.city || req.query.city_name || "").toString().trim();
-    console.log("City input:", cityInput);
+  
     
     // Validate city is provided
     if (!cityInput) {
-      console.log("❌ No city provided");
+     
       return res.status(400).json({
         success: false,
         message: "City parameter is required"
       });
     }
     
-    console.log("✓ City validated:", cityInput);
     
     // Get locations from query parameters
     let locationsInput = req.query.locations || req.query.location_name || "";
@@ -1094,7 +1072,7 @@ const searchCityLocationsStrict = async (req, res) => {
     // Process locations input
     let locArr = [];
     if (locationsInput) {
-      console.log("Locations input:", locationsInput);
+     
       if (typeof locationsInput === "string") {
         locArr = locationsInput.split(",").map(s => s.trim()).filter(Boolean);
       } else if (Array.isArray(locationsInput)) {
@@ -1105,13 +1083,13 @@ const searchCityLocationsStrict = async (req, res) => {
       locArr = Array.from(new Set(locArr.map(s => s.toLowerCase()))).slice(0, 5);
     }
     
-    console.log("Processed locations:", locArr);
+  
     
     // Pagination parameters
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Number(req.query.offset) || 0;
     
-    console.log("Limit:", limit, "Offset:", offset);
+   
     
     // Build SQL query
     const filters = [];
@@ -1120,14 +1098,14 @@ const searchCityLocationsStrict = async (req, res) => {
     // Add city filter (case-insensitive exact match)
     filters.push("LOWER(TRIM(city_name)) = ?");
     values.push(cityInput.toLowerCase());
-    console.log("City filter value:", cityInput.toLowerCase());
+   
     
     // Add location filter if locations provided
     if (locArr.length > 0) {
       const locationConditions = locArr.map(() => "LOWER(TRIM(location_name)) LIKE ?").join(" OR ");
       filters.push(`(${locationConditions})`);
       locArr.forEach(loc => values.push(`%${loc}%`));
-      console.log("Location filter added for:", locArr);
+     
     }
     
     // Build WHERE clause
@@ -1137,15 +1115,14 @@ const searchCityLocationsStrict = async (req, res) => {
     
     // Count query
     const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
-    console.log("Count SQL:", countSql);
-    console.log("Executing count query...");
+   
     
     // Execute count query using async/await
     const [countRows] = await db.query(countSql, values);
-    console.log("Count rows result:", countRows);
+
     
     const total = countRows?.[0]?.total || 0;
-    console.log("✓ Total count:", total);
+    
     
     // Data query with sorting
     const dataSql = `
@@ -1156,15 +1133,9 @@ const searchCityLocationsStrict = async (req, res) => {
     `;
     const dataValues = [...values, limit, offset];
     
-    console.log("Data SQL:", dataSql);
-    console.log("Data values:", dataValues);
-    console.log("Executing data query...");
     
     // Execute data query using async/await
     const [dataRows] = await db.query(dataSql, dataValues);
-    
-    console.log("✓ Data fetched:", dataRows.length, "rows");
-    console.log("=========================\n");
     
     // Return successful response
     return res.json({
@@ -1355,10 +1326,6 @@ const updateAssignedTo = async (req, res) => {
     }
 
     const assigned_by = req.user?.id ?? null;
-
-    // Optional debug:
-    // console.log("Has method?", typeof Property.updateAssignedTo);
-
     const result = await Property.updateAssignedTo(id, assigned_to, assigned_by);
 
     if (!result.success) {

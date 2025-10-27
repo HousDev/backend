@@ -260,9 +260,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 Server: http://localhost:${PORT}`);
   console.log(`📊 Health: http://localhost:${PORT}/api/health`);
-  // console.log(`📂 Uploads: ${path.join(process.cwd(), "uploads")}\n`);
-  console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
-  +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
+  // console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
+  // +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
 });
 
 module.exports = app;

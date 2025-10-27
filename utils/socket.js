@@ -25,11 +25,10 @@ function initSocket(httpServer) {
 
     const room = `user:${userId}`;
     socket.join(room);
-    // optional logs
-    // console.log(`✅ Socket joined room ${room} — ${socket.id}`);
+    
 
     socket.on("disconnect", () => {
-      // console.log(`❌ Socket disconnected ${socket.id}`);
+     
     });
   });
 

@@ -10,10 +10,8 @@ exports.getAllVariables = async (req, res) => {
   try {
     res.set('X-Handler', 'variables.getAllVariables');   // <-- tag
     const [dbName] = await db.query('SELECT DATABASE() AS db');
-    console.log('Connected DB:', dbName[0]?.db);
 
     const [[cnt]] = await db.query('SELECT COUNT(*) AS c FROM variables');
-    console.log('Row count:', cnt.c);
 
     const data = await Variable.findAll();
     return res.json({ success: true, count: cnt.c, data });

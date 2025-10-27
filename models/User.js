@@ -84,8 +84,7 @@ const db = require("../config/database"); // mysql2/promise pool
 
     try {
       const [result] = await db.query(query, values);
-      console.log("✅ User created successfully:", result.insertId);
-      
+ 
       return {
         id: result.insertId,
         ...newUser,

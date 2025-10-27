@@ -95,14 +95,6 @@ const verifyToken = (req, res, next) => {
       req.lastName = user.last_name;
       req.salutation = user.salutation;
 
-      // console.log('User authenticated successfully:', {
-      //   id: user.id,
-      //   role: req.userRole,
-      //   buyer_id: user.buyer_id,
-      //   seller_id: user.seller_id,
-      //   email: user.email
-      // });
-
       next();
     } catch (error) {
       console.error('Database error in verifyToken:', error);

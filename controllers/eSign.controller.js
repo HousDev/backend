@@ -23,7 +23,7 @@ const USE_MOCK =
 
 const uid = () => crypto.randomBytes(12).toString('hex');
 const maskLast4 = (a) => String(a).slice(-4);
-const dlog = (...a) => console.log('[AadhaarKYC]', ...a);
+
 
 // ----------------------------- token cache -------------------------------- //
 const tokenCache = { token: null, exp: 0 };
