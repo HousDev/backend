@@ -5,7 +5,6 @@ const db = require("../config/database");
 // ================= CREATE =================
 exports.createLead = async (req, res) => {
   try {
-    console.log("Incoming Lead Data (req.body):", req.body);
 
     const payload = {
       ...req.body,

@@ -468,11 +468,9 @@ exports.filterData = async (req, res) => {
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
     values.push(parseInt(limit), offset);
 
-    console.log("Final query:", query);
-    console.log("Query values:", values);
 
     const [rows] = await db.query(query, values);
-    // console.log("Database results:", rows);
+
 
     // sanitize passwords
     const sanitized = rows.map(r => {

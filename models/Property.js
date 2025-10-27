@@ -905,19 +905,7 @@ async function recordPropertyViewHandler(req, res) {
     const recorded = !!(result && result.inserted);
     const deduped = result?.meta?.deduped || false;
 
-    if (recorded) {
-      console.log(
-        `[recordPropertyViewHandler] View recorded for property ${propertyId}, session: ${String(
-          sessionId || ""
-        ).slice(0, 8)}...`
-      );
-    } else {
-      console.log(
-        `[recordPropertyViewHandler] View skipped (duplicate) for property ${propertyId}, session: ${String(
-          sessionId || ""
-        ).slice(0, 8)}...`
-      );
-    }
+  
 
     return res.json({
       success: true,
