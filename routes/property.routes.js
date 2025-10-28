@@ -110,4 +110,5 @@ router.post('/:id/BrochuresBulkSinglePDF', brochureCtrl.generateBrochuresBulkSin
 router.patch("/:id/assigned-to", propertyController.updateAssignedTo);
 // Add this route to your property routes
 router.get('/similar', propertyController.getSimilarProperties);
+router.get("/search", propertyController.searchProperties);
 module.exports = router;
