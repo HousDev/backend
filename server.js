@@ -42,7 +42,6 @@ const eSignRoutes = require("./routes/eSign.routes");
 const aiBlogRoutes = require("./routes/aiBlogs.routes") 
 const homeHeroRoutes = require("./routes/homeHero.routes");
 
-const webhookRouter = require("./routes/digioWebhook");
 
 
 const smsRoutes = require("./routes/smsRoutes");
@@ -119,7 +118,7 @@ app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
 
 app.use("/api/esign", eSignRoutes);
-
+app.use("/api/digio", require("./routes/digio"));
 app.use("/api", smsRoutes);
 app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 app.use("/api", blogCommentsRoutes);
@@ -207,13 +206,8 @@ app.use('/api/receipts', receiptRoutes);
 app.use('/api/ai-blogs', aiBlogRoutes)
 app.use("/api/home-hero", homeHeroRoutes);
 app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
-app.use("/api/digio/", require("./routes/digioRoutes"));
 
-app.use(
-  "/api/digio/webhook",
-  express.raw({ type: "application/json" }),
-  webhookRouter
-);
+
 // Root
 app.get("/", (req, res) => {
   res.json({
