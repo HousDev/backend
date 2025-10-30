@@ -13,8 +13,17 @@ exports.create = async ({ leadId, userId, message, type, link }) => {
 
 exports.getByUserId = async (userId) => {
   const [rows] = await db.query(
-    `SELECT n.id, n.message, n.type, n.link, n.is_read, n.created_at,
-            l.id AS lead_id, l.name AS lead_name
+    `SELECT 
+        n.id,
+        n.lead_id,
+        n.user_id,     -- ✅ Add this line
+        n.message,
+        n.type,
+        n.link,
+        n.is_read,
+        n.created_at,
+        n.updated_at,
+        l.name AS lead_name
      FROM client_lead_notification n
      LEFT JOIN client_leads l ON n.lead_id = l.id
      WHERE n.user_id = ?
@@ -23,6 +32,7 @@ exports.getByUserId = async (userId) => {
   );
   return rows;
 };
+
 
 
 // ✅ Mark Notification as Read

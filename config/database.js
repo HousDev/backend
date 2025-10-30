@@ -15,7 +15,7 @@ const pool = mysql
     waitForConnections: true,
     connectionLimit: 5,
     queueLimit: 0,
-    timezone: "+05:30", // ensures IST even before SET
+    // timezone: "+05:30", // ensures IST even before SET
   })
   .promise();
 
