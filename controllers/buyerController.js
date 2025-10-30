@@ -412,35 +412,86 @@ exports.bulkUpdateLeadField = async (req, res) => {
 
 
 
+// controllers/buyerController.js
+
 exports.importBuyers = async (req, res) => {
   try {
-    // accept either a plain array or { rows: [...] }
-    const buyers =
-      Array.isArray(req.body?.rows) ? req.body.rows :
-      (Array.isArray(req.body) ? req.body : []);
+    // ---------- 1) Detect payload & the key used ----------
+    const body = req.body ?? {};
+    let rows = null;
+    let keyName = null; // which key the client used (buyers / data / rows / rawArray)
 
-    if (!Array.isArray(buyers) || buyers.length === 0) {
-      return res.status(400).json({ success: false, message: "No buyers provided for import" });
+    if (Array.isArray(body)) {
+      rows = body;
+      keyName = "array"; // raw array sent
+    } else if (Array.isArray(body.buyers)) {
+      rows = body.buyers;
+      keyName = "buyers";
+    } else if (Array.isArray(body.data)) {
+      rows = body.data;
+      keyName = "data";
+    } else if (Array.isArray(body.rows)) {
+      rows = body.rows;
+      keyName = "rows";
+    } else {
+      // last resort: if there is exactly one array prop, accept that
+      const arrKeys = Object.keys(body).filter((k) => Array.isArray(body[k]));
+      if (arrKeys.length === 1) {
+        keyName = arrKeys[0]; // support custom key
+        rows = body[keyName];
+      }
     }
 
-    // pick user id from your auth middleware; keep fallbacks
-    const userId = req.user?.id || req.userId || null;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        code: "NO_BUYERS",
+        message:
+          "Provide buyers as an array (raw array) or inside one of these keys: buyers / data / rows",
+      });
+    }
 
-    const result = await Buyer.bulkImport(buyers, { created_by: userId });
+    // ---------- 2) Context (created_by, etc.) ----------
+    const userId =
+      req.user?.id || req.userId || req.auth?.id || req.auth?.userId || null;
 
-    return res.status(200).json({
+    // ---------- 3) Do the import ----------
+    // Expect Buyer.bulkImport to return: { inserted, skipped, skippedRows, updatedRows, insertedRows }
+    const result = await Buyer.bulkImport(rows, { created_by: userId });
+
+    const base = {
       success: true,
       message: "Import completed",
-      inserted: result.inserted,
-      skipped: result.skipped,
-      skippedRows: result.skippedRows,
+      inserted: result.inserted ?? 0,
+      skipped: result.skipped ?? (result.skippedRows?.length ?? 0),
+      skippedRows: result.skippedRows || [],
       updatedRows: result.updatedRows || [],
       insertedRows: result.insertedRows || [],
-    });
+    };
+
+    // ---------- 4) Mirror the request format in the response ----------
+    // If client sent { buyers: [...] }, reply with { buyers: <summary>, ...base }
+    // If raw array, just send base.
+    if (keyName && keyName !== "array") {
+      return res.status(200).json({
+        ...base,
+        [keyName]: {
+          inserted: base.inserted,
+          skipped: base.skipped,
+          skippedRows: base.skippedRows,
+          updatedRows: base.updatedRows,
+          insertedRows: base.insertedRows,
+        },
+      });
+    }
+
+    // raw array case
+    return res.status(200).json(base);
   } catch (err) {
     console.error("Import Buyers Error:", err);
     return res.status(500).json({
       success: false,
+      code: "IMPORT_FAILED",
       message: err?.message || "Server error during import",
     });
   }
