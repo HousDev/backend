@@ -46,6 +46,7 @@ const homeHeroRoutes = require("./routes/homeHero.routes");
 
 const smsRoutes = require("./routes/smsRoutes");
 const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
+const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
 
 const http = require('http');
 const { initSocket } = require('./utils/socket');
@@ -120,6 +121,7 @@ app.use("/api/esign", eSignRoutes);
 app.use("/api/digio", require("./routes/digio"));
 app.use("/api", smsRoutes);
 app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
+app.use("/api", blogCommentsRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
