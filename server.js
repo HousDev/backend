@@ -54,8 +54,7 @@ const { initSocket } = require('./utils/socket');
 const app = express();
 
 app.set("trust proxy", 1);
-// Security
-app.use(helmet());
+
 
 // Body parsing
 app.use(express.json({ limit: "50mb" }));
@@ -143,6 +142,7 @@ app.use(
           "blob:",
           "https://investordeal.in",
           "https://resaleexpert.in",
+          "http://localhost:5173/"
         ],
         "style-src": ["'self'", "https:", "'unsafe-inline'"],
         "font-src": ["'self'", "https:", "data:"],
