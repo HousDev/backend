@@ -396,7 +396,7 @@ exports.generateBrochuresBulkSinglePDF = async (req, res) => {
       const headerBlock = `
         <section class="header-card">
           <div class="header-left">
-            <span class="id-pill">#REP-${p.id ?? index + 1}</span>
+            <span class="id-pill">#REX-${p.id ?? index + 1}</span>
             <div class="title-location-wrap">
               <div class="title-row">${esc(makeTitleText(p))}</div>
               ${showAny("location") && locationLineStr ? `<div class="location-inline">${esc(locationLineStr)}</div>` : ""}
