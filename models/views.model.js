@@ -252,6 +252,34 @@ async function recordView(payload = {}) {
     return { inserted: false, error: err && err.message ? err.message : String(err) };
   }
 }
+async function getAllViews({ unique = false } = {}) {
+  const sql = unique
+    ? `
+        SELECT 
+          property_id,
+          slug,
+          COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views,
+          COUNT(*) AS total_views
+        FROM property_events
+        WHERE event_type = ?
+        GROUP BY property_id, slug
+        ORDER BY total_views DESC;
+      `
+    : `
+        SELECT 
+          property_id,
+          slug,
+          COUNT(*) AS total_views,
+          COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views
+        FROM property_events
+        WHERE event_type = ?
+        GROUP BY property_id, slug
+        ORDER BY total_views DESC;
+      `;
+
+  const [rows] = await db.execute(sql, [VIEWS_EVENT]);
+  return rows;
+}
 
 
 module.exports = {
@@ -262,4 +290,5 @@ module.exports = {
   getBottomViews,
   hasRecentView,
   recordView,
+  getAllViews,
 };
