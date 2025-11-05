@@ -43,7 +43,7 @@ const aiBlogRoutes = require("./routes/aiBlogs.routes")
 const homeHeroRoutes = require("./routes/homeHero.routes");
 
 
-
+const visitRoutes = require("./routes/propertyVisits");
 const smsRoutes = require("./routes/smsRoutes");
 const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
 const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
@@ -206,7 +206,7 @@ app.use('/api/receipts', receiptRoutes);
 app.use('/api/ai-blogs', aiBlogRoutes)
 app.use("/api/home-hero", homeHeroRoutes);
 app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
-
+app.use("/api/visits", visitRoutes);
 
 // Root
 app.get("/", (req, res) => {
