@@ -2,6 +2,7 @@
 const db = require("../config/database"); // mysql2/promise pool
 
 class PropertyRevisit {
+  /* ---------- helpers ---------- */
   static #safeInt(v) {
     if (v === undefined || v === null || v === "") return null;
     const n = parseInt(v, 10);
@@ -26,7 +27,10 @@ class PropertyRevisit {
     return { date, time };
   }
 
-  static async create(payload) {
+  /* =======================================
+     CREATE
+  ======================================= */
+  static async create(payload = {}) {
     const data = {
       visit_id: this.#safeInt(payload.visit_id),
       executive_id: payload.executive_id === "" ? null : this.#safeInt(payload.executive_id),
@@ -41,11 +45,13 @@ class PropertyRevisit {
       remarks: payload.remarks || null,
     };
 
+    // If ISO given, split to date/time
     if ((!data.revisit_date || !data.revisit_time) && data.revisit_datetime) {
       const { date, time } = this.#splitISOToDateTime(data.revisit_datetime);
       data.revisit_date = data.revisit_date || date;
       data.revisit_time = data.revisit_time || time;
     }
+
     if (!data.visit_id || !data.revisit_date || !data.revisit_time) {
       throw new Error("visit_id and (revisit_date & revisit_time) are required");
     }
@@ -54,13 +60,13 @@ class PropertyRevisit {
       "visit_id","executive_id",
       "revisit_date","revisit_time",
       "duration_minutes","accompanied_by","status",
-      "feedback","rating","remarks",
+      "feedback","rating","remarks"
     ];
     const params = [
       data.visit_id, data.executive_id,
       data.revisit_date, data.revisit_time,
       data.duration_minutes, data.accompanied_by, data.status,
-      data.feedback, data.rating, data.remarks,
+      data.feedback, data.rating, data.remarks
     ];
     const placeholders = cols.map(() => "?").join(", ");
 
@@ -76,13 +82,18 @@ class PropertyRevisit {
 
       // increment parent counter
       await conn.query(
-        `UPDATE property_visits SET revisit_count = revisit_count + 1, updated_at = NOW() WHERE id = ?`,
+        `UPDATE property_visits 
+         SET revisit_count = revisit_count + 1, updated_at = NOW() 
+         WHERE id = ?`,
         [data.visit_id]
       );
 
       await conn.commit();
 
-      const [rows] = await conn.query(`SELECT * FROM property_revisits WHERE id = ?`, [res.insertId]);
+      const [rows] = await conn.query(
+        `SELECT * FROM property_revisits WHERE id = ?`,
+        [res.insertId]
+      );
       return rows?.[0] || null;
     } catch (e) {
       await conn.rollback();
@@ -92,31 +103,113 @@ class PropertyRevisit {
     }
   }
 
+  /* =======================================
+     READ
+  ======================================= */
+
+  // what your controller expects
+  static async listByVisitId(visit_id) {
+    return this.listByVisit(visit_id);
+  }
+
+  // legacy/alias
   static async listByVisit(visit_id) {
+    const id = this.#safeInt(visit_id);
+    if (!id) return [];
     const [rows] = await db.query(
-      `SELECT * FROM property_revisits WHERE visit_id = ? ORDER BY revisit_datetime ASC, id ASC`,
-      [this.#safeInt(visit_id)]
+      `SELECT *, 
+              COALESCE(revisit_datetime, CONCAT(revisit_date,' ',revisit_time)) AS combined_dt
+       FROM property_revisits
+       WHERE visit_id = ?
+       ORDER BY combined_dt ASC, id ASC`,
+      [id]
     );
     return rows;
   }
 
-  static async updateById(id, updates) {
+  // list with filters + pagination
+  static async getAll(filters = {}, pagination = {}) {
+    const toInt = this.#safeInt;
+    const { visit_id, status, from_date, to_date, search } = filters;
+    const page = toInt(pagination.page) || 1;
+    const limit = toInt(pagination.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const where = [];
+    const params = [];
+
+    if (toInt(visit_id)) { where.push("visit_id = ?"); params.push(toInt(visit_id)); }
+    if (status)         { where.push("status = ?");    params.push(status); }
+    if (from_date) {
+      where.push("COALESCE(revisit_datetime, CONCAT(revisit_date,' ',revisit_time)) >= ?");
+      params.push(from_date);
+    }
+    if (to_date) {
+      where.push("COALESCE(revisit_datetime, CONCAT(revisit_date,' ',revisit_time)) <= ?");
+      params.push(to_date);
+    }
+    if (search) {
+      where.push("(remarks LIKE ? OR feedback LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const [rows] = await db.query(
+      `SELECT *,
+              COALESCE(revisit_datetime, CONCAT(revisit_date,' ',revisit_time)) AS combined_dt
+       FROM property_revisits
+       ${whereSql}
+       ORDER BY combined_dt DESC, id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM property_revisits ${whereSql}`,
+      params
+    );
+
+    return { rows, total, page, limit };
+  }
+
+  static async findById(id) {
+    const rid = this.#safeInt(id);
+    if (!rid) return null;
+    const [rows] = await db.query(
+      `SELECT *, 
+              COALESCE(revisit_datetime, CONCAT(revisit_date,' ',revisit_time)) AS combined_dt
+       FROM property_revisits
+       WHERE id = ? LIMIT 1`,
+      [rid]
+    );
+    return rows?.[0] || null;
+  }
+
+  /* =======================================
+     UPDATE
+  ======================================= */
+  static async updateById(id, updates = {}) {
     const allowed = [
       "executive_id","revisit_date","revisit_time",
       "duration_minutes","accompanied_by","status",
       "feedback","rating","remarks",
-      // revisit_datetime is generated, do not set directly
     ];
     const data = {};
     for (const k of allowed) {
       if (updates[k] !== undefined) data[k] = updates[k];
     }
-    if (data.executive_id !== undefined) data.executive_id = updates.executive_id === "" ? null : this.#safeInt(updates.executive_id);
-    if (data.duration_minutes !== undefined) data.duration_minutes = this.#safeInt(data.duration_minutes);
-    if (data.rating !== undefined) data.rating = this.#safeInt(data.rating);
-    if (data.accompanied_by !== undefined) data.accompanied_by = this.#toJSONOrNull(data.accompanied_by);
 
-    // If client passed revisit_datetime in update, split to date/time
+    if (data.executive_id !== undefined)
+      data.executive_id = updates.executive_id === "" ? null : this.#safeInt(updates.executive_id);
+    if (data.duration_minutes !== undefined)
+      data.duration_minutes = this.#safeInt(data.duration_minutes);
+    if (data.rating !== undefined)
+      data.rating = this.#safeInt(data.rating);
+    if (data.accompanied_by !== undefined)
+      data.accompanied_by = this.#toJSONOrNull(data.accompanied_by);
+
+    // If client passed revisit_datetime, split to date/time
     if (!data.revisit_date && !data.revisit_time && updates.revisit_datetime) {
       const { date, time } = this.#splitISOToDateTime(updates.revisit_datetime);
       if (date) data.revisit_date = date;
@@ -140,13 +233,18 @@ class PropertyRevisit {
     return rows?.[0] || null;
   }
 
+  /* =======================================
+     DELETE
+  ======================================= */
   static async remove(id) {
-    // We need visit_id to decrement counter
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
 
-      const [[row]] = await conn.query(`SELECT visit_id FROM property_revisits WHERE id = ?`, [id]);
+      const [[row]] = await conn.query(
+        `SELECT visit_id FROM property_revisits WHERE id = ?`,
+        [id]
+      );
       if (!row) {
         await conn.rollback();
         return { kind: "not_found" };
