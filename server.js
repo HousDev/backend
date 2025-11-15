@@ -48,6 +48,9 @@ const smsRoutes = require("./routes/smsRoutes");
 const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
 const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
 
+const rbacRoutes = require("./routes/rbacRoutes");
+
+
 const http = require('http');
 const { initSocket } = require('./utils/socket');
 
@@ -121,6 +124,8 @@ app.use("/api/digio", require("./routes/digio"));
 app.use("/api", smsRoutes);
 app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 app.use("/api", blogCommentsRoutes);
+
+app.use("/api/rbac", rbacRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
