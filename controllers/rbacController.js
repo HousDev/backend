@@ -1,67 +1,53 @@
 // backend/controllers/rbacController.js
-const {
-  getRolePermissionKeys,
-  setRolePermissions,
-} = require("../models/rbacModel");
+const rbacModel = require("../models/rbacModel");
+const User = require("../models/User");
 
-// GET /api/rbac/roles/:roleId/permissions
-// -> ['user.create', 'lead.read', ...]
-async function getRolePermissions(req, res) {
+/**
+ * GET /api/rbac/roles/:roleId/permissions
+ * Returns: ['user.create', 'user.read', ...]
+ */
+exports.getRolePermissions = async (req, res) => {
   const { roleId } = req.params;
 
   try {
-    const permissionKeys = await getRolePermissionKeys(roleId);
-    res.json({
-      success: true,
-      data: permissionKeys,
-    });
+    const keys = await rbacModel.getRolePermissionKeys(roleId);
+    return res.json(keys);
   } catch (err) {
-    console.error("Error in getRolePermissions:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to load role permissions",
-    });
+    console.error("Error fetching role permissions:", err);
+    return res.status(500).json({ message: "Failed to load role permissions" });
   }
-}
+};
 
-// PUT /api/rbac/roles/:roleId/permissions
-// body: { permissions: ['user.create', 'lead.read', ...] }
-async function updateRolePermissions(req, res) {
+/**
+ * PUT /api/rbac/roles/:roleId/permissions
+ * Body: { permissions: ['user.create', 'user.read', ...] }
+ */
+exports.updateRolePermissions = async (req, res) => {
   const { roleId } = req.params;
   const { permissions } = req.body;
+  const userId = req.user?.id || "system"; // if auth enabled
 
   if (!Array.isArray(permissions)) {
-    return res.status(400).json({
-      success: false,
-      message: 'permissions must be an array of "resource.action" strings',
-    });
+    return res
+      .status(400)
+      .json({ message: "permissions must be an array of keys" });
   }
 
   try {
-    // yaha tumhara auth middleware se user aa sakta hai
-    const user = req.user || {};
-    const userId =
-      user.id || user.user_id || user.uuid || user.email || "system";
+    // 1) RBAC table update
+    await rbacModel.setRolePermissions(roleId, permissions, userId);
 
-    await setRolePermissions(roleId, permissions, userId);
+    // 2) us role ke sabhi users ke module_permissions sync
+    await User.syncModulePermissionsForRole(roleId);
 
-    const updatedKeys = await getRolePermissionKeys(roleId);
-
-    res.json({
+    return res.json({
       success: true,
-      message: "Role permissions updated successfully",
-      data: updatedKeys,
+      message: "Role permissions updated and users synced",
     });
   } catch (err) {
-    console.error("Error in updateRolePermissions:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update role permissions",
-    });
+    console.error("Error updating role permissions:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to update role permissions" });
   }
-}
-
-module.exports = {
-  getRolePermissions,
-  updateRolePermissions,
 };

@@ -1,62 +1,60 @@
 // backend/models/rbacModel.js
-const pool = require("../config/database"); // ✅ tumhara MySQL pool yahi hai
+const db = require("../config/database"); // mysql2/promise pool
 
-// ✅ Get permission keys for a role: ['user.create', 'lead.read', ...]
+/**
+ * Get permission keys for a role
+ * Returns: ['user.create', 'user.read', 'lead.read', ...]
+ */
 async function getRolePermissionKeys(roleId) {
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     "SELECT permission_key FROM role_permissions WHERE role_id = ?",
     [roleId]
   );
   return rows.map((r) => r.permission_key);
 }
 
-// ✅ Replace all permissions for a role with new list
-async function setRolePermissions(roleId, permissionKeys, createdBy) {
-  const conn = await pool.getConnection();
+/**
+ * Replace all permissions for a role with new list
+ * permissionKeys: ['user.create', 'user.read', ...]
+ */
+async function setRolePermissions(
+  roleId,
+  permissionKeys = [],
+  createdBy = "system"
+) {
+  const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // 1) Purane sab hatado
+    // Purane sab hatao
     await conn.query("DELETE FROM role_permissions WHERE role_id = ?", [
       roleId,
     ]);
 
-    // 2) Naye daal do (agar kuch aaye hain to)
+    // Naye daal do
     if (Array.isArray(permissionKeys) && permissionKeys.length > 0) {
-      const values = permissionKeys.map((key) => [
-        roleId,
-        String(key),
-        createdBy || "system",
-      ]);
+      const values = permissionKeys.map((key) => [roleId, key, createdBy]);
 
-      // mysql2: bulk insert with VALUES ?
       await conn.query(
-        "INSERT INTO role_permissions (role_id, permission_key, created_by) VALUES ?",
+        `INSERT INTO role_permissions (role_id, permission_key, created_by)
+         VALUES ?`,
         [values]
       );
     }
 
     await conn.commit();
+    return { success: true };
   } catch (err) {
     await conn.rollback();
+    console.error("Error in setRolePermissions:", err);
     throw err;
   } finally {
     conn.release();
   }
 }
 
-// ✅ check if role has specific permission key
-async function roleHasPermission(roleId, permissionKey) {
-  const [rows] = await pool.query(
-    "SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_key = ? LIMIT 1",
-    [roleId, permissionKey]
-  );
-  return rows.length > 0;
-}
-
 module.exports = {
   getRolePermissionKeys,
   setRolePermissions,
-  roleHasPermission,
 };
