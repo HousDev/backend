@@ -1,25 +1,14 @@
 // backend/routes/rbacRoutes.js
 const express = require("express");
 const router = express.Router();
-
 const rbacController = require("../controllers/rbacController");
-// agar auth middleware hai to yaha import kar ke lagaa sakte ho
-// const auth = require('../middleware/auth');
-// const authorize = require('../middleware/authorize');
 
-// 👉 abhi simple rakha hai: bina auth ke
-router.get(
-  "/roles/:roleId/permissions",
-  // auth,
-  // authorize('system.manage'),
-  rbacController.getRolePermissions
-);
+// Yaha apna auth/role middleware laga sakte ho:
+// const { requireAuth, requireAdmin } = require("../middleware/auth");
+// router.use(requireAuth);
+// router.use(requireAdmin);
 
-router.put(
-  "/roles/:roleId/permissions",
-  // auth,
-  // authorize('system.manage'),
-  rbacController.updateRolePermissions
-);
+router.get("/roles/:roleId/permissions", rbacController.getRolePermissions);
+router.put("/roles/:roleId/permissions", rbacController.updateRolePermissions);
 
 module.exports = router;
