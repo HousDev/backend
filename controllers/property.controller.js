@@ -51,23 +51,31 @@ const CRORE = 10_000_000;
 
 function parseMoneyToRupees(value) {
   if (value == null || value === "") return null;
+
   const raw = String(value).trim().toLowerCase();
   const cleaned = raw.replace(/₹/g, "").replace(/\s+/g, "");
   const onlyDigits = cleaned.replace(/,/g, "");
 
+  // Cr → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?c(r)?$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/c(r)?/g, ""));
-    return Math.round(n * CRORE);
+    return Math.trunc(n * CRORE);
   }
+
+  // L → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?l$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/l/g, ""));
-    return Math.round(n * LAKH);
+    return Math.trunc(n * LAKH);
   }
+
+  // Plain rupees
   if (/^\d+(\.\d+)?$/.test(onlyDigits)) {
-    return Math.round(parseFloat(onlyDigits));
+    return Math.trunc(parseFloat(onlyDigits));
   }
+
   return null;
 }
+
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
