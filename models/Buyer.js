@@ -102,21 +102,30 @@ class Buyer {
     const requirements = safeStringify(data.requirements ?? {}, {});
     const financials   = safeStringify(data.financials   ?? {}, {});
 
-    const [result] = await db.execute(
-      `INSERT INTO buyers (
-        \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
-        \`state\`, \`city\`, \`location\`,
-        \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
-        \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
-        \`created_at\`, \`updated_at\`
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW())`,
-      [
-        salutation, name, dob, phone, whatsapp_number, email,
-        state, city, location,
-        buyer_lead_priority, buyer_lead_source, buyer_lead_stage, buyer_lead_status,
-        budget_min, budget_max, requirements, financials,
-      ]
-    );
+   const [result] = await db.execute(
+  `INSERT INTO buyers (
+    \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
+    \`state\`, \`city\`, \`location\`,
+    \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
+    \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
+    \`assigned_executive\`,          -- 🔥 ADD THIS
+    \`created_at\`, \`updated_at\`
+  ) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+    CAST(? AS JSON), CAST(? AS JSON),
+    ?,                              -- 🔥 VALUE FOR assigned_executive
+    NOW(), NOW()
+  )`,
+  [
+    salutation, name, dob, phone, whatsapp_number, email,
+    state, city, location,
+    buyer_lead_priority, buyer_lead_source, buyer_lead_stage, buyer_lead_status,
+    budget_min, budget_max,
+    requirements, financials,
+    intOrNull(data.assigned_executive),   // 🔥 THIS FIXES NULL ISSUE
+  ]
+);
+
 
     return await Buyer.findById(result.insertId);
   }

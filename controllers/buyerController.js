@@ -1,21 +1,27 @@
 const Buyer = require("../models/Buyer");
 const db = require("../config/database");
-
-// Create buyer
 exports.createBuyer = async (req, res) => {
   try {
     const buyerData = req.body;
 
-    // Make sure requirements and financials are strings
-    if (typeof buyerData.requirements !== 'string') {
+    // 🔥 ADD THIS BLOCK
+    if (
+      !buyerData.assigned_executive &&
+      req.user &&
+      req.user.role &&
+      req.user.role.toLowerCase().includes("executive")
+    ) {
+      buyerData.assigned_executive = req.user.id;
+    }
+
+    if (typeof buyerData.requirements !== "string") {
       buyerData.requirements = JSON.stringify(buyerData.requirements || {});
     }
-    
-    if (typeof buyerData.financials !== 'string') {
+
+    if (typeof buyerData.financials !== "string") {
       buyerData.financials = JSON.stringify(buyerData.financials || {});
     }
 
-    // Ensure budget_min and budget_max are properly set
     buyerData.budget_min = buyerData.budget_min || null;
     buyerData.budget_max = buyerData.budget_max || null;
 
@@ -23,7 +29,7 @@ exports.createBuyer = async (req, res) => {
     res.status(201).json(buyer);
   } catch (error) {
     console.error("Error creating buyer:", error);
-    res.status(500).json({ error: "Failed to create buyer", details: error.message });
+    res.status(500).json({ error: "Failed to create buyer" });
   }
 };
 
