@@ -439,14 +439,14 @@ function toWeb(p = '') {
   return String(p).replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 function buildPublicFromAbsolute(absFullPath) {
-  const ROOT = toWeb(process.env.UPLOAD_ROOT || '/var/www/uploads');
-  const PUB  = toWeb(process.env.UPLOAD_PUBLIC_BASE || '/uploads'); // e.g. /uploads
-  const ORIGIN = (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, ''); // e.g. https://investordeal.in
+  const ROOT = toWeb(process.env.UPLOAD_ROOT || "/var/www/uploads");
+  const PUB = toWeb(process.env.UPLOAD_PUBLIC_BASE || "/uploads"); // e.g. /uploads
+  const ORIGIN = (process.env.PUBLIC_ORIGIN || "").replace(/\/+$/, ""); // e.g. https://resaleexpert.in
 
   const abs = toWeb(absFullPath);
   let rel = abs.startsWith(ROOT) ? abs.slice(ROOT.length) : abs; // strip /var/www/uploads
-  rel = rel.replace(/^\/+/, '');                                 // trim leading /
-  const file_url = `${PUB}/${rel}`;                               // /uploads/documents/47/....
+  rel = rel.replace(/^\/+/, ""); // trim leading /
+  const file_url = `${PUB}/${rel}`; // /uploads/documents/47/....
   const file_url_http = ORIGIN ? `${ORIGIN}${file_url}` : file_url; // with domain if available
   return { file_url, file_url_http };
 }

@@ -66,13 +66,13 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
-  origin: process.env.CORS_ORIGIN || "https://investordeal.in",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use
+  origin: process.env.CORS_ORIGIN || "https://resaleexpert.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
-   exposedHeaders: ["Content-Disposition"],
+  exposedHeaders: ["Content-Disposition"],
 };
 app.use(cors(corsOptions));
 
@@ -145,16 +145,16 @@ app.use(
           "'self'",
           "data:",
           "blob:",
-          "https://investordeal.in",
           "https://resaleexpert.in",
-          "http://localhost:5173/"
+          "https://resaleexpert.in",
+          "http://localhost:5173/",
         ],
         "style-src": ["'self'", "https:", "'unsafe-inline'"],
         "font-src": ["'self'", "https:", "data:"],
         "frame-ancestors": ["'self'"],
       },
     },
-  })
+  }),
 );
 
 app.use(
