@@ -44,5 +44,4 @@ migrations/
 typeorm-cache/
 
 # Uploads (runtime generated)
-uploads/**
-!uploads/.gitkeep
+uploads/
