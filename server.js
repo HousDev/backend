@@ -184,8 +184,6 @@ app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
-app.use("/api/razorpay-integration", require("./routes/razorpayRoutes"));
-const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
 app.use("/api/ai", aiRoutes); // <-- new line
 app.use("/api/status-update", propertyStatusRoutes);
 app.use("/api/bulk-operations", bulkOperationsRoutes);
@@ -197,7 +195,6 @@ app.use(
 );
 
 app.use("/api/system-settings", systemSettingsRoutes);
-app.use("/api/sms-integration", smsIntegrationRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
