@@ -49,7 +49,7 @@ const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
 const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
 
 const rbacRoutes = require("./routes/rbacRoutes");
-
+const integrationRoutes = require("./routes/integration.routes");
 
 const http = require('http');
 const { initSocket } = require('./utils/socket');
@@ -118,12 +118,13 @@ app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
 app.use("/api/doc-status", documentStatusRoutes);
-
 app.use("/api/esign", eSignRoutes);
 app.use("/api/digio", require("./routes/digio"));
 app.use("/api", smsRoutes);
 app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 app.use("/api", blogCommentsRoutes);
+app.use("/api/integrations", integrationRoutes);
+
 
 app.use("/api/rbac", rbacRoutes);
 // for use for loacal
