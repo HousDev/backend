@@ -94,6 +94,11 @@ app.use(
   process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined")
 );
 
+app.use((req, res, next) => {
+  res.setHeader("ngrok-skip-browser-warning", "true");
+  next();
+});
+
 // Health
 app.get("/api/health", (req, res) => {
   res.json({
@@ -125,6 +130,13 @@ app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 app.use("/api", blogCommentsRoutes);
 app.use("/api/integrations", integrationRoutes);
 
+app.use("/api/contacts", require("./routes/contacts.routes"));
+app.use("/api/messages", require("./routes/messages.routes"));
+app.use("/api/templates", require("./routes/templates.routes"));
+app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
+app.use("/api/rules", require("./routes/rules.routes"));
+app.use("/api/analytics", require("./routes/analytics.routes"));
+app.use("/api/webhook", require("./routes/webhook"));
 
 app.use("/api/rbac", rbacRoutes);
 // for use for loacal
