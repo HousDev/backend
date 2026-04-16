@@ -6,6 +6,8 @@ exports.getAllBroadcasts = async (req, res) => {
   res.json(broadcasts);
 };
 
+
+
 exports.createBroadcast = async (req, res) => {
   const { name, template_id, segment, scheduled_date, scheduled_time } =
     req.body;
