@@ -1,4 +1,3 @@
-
 const sanitizeHtml = require("sanitize-html");
 
 /* ----------------------------------------------------------
@@ -13,7 +12,7 @@ const sanitizeLTR = (html = "") =>
     .replace(/direction\s*:\s*rtl\s*;?/gi, "direction:ltr;")
     .replace(
       /unicode-bidi\s*:\s*(?:bidi-override|plaintext|isolate-override)\s*;?/gi,
-      "unicode-bidi:isolate;"
+      "unicode-bidi:isolate;",
     );
 
 /* ----------------------------------------------------------
@@ -35,11 +34,7 @@ function buildPrompt(body = {}) {
     includeSEO = true,
     includeImages = true,
     includeToc = true,
-<<<<<<< HEAD
-    category = "AI Generated",
-=======
     category = "Real Estate",
->>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
   } = body;
 
   const target = LENGTH_WORD_TARGET[length] || LENGTH_WORD_TARGET.medium;
@@ -87,34 +82,47 @@ const hasTOC = (html = "") =>
 
 function addIdsToHeadings(html = "") {
   let i = 0;
-  return html.replace(/<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi, (m, tag, attrs, inner) => {
-    const cleanInner = String(inner).replace(/<[^>]+>/g, "").trim();
-    if (/^table of contents$/i.test(cleanInner)) return m;
-    i += 1;
-    if (/\sid=/.test(attrs)) return m;
-    return `<${tag} ${attrs} id="sec-${i}">${inner}</${tag}>`;
-  });
+  return html.replace(
+    /<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (m, tag, attrs, inner) => {
+      const cleanInner = String(inner)
+        .replace(/<[^>]+>/g, "")
+        .trim();
+      if (/^table of contents$/i.test(cleanInner)) return m;
+      i += 1;
+      if (/\sid=/.test(attrs)) return m;
+      return `<${tag} ${attrs} id="sec-${i}">${inner}</${tag}>`;
+    },
+  );
 }
 
 /* Make headings’ inner text bold while preserving existing markup */
 function makeHeadingsBold(html = "") {
-  return html.replace(/<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi, (m, tag, attrs, inner) => {
-    const cleanInner = inner.replace(/\s+/g, " ").trim();
-    if (/^<strong>[\s\S]*<\/strong>$/i.test(cleanInner)) return m; // already bold
-    if (/^table of contents$/i.test(cleanInner.replace(/<[^>]+>/g, ""))) return m; // leave TOC title
-    // Wrap the whole inner content in strong while keeping inner tags
-    return `<${tag}${attrs ? " " + attrs.trim() : ""}><strong>${inner}</strong></${tag}>`;
-  });
+  return html.replace(
+    /<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (m, tag, attrs, inner) => {
+      const cleanInner = inner.replace(/\s+/g, " ").trim();
+      if (/^<strong>[\s\S]*<\/strong>$/i.test(cleanInner)) return m; // already bold
+      if (/^table of contents$/i.test(cleanInner.replace(/<[^>]+>/g, "")))
+        return m; // leave TOC title
+      // Wrap the whole inner content in strong while keeping inner tags
+      return `<${tag}${attrs ? " " + attrs.trim() : ""}><strong>${inner}</strong></${tag}>`;
+    },
+  );
 }
 
 function buildTOC(html = "") {
-  const matches = Array.from(html.matchAll(/<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi));
+  const matches = Array.from(
+    html.matchAll(/<(h2|h3)([^>]*)>([\s\S]*?)<\/\1>/gi),
+  );
   if (!matches.length) return "";
 
   const items = matches
     .map((m) => {
       const tag = (m[1] || "h2").toLowerCase();
-      const text = String(m[3] || "").replace(/<[^>]+>/g, "").trim();
+      const text = String(m[3] || "")
+        .replace(/<[^>]+>/g, "")
+        .trim();
       if (!text || /^table of contents$/i.test(text)) return null;
       const idMatch = (m[0].match(/\sid=["']([^"']+)["']/i) || [])[1];
       const id = idMatch || "";
@@ -137,18 +145,24 @@ function buildTOC(html = "") {
 function ensureSingleTOC(html = "") {
   // Keep first TOC, remove the rest
   let firstKept = false;
-  html = html.replace(/<nav[^>]*class=["']toc["'][^>]*>[\s\S]*?<\/nav>/gi, (m) => {
-    if (firstKept) return "";
-    firstKept = true;
-    return m;
-  });
+  html = html.replace(
+    /<nav[^>]*class=["']toc["'][^>]*>[\s\S]*?<\/nav>/gi,
+    (m) => {
+      if (firstKept) return "";
+      firstKept = true;
+      return m;
+    },
+  );
 
   if (!hasTOC(html)) {
     // Need ids before building TOC
     let withIds = addIdsToHeadings(html);
     const tocHtml = buildTOC(withIds);
     if (tocHtml) {
-      const injected = withIds.replace(/<p[^>]*>.*?<\/p>/i, (first) => `${first}\n${tocHtml}`);
+      const injected = withIds.replace(
+        /<p[^>]*>.*?<\/p>/i,
+        (first) => `${first}\n${tocHtml}`,
+      );
       return injected !== withIds ? injected : `${tocHtml}\n${withIds}`;
     }
     return withIds;
@@ -158,21 +172,33 @@ function ensureSingleTOC(html = "") {
 
 /* Convert plain text to basic HTML (fallback) */
 function plainToHtml(text = "") {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const out = [];
   lines.forEach((l) => {
     if (/^table of contents$/i.test(l)) out.push(`<h2>Table of Contents</h2>`);
-    else if (/^(introduction|overview)$/i.test(l)) out.push(`<h2>Introduction</h2>`);
-    else if (/^(market\/process|market trends|market analysis|process)$/i.test(l)) out.push(`<h2>${l}</h2>`);
-    else if (/^(potential benefits|benefits)$/i.test(l)) out.push(`<h2>${l}</h2>`);
-    else if (/^(risks( & constraints)?|constraints)$/i.test(l)) out.push(`<h2>${l}</h2>`);
-    else if (/^(tips|tips for indian corporates|playbook|pro tips)$/i.test(l)) out.push(`<h2>${l}</h2>`);
-    else if (/^(illustrative use cases|use cases)$/i.test(l)) out.push(`<h2>${l}</h2>`);
+    else if (/^(introduction|overview)$/i.test(l))
+      out.push(`<h2>Introduction</h2>`);
+    else if (
+      /^(market\/process|market trends|market analysis|process)$/i.test(l)
+    )
+      out.push(`<h2>${l}</h2>`);
+    else if (/^(potential benefits|benefits)$/i.test(l))
+      out.push(`<h2>${l}</h2>`);
+    else if (/^(risks( & constraints)?|constraints)$/i.test(l))
+      out.push(`<h2>${l}</h2>`);
+    else if (/^(tips|tips for indian corporates|playbook|pro tips)$/i.test(l))
+      out.push(`<h2>${l}</h2>`);
+    else if (/^(illustrative use cases|use cases)$/i.test(l))
+      out.push(`<h2>${l}</h2>`);
     else if (/^faqs?$/i.test(l)) out.push(`<h2>FAQs</h2>`);
     else if (/^conclusion$/i.test(l)) out.push(`<h2>Conclusion</h2>`);
     else if (/^[-*•]\s+/.test(l)) {
       const li = l.replace(/^[-*•]\s+/, "");
-      if (!out.length || !out[out.length - 1].startsWith("<ul")) out.push("<ul>");
+      if (!out.length || !out[out.length - 1].startsWith("<ul"))
+        out.push("<ul>");
       out.push(`<li>${li}</li>`);
     } else {
       if (out.length && out[out.length - 1] === "<ul>") out.push("</ul>");
@@ -187,12 +213,19 @@ function plainToHtml(text = "") {
 function sanitizeHtmlSafe(html = "") {
   const cleaned = sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat([
-      "img", "h2", "h3", "pre", "code", "blockquote", "nav", "ol"
+      "img",
+      "h2",
+      "h3",
+      "pre",
+      "code",
+      "blockquote",
+      "nav",
+      "ol",
     ]),
     allowedAttributes: {
       a: ["href", "name", "target", "rel"],
       img: ["src", "alt"],
-      "*": ["id", "aria-label"]
+      "*": ["id", "aria-label"],
     },
     allowedSchemes: ["http", "https", "data", "mailto"],
   });
@@ -205,11 +238,15 @@ function sanitizeHtmlSafe(html = "") {
 exports.generateBlogFromTitle = async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ success: false, message: "Missing OPENAI_API_KEY" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Missing OPENAI_API_KEY" });
     }
     const { title, includeToc = true } = req.body || {};
     if (!title || typeof title !== "string") {
-      return res.status(400).json({ success: false, message: "title is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "title is required" });
     }
 
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -223,7 +260,11 @@ exports.generateBlogFromTitle = async (req, res) => {
         temperature: 0.7,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "You return polished, valid HTML for real-estate/finance blogs." },
+          {
+            role: "system",
+            content:
+              "You return polished, valid HTML for real-estate/finance blogs.",
+          },
           { role: "user", content: buildPrompt(req.body) },
         ],
       }),
@@ -231,7 +272,9 @@ exports.generateBlogFromTitle = async (req, res) => {
 
     if (!r.ok) {
       const err = await r.text();
-      return res.status(500).json({ success: false, message: err || `OpenAI error ${r.status}` });
+      return res
+        .status(500)
+        .json({ success: false, message: err || `OpenAI error ${r.status}` });
     }
 
     const data = await r.json();
@@ -258,7 +301,11 @@ exports.generateBlogFromTitle = async (req, res) => {
 
     // 5) Ensure a single TOC
     if (includeToc) html = ensureSingleTOC(html);
-    else html = html.replace(/<nav[^>]*class=["']toc["'][^>]*>[\s\S]*?<\/nav>/gi, "");
+    else
+      html = html.replace(
+        /<nav[^>]*class=["']toc["'][^>]*>[\s\S]*?<\/nav>/gi,
+        "",
+      );
 
     // 6) Make all H2/H3 headings bold (content inside headings)
     html = makeHeadingsBold(html);
@@ -267,13 +314,17 @@ exports.generateBlogFromTitle = async (req, res) => {
     let tagsSeen = false;
     html = html.replace(
       /(<p>\s*<strong>\s*Tags:\s*<\/strong>[\s\S]*?<\/p>)/gi,
-      (m) => (tagsSeen ? "" : ((tagsSeen = true), m))
+      (m) => (tagsSeen ? "" : ((tagsSeen = true), m)),
     );
 
     // 8) Excerpt
     const excerpt =
       (json.excerpt && String(json.excerpt).trim()) ||
-      html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) + "...";
+      html
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 200) + "...";
 
     return res.json({
       success: true,
@@ -281,7 +332,7 @@ exports.generateBlogFromTitle = async (req, res) => {
         title: json.title || title,
         excerpt,
         content: html,
-        seoTitle: json?.seo?.title || (json.title || title),
+        seoTitle: json?.seo?.title || json.title || title,
         seoDescription:
           json?.seo?.description ||
           `Insights on: ${json.title || title}. Detailed analysis, process, tips, FAQs & conclusion.`,
@@ -289,11 +340,7 @@ exports.generateBlogFromTitle = async (req, res) => {
           ? json.tags
           : json?.seo?.keywords || ["Finance", "India", "Policy", "RBI"],
         aiImages: { hero: json.hero || null, inline: json.inline_images || [] },
-<<<<<<< HEAD
-        category: req.body?.category || "AI Generated",
-=======
         category: req.body?.category || " Real Estate",
->>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
         status: "draft",
       },
     });

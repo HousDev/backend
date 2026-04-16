@@ -34,18 +34,13 @@ const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
-<<<<<<< HEAD
-const rssRoutes = require("./routes/rssRoutes");
-const aiBlogsRoutes = require("./routes/aiBlogs.routes");
-=======
-const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
+const receiptRoutes = require("./routes/propertyPaymentReceipt.routes");
 const rssRoutes = require("./routes/rssRoutes");
 const documentStatusRoutes = require("./routes/documentStatus.routes");
 const eSignRoutes = require("./routes/eSign.routes");
 
-const aiBlogRoutes = require("./routes/aiBlogs.routes") 
+const aiBlogRoutes = require("./routes/aiBlogs.routes");
 const homeHeroRoutes = require("./routes/homeHero.routes");
-
 
 const visitRoutes = require("./routes/propertyVisits");
 const smsRoutes = require("./routes/smsRoutes");
@@ -55,16 +50,12 @@ const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
 const rbacRoutes = require("./routes/rbacRoutes");
 const integrationRoutes = require("./routes/integration.routes");
 
-const http = require('http');
-const { initSocket } = require('./utils/socket');
->>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
+const http = require("http");
+const { initSocket } = require("./utils/socket");
 
 const app = express();
 
-
-
 app.set("trust proxy", 1);
-
 
 // Body parsing
 app.use(express.json({ limit: "50mb" }));
@@ -73,13 +64,13 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use
   origin: process.env.CORS_ORIGIN || "https://resaleexpert.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
-   exposedHeaders: ["Content-Disposition"],
+  exposedHeaders: ["Content-Disposition"],
 };
 app.use(cors(corsOptions));
 
@@ -98,7 +89,7 @@ app.use("/api/", limiter);
 // Compression + Logging
 app.use(compression());
 app.use(
-  process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined")
+  process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined"),
 );
 
 app.use((req, res, next) => {
@@ -179,7 +170,7 @@ app.use(
 
 app.use(
   UPLOAD_PUBLIC_BASE,
-  helmet.crossOriginResourcePolicy({ policy: "cross-origin" })
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" }),
 );
 
 app.use(
@@ -193,7 +184,7 @@ app.use(
       // mirror your Nginx Cache-Control
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     },
-  })
+  }),
 );
 
 // Static files (IMPORTANT)
@@ -210,7 +201,7 @@ app.use("/api/client-lead-notifications", clientLeadNotificationRoutes);
 
 app.use(
   "/api/public/system-settings",
-  require("./routes/publicSystemSettings.routes")
+  require("./routes/publicSystemSettings.routes"),
 );
 
 app.use("/api/system-settings", systemSettingsRoutes);
@@ -224,17 +215,12 @@ app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
-<<<<<<< HEAD
-
-app.use("/api/ai-blogs", aiBlogsRoutes);
-=======
-app.use('/api/receipts', receiptRoutes);
-app.use('/api/ai-blogs', aiBlogRoutes)
+app.use("/api/receipts", receiptRoutes);
+app.use("/api/ai-blogs", aiBlogRoutes);
 app.use("/api/home-hero", homeHeroRoutes);
 app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
 app.use("/api/visits", visitRoutes);
 
->>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
 // Root
 app.get("/", (req, res) => {
   res.json({
@@ -246,23 +232,18 @@ app.get("/", (req, res) => {
 });
 const slugRedirect = require("./middleware/slugRedirect");
 
-
 const server = http.createServer(app);
 initSocket(server);
-
-
 
 app.use(slugRedirect);
 
 // 404
 app.use("*", (req, res) => {
-  res
-    .status(404)
-    .json({
-      success: false,
-      message: "Endpoint not found",
-      path: req.originalUrl,
-    });
+  res.status(404).json({
+    success: false,
+    message: "Endpoint not found",
+    path: req.originalUrl,
+  });
 });
 
 // Global error
@@ -288,4 +269,3 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
-

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-// backend/models/BlogPost.js
-=======
 // models/BlogPost.js
->>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
 const db = require("../config/database");
 
 /* ---------- Helpers ---------- */
@@ -22,7 +18,7 @@ function safeParseJsonArray(s) {
 function formatDateTime(d) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
+    d.getHours(),
   )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
@@ -93,7 +89,7 @@ class BlogPost {
     const publishedAt =
       payload.status === "published"
         ? formatDateTime(
-            payload.publishedAt ? new Date(payload.publishedAt) : new Date()
+            payload.publishedAt ? new Date(payload.publishedAt) : new Date(),
           )
         : null;
 
@@ -121,7 +117,7 @@ class BlogPost {
         createdAt,
         updatedAt,
         slug,
-      ]
+      ],
     );
     return result.insertId;
   }
@@ -175,7 +171,7 @@ class BlogPost {
        FROM blog_posts bp
        LEFT JOIN rss_sources rs ON rs.id = bp.source_id
        WHERE bp.id = ?`,
-      [id]
+      [id],
     );
     if (!rows[0]) return null;
     return mapRow(rows[0]);
@@ -189,7 +185,7 @@ class BlogPost {
        FROM blog_posts bp
        LEFT JOIN rss_sources rs ON rs.id = bp.source_id
        WHERE bp.id IN (${placeholders})`,
-      ids
+      ids,
     );
     return rows.map(mapRow);
   }
@@ -201,7 +197,7 @@ class BlogPost {
        FROM blog_posts bp
        LEFT JOIN rss_sources rs ON rs.id = bp.source_id
        WHERE bp.slug = ?`,
-      [slug]
+      [slug],
     );
     if (!rows || !rows[0]) return null;
     return mapRow(rows[0]);
@@ -216,7 +212,7 @@ class BlogPost {
        LEFT JOIN rss_sources rs ON rs.id = bp.source_id
        WHERE bp.slug = ? AND bp.status = 'published'
        LIMIT 1`,
-      [slug]
+      [slug],
     );
     if (!rows || !rows[0]) return null;
     return mapRow(rows[0]);
@@ -227,7 +223,7 @@ class BlogPost {
     if (!existing) return 0;
 
     const tagsJson = JSON.stringify(
-      payload.tags !== undefined ? payload.tags : existing.tags
+      payload.tags !== undefined ? payload.tags : existing.tags,
     );
     const featuredImage =
       payload.featuredImage !== undefined
@@ -239,16 +235,16 @@ class BlogPost {
     const publishedAt =
       payload.status === "published" && !existing.publishedAt
         ? formatDateTime(
-            payload.publishedAt ? new Date(payload.publishedAt) : new Date()
+            payload.publishedAt ? new Date(payload.publishedAt) : new Date(),
           )
         : payload.publishedAt
-        ? formatDateTime(new Date(payload.publishedAt))
-        : existing.publishedAt;
+          ? formatDateTime(new Date(payload.publishedAt))
+          : existing.publishedAt;
 
     let newSlug;
     if (payload.slug !== undefined && payload.slug !== null) {
       const base = slugify(
-        payload.slug || payload.title || existing.title || ""
+        payload.slug || payload.title || existing.title || "",
       );
       newSlug = await ensureUniqueSlug(base, id);
     } else if (payload.title && payload.title !== existing.title) {
@@ -276,8 +272,8 @@ class BlogPost {
             ? 1
             : 0
           : existing.featured
-          ? 1
-          : 0,
+            ? 1
+            : 0,
         featuredImage,
         payload.seoTitle ?? existing.seoTitle,
         payload.seoDescription ?? existing.seoDescription,
@@ -285,7 +281,7 @@ class BlogPost {
         willBePublished ? publishedAt : null,
         newSlug,
         id,
-      ]
+      ],
     );
     return result.affectedRows;
   }
@@ -305,7 +301,7 @@ class BlogPost {
        WHERE bp.featured = 1
        ORDER BY bp.published_at DESC
        LIMIT ?`,
-      [Number(limit)]
+      [Number(limit)],
     );
     return rows.map(mapRow);
   }
@@ -313,7 +309,7 @@ class BlogPost {
   static async publish(id) {
     const [res] = await db.execute(
       "UPDATE blog_posts SET status = ?, published_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      ["published", formatDateTime(new Date()), id]
+      ["published", formatDateTime(new Date()), id],
     );
     return res.affectedRows;
   }
@@ -329,7 +325,7 @@ class BlogPost {
            published_at = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id IN (${placeholders})`,
-      [now, ...ids]
+      [now, ...ids],
     );
     return { updated: res.affectedRows || 0 };
   }
@@ -353,7 +349,7 @@ class BlogPost {
 
     if (data.tags !== undefined) {
       const tagsJson = JSON.stringify(
-        Array.isArray(data.tags) ? data.tags : safeParseJsonArray(data.tags)
+        Array.isArray(data.tags) ? data.tags : safeParseJsonArray(data.tags),
       );
       add("tags = ?", tagsJson);
     }
@@ -374,20 +370,20 @@ class BlogPost {
       } else if (data.publishedAt !== undefined) {
         add(
           "published_at = ?",
-          data.publishedAt ? formatDateTime(new Date(data.publishedAt)) : null
+          data.publishedAt ? formatDateTime(new Date(data.publishedAt)) : null,
         );
       }
     } else if (data.publishedAt !== undefined) {
       add(
         "published_at = ?",
-        data.publishedAt ? formatDateTime(new Date(data.publishedAt)) : null
+        data.publishedAt ? formatDateTime(new Date(data.publishedAt)) : null,
       );
     }
 
     add("updated_at = CURRENT_TIMESTAMP", undefined);
 
     const filtered = setParts.filter(
-      (p) => p !== "updated_at = CURRENT_TIMESTAMP"
+      (p) => p !== "updated_at = CURRENT_TIMESTAMP",
     );
     const values = [...setVals.filter((v) => v !== undefined)];
     const setSql =
@@ -406,7 +402,7 @@ class BlogPost {
     const placeholders = ids.map(() => "?").join(",");
     const [res] = await db.execute(
       `DELETE FROM blog_posts WHERE id IN (${placeholders})`,
-      ids
+      ids,
     );
     return { deleted: res.affectedRows || 0 };
   }
@@ -419,9 +415,9 @@ class BlogPost {
   static async insertFromRSS({
     item,
     source,
-    dryRun = false,     // true => scan-only (no DB write)
-    asDraft = true,     // true => force draft + published_at NULL
-    autoPublish = false // only used when asDraft === false
+    dryRun = false, // true => scan-only (no DB write)
+    asDraft = true, // true => force draft + published_at NULL
+    autoPublish = false, // only used when asDraft === false
   }) {
     if (!item) throw new Error("RSS item missing");
 
@@ -433,7 +429,7 @@ class BlogPost {
     if (guid) {
       const [ex1] = await db.execute(
         "SELECT id FROM blog_posts WHERE external_guid = ? LIMIT 1",
-        [guid]
+        [guid],
       );
       if (ex1 && ex1.length) {
         return dryRun
@@ -444,7 +440,7 @@ class BlogPost {
     if (originalUrl) {
       const [ex2] = await db.execute(
         "SELECT id FROM blog_posts WHERE source_link = ? LIMIT 1",
-        [originalUrl]
+        [originalUrl],
       );
       if (ex2 && ex2.length) {
         return dryRun
@@ -530,14 +526,14 @@ class BlogPost {
         tagsJson,
         0,
         featuredImage,
-        title,   // seo_title default
+        title, // seo_title default
         excerpt, // seo_description default
         guid,
         source?.id || null,
         originalUrl || null,
         status,
         publishedAtForInsert, // NULL for drafts; timestamp if published
-      ]
+      ],
     );
 
     return { inserted: true, id: result.insertId };
