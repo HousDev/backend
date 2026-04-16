@@ -182,6 +182,27 @@ async function recordViewHandler(req, res) {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 }
+async function getAllViewsHandler(req, res) {
+  try {
+    const unique = String(req.query.unique || "false").toLowerCase() === "true";
+
+    if (typeof Views.getAllViews !== "function") {
+      return res.status(500).json({
+        success: false,
+        message: "Views module misconfigured (missing getAllViews)",
+      });
+    }
+
+    const rows = await Views.getAllViews({ unique });
+    return res.json({ success: true, rows });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+}
 module.exports = {
   totalViewsHandler,
   propertyViewsHandler,
@@ -189,4 +210,5 @@ module.exports = {
   bottomViewsHandler,
   recordViewHandler,
   recordPropertyViewHandler,
+   getAllViewsHandler
 };

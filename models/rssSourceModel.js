@@ -1,5 +1,4 @@
-// backend/models/RSSSourceModel.js
-const db = require('../config/database');
+const db = require("../config/database");
 
 /*
   rss_sources table columns:
@@ -33,7 +32,7 @@ function safeParseArray(text) {
     return Array.isArray(v) ? v : [];
   } catch {
     return String(text)
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
   }
@@ -48,8 +47,8 @@ function rowToEntity(r) {
     description: r.description,
     active: !!r.active,
     autoPublish: !!r.autoPublish,
-    syncFrequency: r.syncFrequency,   // 'hourly'|'daily'|'weekly'|'manual'
-    contentFilter: r.contentFilter,   // 'keywords'|'none'
+    syncFrequency: r.syncFrequency, // 'hourly'|'daily'|'weekly'|'manual'
+    contentFilter: r.contentFilter, // 'keywords'|'none'
     keywords: r.keywordsJson ? safeParseArray(r.keywordsJson) : [],
     lastSync: r.lastSync ? new Date(r.lastSync).toISOString() : null,
     totalPosts: r.totalPosts || 0,
@@ -70,7 +69,6 @@ async function getById(id) {
 }
 
 async function create(payload) {
-  // Normalize URL: add https:// if protocol missing
   const url =
     payload.url && !/^https?:\/\//i.test(payload.url)
       ? `https://${payload.url}`
@@ -91,14 +89,14 @@ async function create(payload) {
   const params = [
     payload.name,
     url,
-    payload.category || 'Property News',
+    payload.category || "Property News",
     payload.description || null,
     payload.active ? 1 : 0,
     payload.autoPublish ? 1 : 0,
-    payload.syncFrequency || 'daily',
-    payload.contentFilter || 'keywords',
+    payload.syncFrequency || "daily",
+    payload.contentFilter || "keywords",
     keywordsJson,
-    null,                     // last_sync should be NULL on create
+    null, // last_sync NULL on create
     payload.totalPosts || 0,
     payload.newPosts || 0,
   ];
@@ -153,7 +151,10 @@ async function update(id, payload) {
 async function toggleActive(id) {
   const src = await getById(id);
   if (!src) return null;
-  await db.query(`UPDATE rss_sources SET active = ? WHERE id = ?`, [src.active ? 0 : 1, id]);
+  await db.query(`UPDATE rss_sources SET active = ? WHERE id = ?`, [
+    src.active ? 0 : 1,
+    id,
+  ]);
   return getById(id);
 }
 
@@ -162,19 +163,37 @@ async function remove(id) {
   return true;
 }
 
-async function bumpSyncStats(id, { insertedCount = 0 }) {
+/* ---------- NEW: counters for scan/import ---------- */
+// SCAN: update last_sync, set new_posts to scan result; total_posts unchanged
+async function setScanCounts(id, { newCount = 0 }) {
   await db.query(
     `UPDATE rss_sources
        SET last_sync = UTC_TIMESTAMP(),
-           new_posts = ?,
-           total_posts = total_posts + ?
+           new_posts = ?
      WHERE id = ?`,
-    [insertedCount, insertedCount, id]
+    [Number(newCount) || 0, id]
   );
 }
 
-async function logSync(id, { fetchedCount = 0, insertedCount = 0, errorText = null }) {
-  // optional table; ignore if it doesn't exist
+// IMPORT: update last_sync, add to total_posts, reduce/zero new_posts
+async function bumpAfterImport(id, { insertedCount = 0 }) {
+  const ins = Number(insertedCount) || 0;
+  // reduce new_posts by insertedCount (not below 0), add to total_posts
+  await db.query(
+    `UPDATE rss_sources
+       SET last_sync = UTC_TIMESTAMP(),
+           total_posts = total_posts + ?,
+           new_posts = GREATEST(new_posts - ?, 0)
+     WHERE id = ?`,
+    [ins, ins, id]
+  );
+}
+
+/* existing: generic log (safe if table exists) */
+async function logSync(
+  id,
+  { fetchedCount = 0, insertedCount = 0, errorText = null }
+) {
   try {
     await db.query(
       `INSERT INTO rss_import_logs (source_id, fetched_count, inserted_count, error_text)
@@ -191,6 +210,9 @@ module.exports = {
   update,
   toggleActive,
   remove,
-  bumpSyncStats,
+  // new helpers
+  setScanCounts,
+  bumpAfterImport,
+  // logs
   logSync,
 };

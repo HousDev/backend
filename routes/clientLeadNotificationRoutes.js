@@ -15,4 +15,8 @@ router.put("/markasread/:id/read", clientLeadNotificationController.markAsRead);
 router.post("/upsert/:id?", clientLeadNotificationController.upsertNotification);
 router.put("/markallasread/:userId", clientLeadNotificationController.markAllAsRead);
 
+router.delete("/:id", clientLeadNotificationController.deleteNotification);                  // single delete
+router.delete("/user/:userId/all", clientLeadNotificationController.deleteAllForUser);        // optional: nuke all
+router.delete("/user/:userId/read", clientLeadNotificationController.deleteReadForUser);
+
 module.exports = router;

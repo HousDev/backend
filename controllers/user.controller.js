@@ -468,11 +468,9 @@ exports.filterData = async (req, res) => {
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
     values.push(parseInt(limit), offset);
 
-    console.log("Final query:", query);
-    console.log("Query values:", values);
 
     const [rows] = await db.query(query, values);
-    // console.log("Database results:", rows);
+
 
     // sanitize passwords
     const sanitized = rows.map(r => {
@@ -552,5 +550,54 @@ exports.removeAvatar = async (req, res) => {
       success: false,
       message: err.message || "Error removing avatar",
     });
+  }
+};
+
+exports.getByDeptRole = async (req, res) => {
+  try {
+    const {
+      department,
+      role,
+      is_active,     // optional: 1/0/true/false
+      limit,
+      offset,
+    } = req.query;
+
+    if (!department || !role) {
+      return res.status(400).json({
+        ok: false,
+        error: "department and role are required query params",
+        example: "/api/users/by-dept-role?department=sales&role=executive",
+      });
+    }
+
+    const rows = await User.getByDepartmentAndRole(department, role, {
+      is_active,
+      limit: limit ? Number(limit) : 200,
+      offset: offset ? Number(offset) : 0,
+    });
+
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (e) {
+    console.error("getByDeptRole error:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+};
+
+/** GET /api/users/sales-executives?is_active=1&limit=200&offset=0 */
+exports.getSalesExecutives = async (req, res) => {
+  try {
+    const { is_active, limit, offset } = req.query;
+
+    const rows = await User.getSalesExecutives({
+      is_active,
+      limit: limit ? Number(limit) : 200,
+      offset: offset ? Number(offset) : 0,
+    });
+
+    res.json({ ok: true, count: rows.length, data: rows });
+  } catch (e) {
+    console.error("getSalesExecutives error:", e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 };

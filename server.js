@@ -1,4 +1,5 @@
 // server.js
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -7,7 +8,6 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
-require("dotenv").config();
 // const path = require("path");   //for local
 
 const fs = require("fs"); //for server
@@ -34,26 +34,47 @@ const variableRoutes = require("./routes/variableRoutes");
 const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
+<<<<<<< HEAD
 const rssRoutes = require("./routes/rssRoutes");
 const aiBlogsRoutes = require("./routes/aiBlogs.routes");
+=======
+const receiptRoutes = require('./routes/propertyPaymentReceipt.routes');
+const rssRoutes = require("./routes/rssRoutes");
+const documentStatusRoutes = require("./routes/documentStatus.routes");
+const eSignRoutes = require("./routes/eSign.routes");
+
+const aiBlogRoutes = require("./routes/aiBlogs.routes") 
+const homeHeroRoutes = require("./routes/homeHero.routes");
+
+
+const visitRoutes = require("./routes/propertyVisits");
+const smsRoutes = require("./routes/smsRoutes");
+const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
+const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
+
+const rbacRoutes = require("./routes/rbacRoutes");
+const integrationRoutes = require("./routes/integration.routes");
+
+const http = require('http');
+const { initSocket } = require('./utils/socket');
+>>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
 
 const app = express();
 
 
 
 app.set("trust proxy", 1);
-// Security
-app.use(helmet());
+
 
 // Body parsing
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-  origin: process.env.CORS_ORIGIN || "http://investordeal.in",
+  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use 
+  origin: process.env.CORS_ORIGIN || "https://resaleexpert.in",
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -65,7 +86,7 @@ app.use(cors(corsOptions));
 // Rate limiting — relaxed in dev & ignore OPTIONS
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 10000,
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) =>
@@ -79,6 +100,11 @@ app.use(compression());
 app.use(
   process.env.NODE_ENV !== "production" ? morgan("dev") : morgan("combined")
 );
+
+app.use((req, res, next) => {
+  res.setHeader("ngrok-skip-browser-warning", "true");
+  next();
+});
 
 // Health
 app.get("/api/health", (req, res) => {
@@ -103,7 +129,23 @@ app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
 app.use("/buy/projects", propertyRoutes);
 app.use("/api/buyers", require("./routes/buyerRoutes"));
+app.use("/api/doc-status", documentStatusRoutes);
+app.use("/api/esign", eSignRoutes);
+app.use("/api/digio", require("./routes/digio"));
+app.use("/api", smsRoutes);
+app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
+app.use("/api", blogCommentsRoutes);
+app.use("/api/integrations", integrationRoutes);
 
+app.use("/api/contacts", require("./routes/contacts.routes"));
+app.use("/api/messages", require("./routes/messages.routes"));
+app.use("/api/templates", require("./routes/templates.routes"));
+app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
+app.use("/api/rules", require("./routes/rules.routes"));
+app.use("/api/analytics", require("./routes/analytics.routes"));
+app.use("/api/webhook", require("./routes/webhook"));
+
+app.use("/api/rbac", rbacRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
@@ -123,15 +165,16 @@ app.use(
           "'self'",
           "data:",
           "blob:",
-          "https://investordeal.in",
           "https://resaleexpert.in",
+          "https://resaleexpert.in",
+          "http://localhost:5173/",
         ],
         "style-src": ["'self'", "https:", "'unsafe-inline'"],
         "font-src": ["'self'", "https:", "data:"],
         "frame-ancestors": ["'self'"],
       },
     },
-  })
+  }),
 );
 
 app.use(
@@ -158,10 +201,8 @@ app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
-app.use("/api/sellerfollowups", require("./routes/sellerFollowups"));
+app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
-app.use("/api/razorpay-integration", require("./routes/razorpayRoutes"));
-const smsIntegrationRoutes = require("./routes/smsIntegrationRoutes");
 app.use("/api/ai", aiRoutes); // <-- new line
 app.use("/api/status-update", propertyStatusRoutes);
 app.use("/api/bulk-operations", bulkOperationsRoutes);
@@ -173,7 +214,6 @@ app.use(
 );
 
 app.use("/api/system-settings", systemSettingsRoutes);
-app.use("/api/sms-integration", smsIntegrationRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
@@ -184,8 +224,17 @@ app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
 app.use("/api/rss-sources", rssRoutes);
+<<<<<<< HEAD
 
 app.use("/api/ai-blogs", aiBlogsRoutes);
+=======
+app.use('/api/receipts', receiptRoutes);
+app.use('/api/ai-blogs', aiBlogRoutes)
+app.use("/api/home-hero", homeHeroRoutes);
+app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
+app.use("/api/visits", visitRoutes);
+
+>>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
 // Root
 app.get("/", (req, res) => {
   res.json({
@@ -196,6 +245,12 @@ app.get("/", (req, res) => {
   });
 });
 const slugRedirect = require("./middleware/slugRedirect");
+
+
+const server = http.createServer(app);
+initSocket(server);
+
+
 
 app.use(slugRedirect);
 
@@ -228,9 +283,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 Server: http://localhost:${PORT}`);
   console.log(`📊 Health: http://localhost:${PORT}/api/health`);
-  // console.log(`📂 Uploads: ${path.join(process.cwd(), "uploads")}\n`);
-  console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
-  +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
+  // console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
+  // +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
 });
 
 module.exports = app;

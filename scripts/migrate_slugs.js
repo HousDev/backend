@@ -47,9 +47,6 @@ async function findBySlug(slug) {
 }
 
 async function run() {
-  console.log("Starting slug migration (will update existing slugs if different)");
-  console.log("DRY_RUN =", DRY_RUN ? "true" : "false");
-  console.log("BATCH_SIZE =", BATCH_SIZE);
 
   let totalUpdated = 0;
   let lastId = 0;
@@ -99,24 +96,21 @@ async function run() {
         finalSlug = `${candidate}-${id}`;
       }
 
-      try {
-        const updated = await updateSlug(id, finalSlug);
-        if (updated) {
-          console.log(`id=${id}: "${currentSlug}" -> "${finalSlug}"${DRY_RUN ? " (dry-run)" : ""}`);
-          totalUpdated++;
-        } else {
-          console.warn(`id=${id}: update not applied (affectedRows=0)`);
-        }
-      } catch (err) {
-        console.error(`id=${id}: Failed to update slug: ${err && err.message}`);
-      }
+     try {
+  const updated = await updateSlug(id, finalSlug);
+  if (updated) {
+    totalUpdated++;
+  }
+} catch (err) {
+  // silently ignore or handle differently if needed
+}
+
     }
 
     // gentle pause between batches
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  console.log("Migration finished. Total updated:", totalUpdated);
   process.exit(0);
 }
 

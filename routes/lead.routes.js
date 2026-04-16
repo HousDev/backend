@@ -20,4 +20,7 @@ router.post("/import", authJwt.verifyToken,leadController.importLeads);
 // Master data route
 router.get("/master-data/:type", authJwt.verifyToken, leadController.getMasterData);
 
+router.patch('/bulk/assign-executive', authJwt.verifyToken, leadController.bulkAssignExecutives);
+
+
 module.exports = router;

@@ -26,6 +26,7 @@ async function updatePropertySlug(id, newSlug) {
 async function runBatch(batchSize = 500) {
   let offset = 0;
   let totalChanged = 0;
+
   while (true) {
     const rows = await fetchAllProperties(batchSize, offset);
     if (!rows || rows.length === 0) break;
@@ -39,10 +40,9 @@ async function runBatch(batchSize = 500) {
         // if empty, just set
         try {
           await updatePropertySlug(id, newSlug);
-          console.log(`Set slug for id=${id} -> ${newSlug}`);
           totalChanged++;
         } catch (e) {
-          console.error("Failed setting slug:", id, e && e.message);
+          // optional: handle error silently or log to file if needed
         }
         continue;
       }
@@ -53,24 +53,21 @@ async function runBatch(batchSize = 500) {
           await upsertRedirect(oldSlug, newSlug, id);
           // update property
           await updatePropertySlug(id, newSlug);
-          console.log(`Updated id=${id} : ${oldSlug} -> ${newSlug}`);
           totalChanged++;
         } catch (e) {
-          console.error("Error updating id=", id, e && e.message);
+          // optional: handle error silently or log to file if needed
         }
-      } else {
-        // no change
       }
     }
 
     offset += rows.length;
     // tiny delay
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 30));
   }
 
-  console.log("Done. totalChanged:", totalChanged);
   process.exit(0);
 }
+
 
 runBatch().catch(err => {
   console.error("Fatal:", err && err.stack ? err.stack : err);

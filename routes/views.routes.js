@@ -17,5 +17,7 @@ router.get("/bottom", ViewsController.bottomViewsHandler);
 // NEW: record endpoints (POST)
 router.post("/property/:id/record", ViewsController.recordPropertyViewHandler);
 router.post("/record", ViewsController.recordViewHandler);
+router.get("/all", ViewsController.getAllViewsHandler);
+
 
 module.exports = router;

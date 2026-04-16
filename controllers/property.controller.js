@@ -51,23 +51,31 @@ const CRORE = 10_000_000;
 
 function parseMoneyToRupees(value) {
   if (value == null || value === "") return null;
+
   const raw = String(value).trim().toLowerCase();
   const cleaned = raw.replace(/₹/g, "").replace(/\s+/g, "");
   const onlyDigits = cleaned.replace(/,/g, "");
 
+  // Cr → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?c(r)?$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/c(r)?/g, ""));
-    return Math.round(n * CRORE);
+    return Math.trunc(n * CRORE);
   }
+
+  // L → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?l$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/l/g, ""));
-    return Math.round(n * LAKH);
+    return Math.trunc(n * LAKH);
   }
+
+  // Plain rupees
   if (/^\d+(\.\d+)?$/.test(onlyDigits)) {
-    return Math.round(parseFloat(onlyDigits));
+    return Math.trunc(parseFloat(onlyDigits));
   }
+
   return null;
 }
+
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   seller_name: req.body.seller || null,
@@ -85,6 +93,7 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   // NEW
   bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
   bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
+  balcony: req.body.balcony || null ? Number(req.body.balcony) : null,
   facing: req.body.facing || null,
 
   parking_type: req.body.parkingType || null,
@@ -104,8 +113,7 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
 
   address: req.body.address || null,
   status: req.body.status || null,
-  lead_source: req.body.leadSource || null,
-  possession_month: req.body.possessionMonth || null,
+lead_source: 'seller_portal',
   possession_year: req.body.possessionYear || null,
   purchase_month: req.body.purchaseMonth || null,
   purchase_year: req.body.purchaseYear || null,
@@ -176,33 +184,15 @@ function extractFilterTokenFromReq(req) {
 
 // ---------------------
 // Controller Functions
-// ---------------------
 
-// CREATE
-// controller (e.g., controllers/propertyController.js)
 const createProperty = async (req, res) => {
-  console.log("=== DEBUG: File Upload ===");
-  console.log("CT:", req.headers["content-type"]);
-  console.log(
-    "Has files?:",
-    !!req.files,
-    "keys:",
-    req.files ? Object.keys(req.files) : []
-  );
-  console.log("Body keys:", Object.keys(req.body || {}));
-  console.log("Files received:", req.files);
-  console.log("Body received:", req.body);
+
 
   // Check if upload directory exists
   const uploadDir = path.join(process.cwd(), "uploads", "properties");
-  console.log("Upload directory exists:", fs.existsSync(uploadDir));
-  console.log("Upload directory path:", uploadDir);
-
   if (req.files) {
     Object.keys(req.files).forEach((key) => {
       req.files[key].forEach((file) => {
-        console.log(`File ${key}: ${file.filename} at ${file.path}`);
-        console.log(`File exists: ${fs.existsSync(file.path)}`);
       });
     });
   }
@@ -397,6 +387,7 @@ const updateProperty = async (req, res) => {
 
       bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
       bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
+      balcony: req.body.balcony || null ? Number(req.body.balcony) : null,
       facing: req.body.facing || null,
       price_type: req.body.priceType === "Negotiable" ? "Negotiable" : "Fixed",
       final_price: parseMoneyToRupees(req.body.finalPrice),
@@ -413,9 +404,7 @@ const updateProperty = async (req, res) => {
       budget: req.body.budget || null,
       address: req.body.address || null,
       status: req.body.status || null,
-      lead_source: req.body.leadSource || null,
-      possession_month: req.body.possessionMonth || null,
-      possession_year: req.body.possessionYear || null,
+lead_source: req.body.leadSource === 'seller_portal' ? 'seller_portal' : (req.body.leadSource || req.body.lead_source || 'website'),      possession_year: req.body.possessionYear || null,
       purchase_month: req.body.purchaseMonth || null,
       purchase_year: req.body.purchaseYear || null,
       selling_rights: req.body.sellingRights || null,
@@ -434,19 +423,32 @@ const updateProperty = async (req, res) => {
 
     await Property.update(id, propertyData);
 
-    // Recompute slug if any title fields present in request (optional)
-    const maybeNewTitleParts = [
-      req.body.propertyType || req.body.property_type_name,
-      req.body.unitType || req.body.unit_type,
-      req.body.propertySubtype || req.body.property_subtype_name,
-      req.body.city || req.body.city_name,
-    ].filter(Boolean);
+    // ✅ Recompute slug if any title/location fields present in request
+    const hasAnyTitleField =
+      req.body.propertyType || req.body.property_type_name ||
+      req.body.unitType || req.body.unit_type ||
+      req.body.propertySubtype || req.body.property_subtype_name ||
+      req.body.location || req.body.location_name ||
+      req.body.city || req.body.city_name;
 
-    if (maybeNewTitleParts.length) {
+    if (hasAnyTitleField) {
       try {
-        const titlePart = slugifyTextParts(...maybeNewTitleParts);
-        const newSlug = `${id}-${titlePart}`;
-        if (newSlug !== current.slug) {
+        const propertyType   = (req.body.propertyType || req.body.property_type_name || current.property_type_name || "");
+        const unitType       = (req.body.unitType || req.body.unit_type || current.unit_type || "");
+        const propertySubtype= (req.body.propertySubtype || req.body.property_subtype_name || current.property_subtype_name || "");
+        const locationName   = (req.body.location || current.location_name || "");
+        const cityName       = (req.body.city || req.body.city_name || current.city_name || "");
+
+        const newSlug = slugifyTextParts(
+          id,
+          propertyType,
+          unitType,
+          propertySubtype,
+          locationName,
+          cityName
+        );
+
+        if (newSlug && newSlug !== current.slug) {
           await Property.updateSlug(id, newSlug);
         }
       } catch (slugErr) {
@@ -582,13 +584,13 @@ const migratePropertyData = async (req, res) => {
   }
 };
 
-// GET /properties/search
-// GET /properties/search
+
 const searchProperties = (req, res) => {
   try {
     let {
       city,
       location,
+      locations,
       budget_min,
       budget_max,
       sort,
@@ -597,260 +599,270 @@ const searchProperties = (req, res) => {
       unitTypes,
       unitType,
       furnishing,
-      possession,
-      featured,
       verified,
-      min_rating,
       parking,
       floor_min,
       floor_max,
       bathrooms,
       bedrooms,
-      filter_token,
+      status,  // Map this to actual boolean columns
+      is_public,
+      isPublic,
+      visibility,
+      publicOnly,
     } = req.query;
 
-    const minP =
-      budget_min !== undefined && budget_min !== ""
-        ? Number(budget_min)
-        : undefined;
-    const maxP =
-      budget_max !== undefined && budget_max !== ""
-        ? Number(budget_max)
-        : undefined;
+    const PRICE_COL = 'budget';
+
+    const toNumOrNull = (v) => {
+      if (v === undefined || v === null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const normalizePropertyType = (s) => {
+      if (!s) return s;
+      const t = String(s).trim().toLowerCase();
+      if (/^residential/.test(t)) return 'Residential';
+      if (/^commercial/.test(t))  return 'Commercial';
+      if (/agri|agric|farm|land/.test(t)) return 'Agriculture Land';
+      return s.toString().trim();
+    };
+
+    const minP = toNumOrNull(budget_min);
+    const maxP = toNumOrNull(budget_max);
 
     const filters = [];
     const values = [];
 
-    // city (keep as partial match)
+    // city_name (partial, case-insensitive)
     if (city) {
-      filters.push("LOWER(city) LIKE ?");
+      filters.push('LOWER(city_name) LIKE ?');
       values.push(`%${String(city).toLowerCase()}%`);
     }
 
-    // --------- LOCATION: support CSV or repeated params; use OR of LIKEs ---------
-    // req.query.location may be:
-    // - "Baner" OR
-    // - "Baner,Koregaon Park" OR
-    // - an array like ['Baner','Koregaon Park'] depending on client
-    if (location) {
-      // Normalize: if it's array use it, else split on comma
+    // location_name (CSV/array; OR of LIKEs)
+    const locInput = (location !== undefined ? location : locations);
+    if (locInput) {
       let locArr = [];
-      if (Array.isArray(location)) {
-        locArr = location.map((s) => String(s).trim()).filter(Boolean);
+      if (Array.isArray(locInput)) {
+        locArr = locInput.map((s) => String(s).trim()).filter(Boolean);
       } else {
-        // decode and split by comma; some clients may pass encoded commas
-        const raw = String(location);
-        locArr = raw
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
+        locArr = String(locInput).split(',').map((s) => s.trim()).filter(Boolean);
       }
-
       if (locArr.length === 1) {
-        // single location: do a partial match (handles "Baner" and "Baner, Pune")
-        filters.push("LOWER(location) LIKE ?");
+        filters.push('LOWER(location_name) LIKE ?');
         values.push(`%${locArr[0].toLowerCase()}%`);
       } else if (locArr.length > 1) {
-        // multiple locations: create an OR group of LIKEs
-        // e.g. (LOWER(location) LIKE ? OR LOWER(location) LIKE ?)
-        const likePlaceholders = locArr.map(() => "LOWER(location) LIKE ?").join(" OR ");
+        const likePlaceholders = locArr.map(() => 'LOWER(location_name) LIKE ?').join(' OR ');
         filters.push(`(${likePlaceholders})`);
         locArr.forEach((l) => values.push(`%${l.toLowerCase()}%`));
       }
     }
 
-    // price range
-    if (!Number.isNaN(minP)) {
-      filters.push("price >= ?");
-      values.push(minP);
-    }
-    if (!Number.isNaN(maxP)) {
-      filters.push("price <= ?");
-      values.push(maxP);
-    }
+    // budget range
+    if (minP !== null) { filters.push(`${PRICE_COL} >= ?`); values.push(minP); }
+    if (maxP !== null) { filters.push(`${PRICE_COL} <= ?`); values.push(maxP); }
 
-    // propertyType (CSV allowed) - exact match on property_type column (case-insensitive)
+    // property_type_name
     if (propertyType) {
       const arr = String(propertyType)
-        .split(",")
+        .split(',')
+        .map((s) => normalizePropertyType(s))
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
-      if (arr.length === 1) {
-        filters.push("LOWER(property_type) = ?");
-        values.push(arr[0]);
-      } else if (arr.length > 1) {
-        filters.push(`LOWER(property_type) IN (${arr.map(() => "?").join(",")})`);
-        values.push(...arr);
-      }
+      if (arr.length === 1) { filters.push('LOWER(property_type_name) = ?'); values.push(arr[0]); }
+      else if (arr.length > 1) { filters.push(`LOWER(property_type_name) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
     }
 
-    // propertySubtype (CSV allowed)
+    // property_subtype_name
     if (propertySubtype) {
-      const arr = String(propertySubtype)
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-      if (arr.length === 1) {
-        filters.push("LOWER(property_subtype) = ?");
-        values.push(arr[0]);
-      } else if (arr.length > 1) {
-        filters.push(
-          `LOWER(property_subtype) IN (${arr.map(() => "?").join(",")})`
-        );
-        values.push(...arr);
-      }
+      const arr = String(propertySubtype).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (arr.length === 1) { filters.push('LOWER(property_subtype_name) = ?'); values.push(arr[0]); }
+      else if (arr.length > 1) { filters.push(`LOWER(property_subtype_name) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
     }
 
-    // unitType(s) (legacy)
+    // unit_type (supports unitType or unitTypes)
     const unitInput = unitType || unitTypes;
     if (unitInput) {
-      const arr = String(unitInput)
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-      if (arr.length === 1) {
-        filters.push("LOWER(unit_type) = ?");
-        values.push(arr[0]);
-      } else if (arr.length > 1) {
-        filters.push(`LOWER(unit_type) IN (${arr.map(() => "?").join(",")})`);
-        values.push(...arr);
+      const arr = String(unitInput).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (arr.length === 1) { filters.push('LOWER(unit_type) = ?'); values.push(arr[0]); }
+      else if (arr.length > 1) { filters.push(`LOWER(unit_type) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
+    }
+
+    // furnishing
+    if (furnishing) {
+      filters.push('LOWER(furnishing) = ?');
+      values.push(String(furnishing).toLowerCase());
+    }
+
+    // verified
+    if (verified !== undefined) {
+      filters.push('is_verified = ?');
+      values.push(String(verified) === '1' || verified === true ? 1 : 0);
+    }
+
+    // ✅ FIX: Handle is_public filter (supports multiple param names)
+    const publicParam = is_public || isPublic || visibility || publicOnly;
+    if (publicParam !== undefined) {
+      // Handle various formats: true, "true", "1", 1, "public"
+      const isPublicValue = 
+        publicParam === true || 
+        publicParam === 1 || 
+        String(publicParam).toLowerCase() === 'true' || 
+        String(publicParam) === '1' || 
+        String(publicParam).toLowerCase() === 'public';
+      
+      filters.push('is_public = ?');
+      values.push(isPublicValue ? 1 : 0);
+    }
+
+    // ✅ FIX: Map "status" to actual boolean columns
+    if (status) {
+      const statusLower = String(status).toLowerCase();
+      switch(statusLower) {
+        case 'available':
+          filters.push('is_available = 1');
+          filters.push('is_sold = 0');
+          break;
+        case 'sold':
+          filters.push('is_sold = 1');
+          break;
+        case 'new':
+        case 'new listing':
+          filters.push('is_new_listing = 1');
+          break;
+        case 'premium':
+          filters.push('is_premium = 1');
+          break;
+        case 'featured':
+          filters.push('is_featured = 1');
+          break;
+        default:
+          // If status doesn't match any known value, ignore it
+          console.warn(`Unknown status value: ${status}`);
       }
     }
 
-    if (furnishing) {
-      filters.push("LOWER(furnishing) = ?");
-      values.push(String(furnishing).toLowerCase());
-    }
-    if (possession) {
-      filters.push("LOWER(possession) = ?");
-      values.push(String(possession).toLowerCase());
-    }
-
-    // featured (0/1)
-    if (featured !== undefined) {
-      filters.push("featured = ?");
-      values.push(String(featured) === "1" || featured === true ? 1 : 0);
-    }
-
-    // verified (0/1)
-    if (verified !== undefined) {
-      filters.push("verified = ?");
-      values.push(String(verified) === "1" || verified === true ? 1 : 0);
-    }
-
-    // min_rating
-    if (min_rating !== undefined && min_rating !== "") {
-      filters.push("rating >= ?");
-      values.push(Number(min_rating));
-    }
-
-    // parking
+    // parking (parking_type / parking_qty)
     if (parking) {
-      if (String(parking).toLowerCase() === "any") {
-        filters.push("(parking_2w > 0 OR parking_4w > 0)");
-      } else if (String(parking).toLowerCase() === "2w") {
-        filters.push("parking_2w > 0");
-      } else if (String(parking).toLowerCase() === "4w") {
-        filters.push("parking_4w > 0");
-      } else if (!isNaN(parking)) {
-        filters.push("parking >= ?");
-        values.push(Number(parking));
+      const p = String(parking).toLowerCase();
+      if (p === 'any') {
+        filters.push('(parking_qty IS NOT NULL AND parking_qty > 0)');
+      } else if (p === '2w' || p.includes('2')) {
+        filters.push("(LOWER(parking_type) LIKE '%2w%' OR LOWER(parking_type) LIKE '%two%')");
+      } else if (p === '4w' || p.includes('4')) {
+        filters.push("(LOWER(parking_type) LIKE '%4w%' OR LOWER(parking_type) LIKE '%four%' OR LOWER(parking_type) LIKE '%car%')");
+      } else {
+        const pn = toNumOrNull(parking);
+        if (pn !== null) {
+          filters.push('parking_qty >= ?');
+          values.push(pn);
+        }
       }
     }
 
     // floor range
-    if (floor_min !== undefined && floor_min !== "") {
-      filters.push("floor >= ?");
-      values.push(Number(floor_min));
-    }
-    if (floor_max !== undefined && floor_max !== "") {
-      filters.push("floor <= ?");
-      values.push(Number(floor_max));
-    }
+    const floorMin = toNumOrNull(floor_min);
+    const floorMax = toNumOrNull(floor_max);
+    if (floorMin !== null) { filters.push('floor >= ?'); values.push(floorMin); }
+    if (floorMax !== null) { filters.push('floor <= ?'); values.push(floorMax); }
 
-    // bathrooms
-    if (bathrooms !== undefined && bathrooms !== "") {
-      filters.push("bathrooms >= ?");
-      values.push(Number(bathrooms));
-    }
+    // bathrooms / bedrooms
+    const baths = toNumOrNull(bathrooms);
+    if (baths !== null) { filters.push('bathrooms >= ?'); values.push(baths); }
 
-    // bedrooms (single or list)
     if (bedrooms) {
-      const arr = String(bedrooms)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const arr = String(bedrooms).split(',').map((s) => s.trim()).filter(Boolean);
       if (arr.length === 1) {
-        filters.push("bedrooms = ?");
-        values.push(Number(arr[0]));
+        const b = toNumOrNull(arr[0]);
+        if (b !== null) { filters.push('bedrooms = ?'); values.push(b); }
       } else if (arr.length > 1) {
-        filters.push(`bedrooms IN (${arr.map(() => "?").join(",")})`);
-        values.push(...arr.map((n) => Number(n)));
+        const nums = arr.map((n) => toNumOrNull(n)).filter((n) => n !== null);
+        if (nums.length) { filters.push(`bedrooms IN (${nums.map(() => '?').join(',')})`); values.push(...nums); }
       }
     }
 
-    // filter_token (if applicable)
-    if (filter_token) {
-      filters.push("filter_token = ?");
-      values.push(String(filter_token));
-    }
+    const whereClause = filters.length ? ' WHERE ' + filters.join(' AND ') : '';
 
-    // build SQL
-    const whereClause = filters.length ? " WHERE " + filters.join(" AND ") : "";
-    let sql = `SELECT * FROM properties${whereClause}`;
+    const SELECT_COLUMNS = `
+      id,
+      seller_name, seller_id, lead_id, assigned_to,
+      property_type_name, property_subtype_name, unit_type, wing, unit_no,
+      furnishing, bedrooms, bathrooms, facing, parking_type, parking_qty,
+      city_name, location_name, society_name, floor, total_floors,
+      carpet_area, builtup_area,
+      budget, price_type, final_price,
+      address, status, lead_source,
+      possession_month, possession_year, purchase_month, purchase_year,
+      selling_rights, ownership_doc_path,
+      photos, amenities, furnishing_items, nearby_places, description,
+      created_at, updated_at,
+      is_public, is_private, is_sold, is_available, is_new_listing, is_premium, is_verified, is_featured,
+      publication_date, created_by, updated_by,
+      public_views, public_inquiries,
+      slug
+    `.replace(/\s+/g, ' ').trim();
+
+    let sql = `SELECT ${SELECT_COLUMNS} FROM my_properties${whereClause}`;
     let finalValues = [...values];
 
     // sorting
     if (sort) {
       switch (sort) {
-        case "low_to_high":
-          sql += " ORDER BY price ASC";
+        case 'low_to_high':
+          sql += ` ORDER BY ${PRICE_COL} ASC`;
           break;
-        case "high_to_low":
-          sql += " ORDER BY price DESC";
+        case 'high_to_low':
+          sql += ` ORDER BY ${PRICE_COL} DESC`;
           break;
-        case "medium":
+        case 'medium': {
           if (whereClause) {
-            // note: we use the same whereClause twice so duplicate params
             sql = `
-              SELECT * FROM properties
+              SELECT ${SELECT_COLUMNS} FROM my_properties
               ${whereClause}
-              ORDER BY ABS(price - (
-                SELECT AVG(price) FROM properties ${whereClause}
+              ORDER BY ABS(${PRICE_COL} - (
+                SELECT AVG(${PRICE_COL}) FROM my_properties ${whereClause}
               )) ASC
             `;
-            finalValues = [...values, ...values]; // duplicate for inner SELECT
+            finalValues = [...values, ...values];
           } else {
             sql = `
-              SELECT * FROM properties
-              ORDER BY ABS(price - (SELECT AVG(price) FROM properties)) ASC
+              SELECT ${SELECT_COLUMNS} FROM my_properties
+              ORDER BY ABS(${PRICE_COL} - (SELECT AVG(${PRICE_COL}) FROM my_properties)) ASC
             `;
             finalValues = [];
           }
           break;
-        case "newest":
-          sql += " ORDER BY created_at DESC";
+        }
+        case 'newest':
+          sql += ' ORDER BY created_at DESC';
           break;
         default:
-          sql += " ORDER BY price ASC";
+          sql += ` ORDER BY ${PRICE_COL} ASC`;
       }
     } else {
-      sql += " ORDER BY price ASC";
+      sql += ` ORDER BY ${PRICE_COL} ASC`;
     }
 
-    // execute
+    // 🔍 Debug logging
+    console.log('SQL Query:', sql);
+    console.log('Values:', finalValues);
+
     db.query(sql, finalValues, (err, results) => {
       if (err) {
-        console.error("DB error:", err, { sql, finalValues });
-        return res.status(500).json({ error: "Database error" });
+        console.error('DB error:', err, { sql, finalValues });
+        return res.status(500).json({ success: false, error: 'Database error' });
       }
-      res.json({ data: results, count: results.length });
+      res.json({ success: true, data: results, count: results.length });
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
+
+
 
 
 
@@ -877,7 +889,7 @@ const getPropertyBySlug = async (req, res) => {
       const qs = req.url.includes("?")
         ? req.url.slice(req.url.indexOf("?"))
         : "";
-      return res.redirect(301, `/buy/projects/page/${property.slug}${qs}`);
+      return res.redirect(301, `/properties/${property.slug}${qs}`);
     }
 
     // Capture client metadata (respect X-Forwarded-For)
@@ -1066,27 +1078,119 @@ const getFilterContextHandler = async (req, res) => {
   }
 };
 // POST /api/properties/search/city-locations
+// const searchCityLocationsStrict = async (req, res) => {
+//   try {
+   
+//     // Get city from query parameters
+//     const cityInput = (req.query.city || req.query.city_name || "").toString().trim();
+  
+//     // Validate city is provided
+//     if (!cityInput) {
+     
+//       return res.status(400).json({
+//         success: false,
+//         message: "City parameter is required"
+//       });
+//     }
+    
+//     // Get locations from query parameters
+//     let locationsInput = req.query.locations || req.query.location_name || "";
+    
+//     // Process locations input
+//     let locArr = [];
+//     if (locationsInput) {
+     
+//       if (typeof locationsInput === "string") {
+//         locArr = locationsInput.split(",").map(s => s.trim()).filter(Boolean);
+//       } else if (Array.isArray(locationsInput)) {
+//         locArr = locationsInput.map(s => String(s).trim()).filter(Boolean);
+//       }
+      
+//       // Normalize: lowercase, remove duplicates, limit to 5 locations
+//       locArr = Array.from(new Set(locArr.map(s => s.toLowerCase()))).slice(0, 5);
+//     }
+    
+  
+//     // Pagination parameters
+//     const limit = Math.min(Number(req.query.limit) || 50, 200);
+//     const offset = Number(req.query.offset) || 0;
+    
+   
+//     // Build SQL query
+//     const filters = [];
+//     const values = [];
+    
+//     // Add city filter (case-insensitive exact match)
+//     filters.push("LOWER(TRIM(city_name)) = ?");
+//     values.push(cityInput.toLowerCase());
+   
+//     // Add location filter if locations provided
+//     if (locArr.length > 0) {
+//       const locationConditions = locArr.map(() => "LOWER(TRIM(location_name)) LIKE ?").join(" OR ");
+//       filters.push(`(${locationConditions})`);
+//       locArr.forEach(loc => values.push(`%${loc}%`));
+     
+//     }
+    
+//     // Build WHERE clause
+//     const whereClause = filters.length > 0 ? " WHERE " + filters.join(" AND ") : "";
+    
+  
+//     // Count query
+//     const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
+   
+//     // Execute count query using async/await
+//     const [countRows] = await db.query(countSql, values);
+
+//     const total = countRows?.[0]?.total || 0;
+    
+//     // Data query with sorting
+//     const dataSql = `
+//       SELECT * FROM my_properties
+//       ${whereClause}
+//       ORDER BY updated_at DESC, created_at DESC
+//       LIMIT ? OFFSET ?
+//     `;
+//     const dataValues = [...values, limit, offset];
+    
+//     // Execute data query using async/await
+//     const [dataRows] = await db.query(dataSql, dataValues);
+    
+//     // Return successful response
+//     return res.json({
+//       success: true,
+//       city: cityInput,
+//       locations: locArr.length > 0 ? locArr : null,
+//       count: dataRows.length,
+//       total: total,
+//       limit: limit,
+//       offset: offset,
+//       data: dataRows
+//     });
+    
+//   } catch (error) {
+//     console.error("❌ Search properties error:", error);
+//     console.error("Stack trace:", error.stack);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message
+//     });
+//   }
+// };
+
 const searchCityLocationsStrict = async (req, res) => {
   try {
-    // Debug logging
-    console.log("=== Search Request Debug ===");
-    console.log("Query params:", req.query);
-    console.log("Full URL:", req.originalUrl);
-    
     // Get city from query parameters
     const cityInput = (req.query.city || req.query.city_name || "").toString().trim();
-    console.log("City input:", cityInput);
     
     // Validate city is provided
     if (!cityInput) {
-      console.log("❌ No city provided");
       return res.status(400).json({
         success: false,
         message: "City parameter is required"
       });
     }
-    
-    console.log("✓ City validated:", cityInput);
     
     // Get locations from query parameters
     let locationsInput = req.query.locations || req.query.location_name || "";
@@ -1094,7 +1198,6 @@ const searchCityLocationsStrict = async (req, res) => {
     // Process locations input
     let locArr = [];
     if (locationsInput) {
-      console.log("Locations input:", locationsInput);
       if (typeof locationsInput === "string") {
         locArr = locationsInput.split(",").map(s => s.trim()).filter(Boolean);
       } else if (Array.isArray(locationsInput)) {
@@ -1105,13 +1208,13 @@ const searchCityLocationsStrict = async (req, res) => {
       locArr = Array.from(new Set(locArr.map(s => s.toLowerCase()))).slice(0, 5);
     }
     
-    console.log("Processed locations:", locArr);
+    // Get other filters
+    const propertyType = (req.query.propertyType || req.query.property_type || "").toString().trim();
+    const status = (req.query.status || "").toString().trim();
     
     // Pagination parameters
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Number(req.query.offset) || 0;
-    
-    console.log("Limit:", limit, "Offset:", offset);
     
     // Build SQL query
     const filters = [];
@@ -1120,59 +1223,90 @@ const searchCityLocationsStrict = async (req, res) => {
     // Add city filter (case-insensitive exact match)
     filters.push("LOWER(TRIM(city_name)) = ?");
     values.push(cityInput.toLowerCase());
-    console.log("City filter value:", cityInput.toLowerCase());
     
     // Add location filter if locations provided
     if (locArr.length > 0) {
       const locationConditions = locArr.map(() => "LOWER(TRIM(location_name)) LIKE ?").join(" OR ");
       filters.push(`(${locationConditions})`);
       locArr.forEach(loc => values.push(`%${loc}%`));
-      console.log("Location filter added for:", locArr);
+    }
+    
+    // Add property type filter
+    if (propertyType) {
+      filters.push("LOWER(TRIM(property_type_name)) = ?");
+      values.push(propertyType.toLowerCase());
+    }
+    
+    // ✅ NEW: Add status filter helper for Available properties
+    if (status) {
+      const statusLower = status.toLowerCase();
+      
+      // Handle different status values
+      switch(statusLower) {
+        case 'available':
+        case 'active':
+        case 'for sale':
+          // Only show public available properties
+          filters.push("(status = 'Available' OR status = 'Active' OR status IS NULL)");
+          filters.push("is_public = 1");
+          filters.push("(is_sold = 0 OR is_sold IS NULL)");
+          break;
+        case 'sold':
+        case 'sold out':
+        case 'inactive':
+          filters.push("(status = 'Sold' OR is_sold = 1)");
+          break;
+        case 'new':
+        case 'new listing':
+          filters.push("is_new_listing = 1");
+          filters.push("is_public = 1");
+          break;
+        default:
+          // For any other status, filter by status and ensure public
+          filters.push("LOWER(TRIM(status)) = ?");
+          values.push(statusLower);
+          filters.push("is_public = 1");
+      }
+    } else {
+      // ✅ DEFAULT: If no status specified, only show public available properties
+      filters.push("is_public = 1");
+      filters.push("(is_sold = 0 OR is_sold IS NULL)");
+      filters.push("(status = 'Available' OR status = 'Active' OR status IS NULL)");
     }
     
     // Build WHERE clause
     const whereClause = filters.length > 0 ? " WHERE " + filters.join(" AND ") : "";
     
-    console.log("=== SQL Query Debug ===");
-    console.log("WHERE clause:", whereClause);
-    console.log("Values array:", values);
-    
     // Count query
     const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
-    console.log("Count SQL:", countSql);
-    console.log("Executing count query...");
     
     // Execute count query using async/await
     const [countRows] = await db.query(countSql, values);
-    console.log("Count rows result:", countRows);
-    
     const total = countRows?.[0]?.total || 0;
-    console.log("✓ Total count:", total);
     
     // Data query with sorting
     const dataSql = `
       SELECT * FROM my_properties
       ${whereClause}
-      ORDER BY updated_at DESC, created_at DESC
+      ORDER BY 
+        is_featured DESC,
+        is_premium DESC, 
+        updated_at DESC, 
+        created_at DESC
       LIMIT ? OFFSET ?
     `;
     const dataValues = [...values, limit, offset];
     
-    console.log("Data SQL:", dataSql);
-    console.log("Data values:", dataValues);
-    console.log("Executing data query...");
-    
     // Execute data query using async/await
     const [dataRows] = await db.query(dataSql, dataValues);
-    
-    console.log("✓ Data fetched:", dataRows.length, "rows");
-    console.log("=========================\n");
     
     // Return successful response
     return res.json({
       success: true,
       city: cityInput,
       locations: locArr.length > 0 ? locArr : null,
+      propertyType: propertyType || null,
+      status: status || 'available',
       count: dataRows.length,
       total: total,
       limit: limit,
@@ -1191,6 +1325,281 @@ const searchCityLocationsStrict = async (req, res) => {
   }
 };
 
+// Public property without docs
+
+// controllers/property.controller.js
+
+const PublicgetAllProperties = async (req, res) => {
+  try {
+    const properties = await Property.getAll();
+
+    // ✅ Remove sensitive fields before sending to frontend
+    const sanitized = properties.map((p) => {
+      const { ownership_doc_path, ownership_doc_name, ...safe } = p;
+      return safe;
+    });
+
+    res.json({ success: true, data: sanitized });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch properties",
+      error: error.message,
+    });
+  }
+};
+
+
+const PublicgetPropertyBySlug = async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const m = String(slug).match(/^(\d+)(?:-|$)/);
+    if (!m)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid slug format" });
+
+    const id = Number(m[1]);
+    const property = await Property.getById(id);
+    if (!property)
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
+
+    // ✅ Redirect to canonical slug if different
+    if (property.slug && property.slug !== slug) {
+      const qs = req.url.includes("?")
+        ? req.url.slice(req.url.indexOf("?"))
+        : "";
+      return res.redirect(301, `/properties/${property.slug}${qs}`);
+    }
+
+    // ✅ Capture metadata (analytics)
+    const xff = req.headers["x-forwarded-for"];
+    const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
+    const userAgent = req.get("User-Agent") || null;
+    const referrer = req.get("Referrer") || req.get("Referer") || null;
+
+    const sessionId = getOrCreateSessionId(req, res);
+    const { token: extractedFilterToken, key: filterParamKey } =
+      extractFilterTokenFromReq(req);
+
+    try {
+      const safePayload = {
+        query: req.query || {},
+        filterToken: extractedFilterToken,
+        filterParamKey: filterParamKey,
+      };
+
+      await Property.recordEvent({
+        property_id: id,
+        slug: property.slug || slug,
+        event_type: "view",
+        event_name: "page_view",
+        payload: safePayload,
+        ip,
+        user_agent: userAgent,
+        referrer,
+        session_id: sessionId,
+        filterToken: extractedFilterToken,
+        user_id: req.user?.id ?? null,
+        dedupe_key: sessionId,
+        minutes_window: 1440,
+      });
+    } catch (e) {
+      console.warn("analytics error:", e && e.message);
+    }
+
+    // ✅ Sanitize sensitive fields before sending to frontend
+    const { ownership_doc_path, ownership_doc_name, ...safeProperty } =
+      property;
+
+    res.json({ success: true, data: safeProperty });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+
+// READ (single by id)
+const PublicgetProperty = async (req, res) => {
+  try {
+    const property = await Property.getById(req.params.id);
+    if (!property) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
+    }
+
+    // Sensitive fields list (same as getAllProperties)
+    const SENSITIVE_KEYS = [
+      "ownership_doc_path",
+      "ownershipDoc",
+      "ownership_document",
+      "internal_notes",
+      "created_by",
+      "updated_by"
+    ];
+
+    // Hide sensitive fields before sending
+    const copy = { ...property };
+    SENSITIVE_KEYS.forEach((key) => delete copy[key]);
+
+    return res.json({ success: true, data: copy });
+  } catch (error) {
+    console.error("getProperty error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch property",
+      error: error.message,
+    });
+  }
+};
+
+const importBulk = async (req, res) => {
+  const rows = req.body.rows; // array of objects
+  const results = [];
+  for (const row of rows) {
+    try {
+      await Property.create(row);
+      results.push({ success: true });
+    } catch (err) {
+      results.push({ success: false, error: err.message });
+    }
+  }
+  res.json({
+    success: true,
+    imported: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+  });
+};
+
+const updateAssignedTo = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: "Invalid property id" });
+
+    const assigned_to = (req.body && "assigned_to" in req.body) ? req.body.assigned_to : undefined;
+    if (assigned_to === undefined) {
+      return res.status(400).json({ success: false, message: "assigned_to required (number|null)" });
+    }
+
+    const assigned_by = req.user?.id ?? null;
+    const result = await Property.updateAssignedTo(id, assigned_to, assigned_by);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message || "Failed" });
+    }
+    return res.json({
+      success: true,
+      affected: result.affected,
+      message: result.affected ? "assigned_to updated" : "No rows updated",
+    });
+  } catch (err) {
+    console.error("updateAssignedTo error:", err);
+    return res.status(500).json({ success: false, message: err?.message || "Server error" });
+  }
+};
+// Add this to your controllers/property.controller.js
+
+/* =========================
+   SIMILAR PROPERTIES
+   ========================= */
+const getSimilarProperties = async (req, res) => {
+  try {
+    const q = req.query || {};
+
+    // Helpers
+    const normStr = (v) => (v == null ? undefined : String(v).trim());
+    const toInt = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const toBool = (v) => {
+      if (typeof v === "boolean") return v;
+      if (v == null) return undefined;
+      const s = String(v).trim().toLowerCase();
+      if (["1", "true", "yes", "y"].includes(s)) return true;
+      if (["0", "false", "no", "n"].includes(s)) return false;
+      return undefined;
+    };
+    const normLocation = (v) =>
+      v == null ? undefined : String(v).replace(/\+/g, " ").trim();
+
+    // Extract query parameters (new + legacy)
+    const property_id     = toInt(q.property_id);
+    const type            = normStr(q.type);
+    const typeLegacy      = normStr(q.property_type);
+    const subtype         = normStr(q.subtype) || normStr(q.property_subtype);
+    const unit_type       = normStr(q.unit_type) || normStr(q.unitType);
+    const location        = normLocation(q.location);
+    const city            = normStr(q.city);
+    const bedrooms        = toInt(q.bedrooms);
+    const furnishing      = normStr(q.furnishing);
+    const limit           = toInt(q.limit) ?? 6;
+    const exclude_current = toBool(q.exclude_current);
+
+    // Validation
+    if (!property_id && !city && !location) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one of property_id, city, or location is required",
+      });
+    }
+
+    // Build filters object
+    const filters = {
+      propertyId: property_id,
+      type: type || typeLegacy,
+      subtype,
+      unitType: unit_type,
+      city,
+      location,
+      bedrooms,
+      furnishing,
+      limit: Math.max(1, limit),
+      excludeCurrent: exclude_current !== undefined ? exclude_current : true,
+    };
+
+    // Auto-fill from base property if needed
+    if (property_id) {
+      try {
+        const current = await Property.getById(property_id);
+        if (current) {
+          filters.city       = filters.city       || current.city_name;
+          filters.location   = filters.location   || current.location_name;
+          filters.type       = filters.type       || current.property_type_name;
+          filters.subtype    = filters.subtype    || current.property_subtype_name;
+          filters.unitType   = filters.unitType   || current.unit_type;
+          filters.bedrooms   = filters.bedrooms   ?? current.bedrooms;
+          filters.furnishing = filters.furnishing || current.furnishing;
+        }
+      } catch (e) {
+        // Silent fail - no console warning
+      }
+    }
+
+    const similarProperties = await Property.getSimilarProperties(filters);
+
+    return res.json({
+      success: true,
+      data: similarProperties,
+      count: Array.isArray(similarProperties) ? similarProperties.length : 0,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch similar properties",
+    });
+  }
+};
+
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -1207,4 +1616,13 @@ module.exports = {
   saveFilterContextHandler,
   getFilterContextHandler,
   searchCityLocationsStrict,
+  importBulk,
+
+  //Public
+
+  PublicgetAllProperties,
+  PublicgetPropertyBySlug,
+  PublicgetProperty,
+  updateAssignedTo,
+  getSimilarProperties
 };

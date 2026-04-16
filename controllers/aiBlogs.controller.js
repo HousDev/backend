@@ -35,7 +35,11 @@ function buildPrompt(body = {}) {
     includeSEO = true,
     includeImages = true,
     includeToc = true,
+<<<<<<< HEAD
     category = "AI Generated",
+=======
+    category = "Real Estate",
+>>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
   } = body;
 
   const target = LENGTH_WORD_TARGET[length] || LENGTH_WORD_TARGET.medium;
@@ -285,7 +289,11 @@ exports.generateBlogFromTitle = async (req, res) => {
           ? json.tags
           : json?.seo?.keywords || ["Finance", "India", "Policy", "RBI"],
         aiImages: { hero: json.hero || null, inline: json.inline_images || [] },
+<<<<<<< HEAD
         category: req.body?.category || "AI Generated",
+=======
+        category: req.body?.category || " Real Estate",
+>>>>>>> 996620e9bce3a84306c32aaa7dbfd4767ddeee4f
         status: "draft",
       },
     });

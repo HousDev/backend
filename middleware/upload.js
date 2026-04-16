@@ -1,127 +1,4 @@
 
-// const multer = require("multer");
-// const path = require("path");
-// const fs = require("fs");
-
-// const ensureDir = (dir) => {
-//   if (!fs.existsSync(dir)) {
-//     fs.mkdirSync(dir, { recursive: true });
-//     console.log(`Created upload directory: ${dir}`);
-//   }
-// };
-
-// const makeStorage = (folder) =>
-//   multer.diskStorage({
-//     destination: (req, file, cb) => {
-//       const uploadDir = path.resolve(__dirname, "..", "uploads", folder);
-//       ensureDir(uploadDir);
-//       cb(null, uploadDir);
-//     },
-//     filename: (req, file, cb) => {
-//       const uniqueName = `${file.fieldname}-${Date.now()}-${Math.round(
-//         Math.random() * 1e9
-//       )}${path.extname(file.originalname)}`;
-//       cb(null, uniqueName);
-//     },
-//   });
-
-// const propertyFileFilter = (req, file, cb) => {
-//   if (file.fieldname === "ownershipDoc") {
-//     if (
-//       ["application/pdf", "image/jpeg", "image/png", "image/jpg"].includes(
-//         file.mimetype
-//       )
-//     )
-//       cb(null, true);
-//     else cb(new Error("Only PDF, JPG, PNG allowed for ownershipDoc"));
-//   } else if (file.fieldname === "photos") {
-//     if (["image/jpeg", "image/png", "image/jpg"].includes(file.mimetype))
-//       cb(null, true);
-//     else cb(new Error("Only JPG, PNG allowed for photos"));
-//   } else cb(null, true);
-// };
-
-// const upload = multer({
-//   storage: makeStorage("properties"),
-//   limits: { fileSize: 10 * 1024 * 1024 },
-//   fileFilter: propertyFileFilter,
-// });
-
-// const uploadSystem = multer({
-//   storage: makeStorage("system"),
-//   limits: { fileSize: 5 * 1024 * 1024 },
-//   fileFilter: (req, file, cb) => {
-//     if (
-//       ["image/png", "image/x-icon", "image/jpeg", "image/jpg"].includes(
-//         file.mimetype
-//       )
-//     )
-//       cb(null, true);
-//     else cb(new Error("Only PNG, JPG, ICO allowed for system settings"));
-//   },
-// });
-
-// const uploadAvatar = multer({
-//   storage: makeStorage("avatars"),
-//   limits: { fileSize: 5 * 1024 * 1024 },
-//   fileFilter: (req, file, cb) => {
-//     if (["image/jpeg", "image/png", "image/jpg", "image/gif"].includes(file.mimetype)) {
-//       cb(null, true);
-//     } else {
-//       cb(new Error("Only JPG, PNG, GIF allowed for avatars"));
-//     }
-//   },
-// });
-
-// const allowedImageMimes = ["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif"];
-
-// const blogFileFilter = (req, file, cb) => {
-//   if (file.fieldname === "featuredImage") {
-//     if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
-//     else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for featured image"));
-//   } else {
-//     cb(null, true);
-//   }
-// };
-
-// const uploadBlog = multer({
-//   storage: makeStorage("blog"),
-//   limits: {
-//     fileSize: 8 * 1024 * 1024
-//   },
-//   fileFilter: blogFileFilter,
-// });
-
-// const handleUploadErrors = (err, req, res, next) => {
-//   if (err instanceof multer.MulterError) {
-//     if (err.code === "LIMIT_FILE_SIZE") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "File too large. Maximum size exceeded.",
-//       });
-//     }
-//     return res.status(400).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   } else if (err) {
-//     return res.status(400).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-//   next();
-// };
-
-// module.exports = {
-//   upload,
-//   uploadSystem,
-//   uploadAvatar,
-//   uploadBlog,
-//   handleUploadErrors,
-// };
-
-
 
 // middleware/upload.js
 require("dotenv").config();
@@ -137,7 +14,7 @@ const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`Created upload directory: ${dir}`);
+   
   }
 };
 
@@ -165,12 +42,9 @@ const makeStorage = (folder) =>
 
 // Convert absolute file path under UPLOAD_ROOT to public URL under UPLOAD_PUBLIC_BASE
 const toPublicUrl = (absFilePath) => {
-  // Normalize slashes first
   const normalized = absFilePath.replace(/\\/g, "/");
   const normalizedRoot = UPLOAD_ROOT.replace(/\\/g, "/").replace(/\/+$/, "");
-  const publicBase = UPLOAD_PUBLIC_BASE.replace(/\/+$/, "");
-  // Replace prefix
-  return normalized.replace(normalizedRoot, publicBase);
+  return normalized.replace(normalizedRoot, UPLOAD_PUBLIC_BASE);
 };
 
 // Common middleware to attach publicUrl to req.file / req.files
@@ -266,6 +140,16 @@ const uploadBlog = multer({
   fileFilter: blogFileFilter,
 });
 
+// ✅ Hero images uploader (JPG/PNG/WEBP/GIF/ICO)
+const uploadHero = multer({
+  storage: makeStorage("hero"),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG/PNG/WEBP/GIF/ICO allowed for hero images"));
+  },
+});
+
 // ======= ERROR HANDLER =======
 const handleUploadErrors = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -288,12 +172,40 @@ const handleUploadErrors = (err, req, res, next) => {
   next();
 };
 
+// --- new: expose ensureUploadDir + makeUploadTarget ---
+const ensureUploadDir = (...parts) => {
+  const dir = path.join(UPLOAD_ROOT, ...parts);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+   
+  }
+  return dir;
+};
+
+/**
+ * makeUploadTarget('documents', docId, 'original.pdf') =>
+ *   { dir, absPath, publicUrl }
+ */
+const makeUploadTarget = (...parts) => {
+  if (!parts || parts.length < 2) {
+    throw new Error('makeUploadTarget needs at least a folder and a filename');
+  }
+  const fileName = parts[parts.length - 1];
+  const dirParts = parts.slice(0, -1);
+
+  const dir = ensureUploadDir(...dirParts);
+  const absPath = path.join(dir, fileName);
+  const publicUrl = toPublicUrl(absPath);  // handles Windows slashes + absolute CDN if set
+  return { dir, absPath, publicUrl };
+};
+
 module.exports = {
   // storages
-  upload,         // properties
-  uploadSystem,   // system settings (logo, favicon)
-  uploadAvatar,   // user avatars
-  uploadBlog,     // blog featured image
+  upload, // properties
+  uploadSystem, // system settings (logo, favicon)
+  uploadAvatar, // user avatars
+  uploadBlog, // blog featured image
+  uploadHero, // ✅ hero images
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,
@@ -301,5 +213,7 @@ module.exports = {
   toPublicUrl,
   UPLOAD_ROOT,
   UPLOAD_PUBLIC_BASE,
+   ensureUploadDir,
+  makeUploadTarget,
 };
 

@@ -5,6 +5,7 @@ const multer = require("multer");
 
 const upload = multer({ dest: "uploads/" });
 
+
 // Master Types Routes
 
 router.get("/get-all/:tabId", MasterController.getAllMasterTypes);
