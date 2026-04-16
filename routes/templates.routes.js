@@ -1,5 +1,5 @@
 const router = require("express").Router();
-const ctrl = require("../controllers/template.Controller");
+const ctrl = require("../controllers/template.controller");
 
 // router.get("/", ctrl.getAllTemplates);
 // router.post("/", ctrl.createTemplate);
