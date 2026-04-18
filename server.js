@@ -261,7 +261,7 @@ app.use((err, req, res, next) => {
 
 // Start
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`\n🚀 Server: http://localhost:${PORT}`);
   console.log(`📊 Health: http://localhost:${PORT}/api/health`);
   // console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
