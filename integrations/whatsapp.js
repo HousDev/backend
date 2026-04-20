@@ -281,7 +281,9 @@ async function handleWebhook(req, res) {
               [from],
             );
             if (contact.length === 0) {
-              const name = `Customer ${from.slice(-4)}`;
+              const name =
+                contacts[0]?.profile?.name || `Customer ${from.slice(-4)}`;
+              console.log(name)
               const [result] = await db.query(
                 "INSERT INTO contacts_wa (name, phone) VALUES (?, ?)",
                 [name, from],
