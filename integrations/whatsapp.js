@@ -159,7 +159,7 @@
 // };
 const axios = require("axios");
 const db = require("../config/database");
-
+const { emitToUser } = require("../utils/socket");
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
@@ -449,17 +449,22 @@ async function handleWebhook(req, res) {
             const contactId = contact[0].id;
 
             // 💾 Save incoming message
-           await db.query(
-             `INSERT INTO messages_wa 
+            await db.query(
+              `INSERT INTO messages_wa 
    (contact_id, direction, text, time_sent, status, is_read) 
    VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?)`,
-             [contactId, "in", text, timestamp, "read", 1],
-           );
+              [contactId, "in", text, timestamp, "read", 1],
+            );
 
             await db.query(
               "UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?",
               [text, contactId],
             );
+            // 🔥 ADD THIS
+            emitToUser(req.user.id || req.userId, "chat_update", {
+              contact_id: contactId,
+              text: text,
+            });
 
             // ================================
             // ✅ 3. AUTO REPLY + SAVE MESSAGE

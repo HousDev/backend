@@ -1,220 +1,120 @@
-// const pool = require("../config/database");
-// const ContactModel = {
-//   async createContact({
-//     name,
-//     email,
-//     phone,
-//     subject,
-//     message,
-//     propertyType,
-//     budget,
-//   }) {
-//     const sql = `
-//       INSERT INTO contact_messages
-//         (name, email, phone, subject, message, property_type, budget, created_at)
-//       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-//     `;
-//     const [result] = await pool.execute(sql, [
-//       name,
-//       email,
-//       phone,
-//       subject,
-//       message,
-//       propertyType || null,
-//       budget || null,
-//     ]);
-//     return { insertId: result.insertId };
-//   },
+const pool = require("../config/database");
+const ContactModel = {
+  async createContact({
+    name,
+    email,
+    phone,
+    subject,
+    message,
+    propertyType,
+    budget,
+  }) {
+    const sql = `
+      INSERT INTO contact_messages
+        (name, email, phone, subject, message, property_type, budget, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+    const [result] = await pool.execute(sql, [
+      name,
+      email,
+      phone,
+      subject,
+      message,
+      propertyType || null,
+      budget || null,
+    ]);
+    return { insertId: result.insertId };
+  },
 
-//   async getContactById(id) {
-//     const [rows] = await pool.execute(
-//       "SELECT * FROM contact_messages WHERE id = ?",
-//       [id]
-//     );
-//     return rows[0] || null;
-//   },
-
-//   async listContacts({ limit = 50, offset = 0 } = {}) {
-//     let l = Number(limit);
-//     let o = Number(offset);
-//     if (!Number.isFinite(l) || l <= 0) l = 50;
-//     if (!Number.isFinite(o) || o < 0) o = 0;
-//     const MAX_LIMIT = 1000;
-//     if (l > MAX_LIMIT) l = MAX_LIMIT;
-
-//     const sql = `SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT ${l} OFFSET ${o}`;
-//     const [rows] = await pool.query(sql);
-//     return rows;
-//   },
-
-//   /**
-//    * updateContactById - dynamic SET based on provided object keys.
-//    * - Accepts column names in snake_case that match DB columns:
-//    *   e.g. { status: 'replied', assigned_to: 'Amit', is_starred: 1 }
-//    * - Returns the updated row (or null if not found)
-//    */
-//   async updateContactById(id, updateObj = {}) {
-//     if (!id || !updateObj || Object.keys(updateObj).length === 0) return null;
-
-//     const allowedCols = ["status", "assigned_to", "is_starred", "updated_at"];
-//     const setParts = [];
-//     const values = [];
-
-//     for (const [k, v] of Object.entries(updateObj)) {
-//       if (!allowedCols.includes(k)) continue;
-//       setParts.push(`${k} = ?`);
-//       values.push(v);
-//     }
-
-//     if (setParts.length === 0) return null;
-
-//     // ensure updated_at exists
-//     if (!updateObj.updated_at) {
-//       setParts.push("updated_at = NOW()");
-//     }
-
-//     const sql = `UPDATE contact_messages SET ${setParts.join(
-//       ", "
-//     )} WHERE id = ?`;
-//     values.push(id);
-
-//     const [result] = await pool.execute(sql, values);
-
-//     // if no rows affected, return null
-//     if (result.affectedRows === 0) return null;
-
-//     return this.getContactById(id);
-//   },
-
-//   /**
-//    * appendReplyToContact
-//    * - Appends a reply JSON object to the replies JSON column.
-//    * - If replies is NULL or not valid json, it will set a new JSON array with the reply.
-//    * - Returns the updated contact row.
-//    */
-//   async appendReplyToContact(id, replyObj) {
-//     if (!id || !replyObj) return null;
-
-//     // Use JSON functions: if replies is NULL, set it to JSON_ARRAY(replyObj)
-//     // Otherwise JSON_ARRAY_APPEND(replies, '$', replyObj)
-//     const sql = `
-//       UPDATE contact_messages
-//       SET replies = CASE
-//         WHEN JSON_VALID(replies) AND JSON_LENGTH(replies) IS NOT NULL
-//           THEN JSON_ARRAY_APPEND(replies, '$', CAST(? AS JSON))
-//         ELSE JSON_ARRAY(CAST(? AS JSON))
-//         END,
-//         updated_at = NOW()
-//       WHERE id = ?
-//     `;
-
-//     // replyObj must be a JSON string for CAST(? AS JSON)
-//     const replyJson = JSON.stringify(replyObj);
-//     const [result] = await pool.execute(sql, [replyJson, replyJson, id]);
-
-//     if (result.affectedRows === 0) return null;
-//     return this.getContactById(id);
-//   },
-// };
-
-// module.exports = ContactModel;
-const db = require("../config/database");
-
-const Contact = {
-  findAll: async () => {
-    const [rows] = await db.query(
-      "SELECT * FROM contacts_wa ORDER BY created_at DESC",
+  async getContactById(id) {
+    const [rows] = await pool.execute(
+      "SELECT * FROM contact_messages WHERE id = ?",
+      [id]
     );
+    return rows[0] || null;
+  },
+
+  async listContacts({ limit = 50, offset = 0 } = {}) {
+    let l = Number(limit);
+    let o = Number(offset);
+    if (!Number.isFinite(l) || l <= 0) l = 50;
+    if (!Number.isFinite(o) || o < 0) o = 0;
+    const MAX_LIMIT = 1000;
+    if (l > MAX_LIMIT) l = MAX_LIMIT;
+
+    const sql = `SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT ${l} OFFSET ${o}`;
+    const [rows] = await pool.query(sql);
     return rows;
   },
 
-  findById: async (id) => {
-    const [rows] = await db.query("SELECT * FROM contacts_wa WHERE id = ?", [
-      id,
-    ]);
-    return rows[0];
-  },
+  /**
+   * updateContactById - dynamic SET based on provided object keys.
+   * - Accepts column names in snake_case that match DB columns:
+   *   e.g. { status: 'replied', assigned_to: 'Amit', is_starred: 1 }
+   * - Returns the updated row (or null if not found)
+   */
+  async updateContactById(id, updateObj = {}) {
+    if (!id || !updateObj || Object.keys(updateObj).length === 0) return null;
 
-  create: async (data) => {
-    const { name, phone, tag, stage, assigned_to, color, initials } = data;
-    if (!name || !phone) {
-      throw new Error("Name and phone required");
-    }
-
-    // Duplicate check
-    const [existing] = await db.query(
-      "SELECT id FROM contacts_wa WHERE phone = ?",
-      [phone],
-    );
-
-    if (existing.length) {
-      return existing[0].id;
-    }
-
-    const [result] = await db.query(
-      "INSERT INTO contacts_wa (name, phone, tag, stage, assigned_to, color, initials) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [
-        name,
-        phone,
-        tag || "new",
-        stage || "New",
-        assigned_to || "Unassigned",
-        color || "blue",
-        initials || name.slice(0, 2).toUpperCase(),
-      ],
-    );
-    return result.insertId;
-  },
-
-  update: async (id, data) => {
-    // Build dynamic update query
-    const fields = [];
+    const allowedCols = ["status", "assigned_to", "is_starred", "updated_at"];
+    const setParts = [];
     const values = [];
 
-    for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined) {
-        fields.push(`${key} = ?`);
-        values.push(value);
-      }
+    for (const [k, v] of Object.entries(updateObj)) {
+      if (!allowedCols.includes(k)) continue;
+      setParts.push(`${k} = ?`);
+      values.push(v);
     }
 
-    if (fields.length === 0) return;
+    if (setParts.length === 0) return null;
 
+    // ensure updated_at exists
+    if (!updateObj.updated_at) {
+      setParts.push("updated_at = NOW()");
+    }
+
+    const sql = `UPDATE contact_messages SET ${setParts.join(
+      ", "
+    )} WHERE id = ?`;
     values.push(id);
-    await db.query(
-      `UPDATE contacts_wa SET ${fields.join(", ")} WHERE id = ?`,
-      values,
-    );
+
+    const [result] = await pool.execute(sql, values);
+
+    // if no rows affected, return null
+    if (result.affectedRows === 0) return null;
+
+    return this.getContactById(id);
   },
 
-  delete: async (id) => {
-    await db.query("DELETE FROM contacts_wa WHERE id = ?", [id]);
-  },
+  /**
+   * appendReplyToContact
+   * - Appends a reply JSON object to the replies JSON column.
+   * - If replies is NULL or not valid json, it will set a new JSON array with the reply.
+   * - Returns the updated contact row.
+   */
+  async appendReplyToContact(id, replyObj) {
+    if (!id || !replyObj) return null;
 
-  getWithMessages: async (id) => {
-    const contact = await Contact.findById(id);
-    if (!contact) return null;
+    // Use JSON functions: if replies is NULL, set it to JSON_ARRAY(replyObj)
+    // Otherwise JSON_ARRAY_APPEND(replies, '$', replyObj)
+    const sql = `
+      UPDATE contact_messages
+      SET replies = CASE
+        WHEN JSON_VALID(replies) AND JSON_LENGTH(replies) IS NOT NULL
+          THEN JSON_ARRAY_APPEND(replies, '$', CAST(? AS JSON))
+        ELSE JSON_ARRAY(CAST(? AS JSON))
+        END,
+        updated_at = NOW()
+      WHERE id = ?
+    `;
 
-    const [messages] = await db.query(
-      "SELECT * FROM messages_wa WHERE contact_id = ? ORDER BY time_sent ASC",
-      [id],
-    );
+    // replyObj must be a JSON string for CAST(? AS JSON)
+    const replyJson = JSON.stringify(replyObj);
+    const [result] = await pool.execute(sql, [replyJson, replyJson, id]);
 
-    const [notes] = await db.query(
-      "SELECT note, created_at FROM notes WHERE contact_id = ? ORDER BY created_at DESC",
-      [id],
-    );
-
-    return { ...contact, messages, notes };
-  },
-
-  addNote: async (contact_id, note) => {
-    const [result] = await db.query(
-      "INSERT INTO notes (contact_id, note) VALUES (?, ?)",
-      [contact_id, note],
-    );
-    return result.insertId;
+    if (result.affectedRows === 0) return null;
+    return this.getContactById(id);
   },
 };
 
-module.exports = Contact;
+module.exports = ContactModel;

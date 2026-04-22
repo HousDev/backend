@@ -51,7 +51,7 @@ const Message = require("../models/message.Model");
 const Contact = require("../models/contact.Model");
 const { sendTextMessage } = require("../integrations/whatsapp");
 const { triggerAutomation } = require("../services/automationEngine");
-
+const { emitToUser } = require("../utils/socket"); // path adjust karo
 exports.sendMessage = async (req, res) => {
   try {
     const { contact_id, text, is_note } = req.body;
@@ -81,6 +81,11 @@ exports.sendMessage = async (req, res) => {
     if (!is_note) {
       await Message.updateLastMessage(contact_id, finalText);
       await triggerAutomation(contact_id, finalText);
+        // 🔥 ADD THIS (REALTIME EMIT)
+  emitToUser(contact.assigned_to, "chat_update", {
+    contact_id,
+    text: finalText,
+  });
     }
 
     // Return response compatible with frontend

@@ -168,6 +168,25 @@ app.use(
   }),
 );
 
+
+const { emitToUser } = require("./utils/socket");
+
+app.get("/test-socket", (req, res) => {
+  const userId = "1";
+
+  console.log("🔥 TEST EMIT TO:", userId);
+
+  emitToUser(userId, "chat_update", {
+    contact_id: 999,
+    text: "Hello from app.get 🚀",
+  });
+
+  res.json({
+    success: true,
+    message: "Socket test triggered",
+  });
+});
+
 app.use(
   UPLOAD_PUBLIC_BASE,
   helmet.crossOriginResourcePolicy({ policy: "cross-origin" }),
@@ -259,13 +278,11 @@ app.use((err, req, res, next) => {
   });
 });
 
+
 // Start
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n🚀 Server: http://localhost:${PORT}`);
-  console.log(`📊 Health: http://localhost:${PORT}/api/health`);
-  // console.log(`📂 Uploads disk: ${UPLOAD_ROOT}`);
-  // +console.log(`🌐 Uploads URL:  ${UPLOAD_PUBLIC_BASE}\n`);
+server.listen(PORT, () => {
+  console.log(`🚀 Server: http://localhost:${PORT}`);
 });
 
 module.exports = app;
