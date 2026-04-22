@@ -261,36 +261,172 @@ function verifyWebhook(req, res) {
 }
 
 // Handle incoming messages
+// async function handleWebhook(req, res) {
+//   const body = req.body;
+//   console.log("🔥 WEBHOOK TRIGGERED");
+//   if (body.object === "whatsapp_business_account") {
+//     for (const entry of body.entry) {
+//       for (const change of entry.changes) {
+//         if (change.field === "messages") {
+//           const messages = change.value.messages || [];
+//           for (const msg of messages) {
+//             const from = msg.from;
+//             const text = msg.text?.body || "";
+//             const timestamp = msg.timestamp;
+//             console.log("📩 Incoming message from:", from, "| Text:", text);
+
+//             // Find or create contact
+//             let [contact] = await db.query(
+//               "SELECT id FROM contacts_wa WHERE phone = ?",
+//               [from],
+//             );
+//             if (contact.length === 0) {
+//               const name =
+//                 change.value.contacts[0]?.profile?.name ??
+//                 `Customer ${from.slice(-4)}`;
+//               console.log(name)
+//               const [result] = await db.query(
+//                 "INSERT INTO contacts_wa (name, phone) VALUES (?, ?)",
+//                 [name, from],
+//               );
+//               contact = [{ id: result.insertId }];
+//               // Initialize pipeline stages
+//               const stages = [
+//                 "New",
+//                 "Enquiry",
+//                 "Qualified",
+//                 "Proposal",
+//                 "Negotiation",
+//                 "Closed Won",
+//               ];
+//               for (let s of stages) {
+//                 await db.query(
+//                   "INSERT INTO pipeline_stages (contact_id, stage_name, done) VALUES (?, ?, ?)",
+//                   [result.insertId, s, false],
+//                 );
+//               }
+//               console.log(
+//                 "✅ New contact created:",
+//                 name,
+//                 "| ID:",
+//                 result.insertId,
+//               );
+//             }
+//             const contactId = contact[0].id;
+
+//             // Save incoming message
+//             await db.query(
+//               "INSERT INTO messages_wa (contact_id, direction, text, time_sent) VALUES (?, ?, ?, FROM_UNIXTIME(?))",
+//               [contactId, "in", text, timestamp],
+//             );
+//             await db.query(
+//               "UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?",
+//               [text, contactId],
+//             );
+
+//             // ---------- AUTO REPLY (WITH PROPER ERROR HANDLING) ----------
+//             try {
+//               const msgId = await sendTextMessage(
+//                 from,
+//                 "Thanks for contacting us!",
+//               );
+//               console.log(
+//                 "✅ Auto-reply sent to",
+//                 from,
+//                 "| Message ID:",
+//                 msgId,
+//               );
+//             } catch (err) {
+//               console.error("❌ Auto-reply FAILED for", from);
+//               console.error(
+//                 "Error details:",
+//                 err.response?.data || err.message,
+//               );
+//               // Optional: store failed attempt in a log table
+//             }
+
+//             // Trigger automation rules
+//             const {
+//               triggerAutomation,
+//             } = require("../services/automationEngine");
+//             await triggerAutomation(contactId, text);
+//           }
+//         }
+//       }
+//     }
+//     res.sendStatus(200);
+//   } else {
+//     res.sendStatus(404);
+//   }
+// }
+
 async function handleWebhook(req, res) {
   const body = req.body;
   console.log("🔥 WEBHOOK TRIGGERED");
+
   if (body.object === "whatsapp_business_account") {
     for (const entry of body.entry) {
       for (const change of entry.changes) {
         if (change.field === "messages") {
+          // ================================
+          // ✅ 1. HANDLE STATUS UPDATES
+          // ================================
+          const statuses = change.value.statuses || [];
+
+          for (const status of statuses) {
+            const messageId = status.id;
+            const statusType = status.status; // sent | delivered | read
+
+            console.log(
+              "📊 Status Update:",
+              statusType,
+              "| Msg ID:",
+              messageId,
+            );
+
+            try {
+             await db.query(
+               `UPDATE messages_wa 
+   SET status = ?, is_read = ? 
+   WHERE whatsapp_msg_id = ?`,
+               [statusType, statusType === "read" ? 1 : 0, messageId],
+             );
+            } catch (err) {
+              console.error("❌ Status update failed:", err);
+            }
+          }
+
+          // ================================
+          // ✅ 2. HANDLE INCOMING MESSAGES
+          // ================================
           const messages = change.value.messages || [];
+
           for (const msg of messages) {
             const from = msg.from;
             const text = msg.text?.body || "";
             const timestamp = msg.timestamp;
-            console.log("📩 Incoming message from:", from, "| Text:", text);
 
-            // Find or create contact
+            console.log("📩 Incoming message:", from, "|", text);
+
+            // 🔍 Find or create contact
             let [contact] = await db.query(
               "SELECT id FROM contacts_wa WHERE phone = ?",
               [from],
             );
+
             if (contact.length === 0) {
               const name =
-                change.value.contacts[0]?.profile?.name ??
+                change.value.contacts?.[0]?.profile?.name ??
                 `Customer ${from.slice(-4)}`;
-              console.log(name)
+
               const [result] = await db.query(
                 "INSERT INTO contacts_wa (name, phone) VALUES (?, ?)",
                 [name, from],
               );
+
               contact = [{ id: result.insertId }];
-              // Initialize pipeline stages
+
+              // 🧩 Create pipeline stages
               const stages = [
                 "New",
                 "Enquiry",
@@ -299,53 +435,56 @@ async function handleWebhook(req, res) {
                 "Negotiation",
                 "Closed Won",
               ];
+
               for (let s of stages) {
                 await db.query(
                   "INSERT INTO pipeline_stages (contact_id, stage_name, done) VALUES (?, ?, ?)",
                   [result.insertId, s, false],
                 );
               }
-              console.log(
-                "✅ New contact created:",
-                name,
-                "| ID:",
-                result.insertId,
-              );
+
+              console.log("✅ New contact created:", name);
             }
+
             const contactId = contact[0].id;
 
-            // Save incoming message
-            await db.query(
-              "INSERT INTO messages_wa (contact_id, direction, text, time_sent) VALUES (?, ?, ?, FROM_UNIXTIME(?))",
-              [contactId, "in", text, timestamp],
-            );
+            // 💾 Save incoming message
+           await db.query(
+             `INSERT INTO messages_wa 
+   (contact_id, direction, text, time_sent, status, is_read) 
+   VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?)`,
+             [contactId, "in", text, timestamp, "read", 1],
+           );
+
             await db.query(
               "UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?",
               [text, contactId],
             );
 
-            // ---------- AUTO REPLY (WITH PROPER ERROR HANDLING) ----------
+            // ================================
+            // ✅ 3. AUTO REPLY + SAVE MESSAGE
+            // ================================
             try {
-              const msgId = await sendTextMessage(
-                from,
-                "Thanks for contacting us!",
-              );
-              console.log(
-                "✅ Auto-reply sent to",
-                from,
-                "| Message ID:",
-                msgId,
+              const replyText = "Thanks for contacting us!";
+              const msgId = await sendTextMessage(from, replyText);
+
+              console.log("✅ Auto-reply sent:", msgId);
+
+              // 💾 Save outgoing message with msgId
+              await db.query(
+                "INSERT INTO messages_wa (contact_id, direction, text, whatsapp_msg_id, status, time_sent) VALUES (?, ?, ?, ?, ?, NOW())",
+                [contactId, "out", replyText, msgId, "sent"],
               );
             } catch (err) {
-              console.error("❌ Auto-reply FAILED for", from);
               console.error(
-                "Error details:",
+                "❌ Auto-reply failed:",
                 err.response?.data || err.message,
               );
-              // Optional: store failed attempt in a log table
             }
 
-            // Trigger automation rules
+            // ================================
+            // ✅ 4. AUTOMATION TRIGGER
+            // ================================
             const {
               triggerAutomation,
             } = require("../services/automationEngine");
@@ -354,10 +493,11 @@ async function handleWebhook(req, res) {
         }
       }
     }
-    res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
+
+    return res.sendStatus(200);
   }
+
+  return res.sendStatus(404);
 }
 
 module.exports = {
