@@ -223,60 +223,14 @@ async function sendTemplateMessage(
 }
 
 // Submit template to Meta for approval
-// async function submitTemplateToMeta({ name, category, language, body }) {
-//   const url = `https://graph.facebook.com/${API_VERSION}/${WABA_ID}/message_templates`;
-//   const payload = {
-//     name,
-//     category,
-//     language,
-//     components: [{ type: "BODY", text: body }],
-//   };
-//   try {
-//     const response = await axios.post(url, payload, {
-//       headers: {
-//         Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-//         "Content-Type": "application/json",
-//       },
-//     });
-//     return { success: true, metaId: response.data.id };
-//   } catch (error) {
-//     console.error(
-//       "❌ submitTemplateToMeta error:",
-//       error.response?.data?.error?.message,
-//     );
-//     return { success: false, error: error.response?.data?.error?.message };
-//   }
-// }
-
-
-// Submit template to Meta for approval
 async function submitTemplateToMeta({ name, category, language, body }) {
   const url = `https://graph.facebook.com/${API_VERSION}/${WABA_ID}/message_templates`;
-  
-  // ✅ Clean the body
-  let cleanBody = body
-    .replace(/\n/g, ' ')        // new line to space
-    .replace(/\r/g, ' ')        // carriage return to space
-    .replace(/\t/g, ' ')        // tab to space
-    .replace(/\s+/g, ' ')       // multiple spaces to single space
-    .trim();
-  
-  // ✅ Convert [var1] to {{1}} if needed
-  cleanBody = cleanBody.replace(/\[var(\d+)\]/g, '{{$1}}');
-  
-  // ✅ Ensure variables are in correct format
-  // Variables should be like {{1}}, {{2}} etc.
-  
   const payload = {
-    name: name.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
-    category: category,
-    language: language || 'en',
-    components: [{ type: "BODY", text: cleanBody }]
+    name,
+    category,
+    language,
+    components: [{ type: "BODY", text: body }],
   };
-  
-  console.log('📤 Submitting template to Meta:', name);
-  console.log('   Cleaned body:', cleanBody.substring(0, 100) + '...');
-  
   try {
     const response = await axios.post(url, payload, {
       headers: {
@@ -284,17 +238,16 @@ async function submitTemplateToMeta({ name, category, language, body }) {
         "Content-Type": "application/json",
       },
     });
-    console.log('✅ Template submitted successfully');
     return { success: true, metaId: response.data.id };
   } catch (error) {
-    const errMsg = error.response?.data?.error?.message || error.message;
-    console.error("❌ Submit error:", errMsg);
-    if (error.response?.data?.error?.error_data) {
-      console.error("   Details:", error.response.data.error.error_data);
-    }
-    return { success: false, error: errMsg };
+    console.error(
+      "❌ submitTemplateToMeta error:",
+      error.response?.data?.error?.message,
+    );
+    return { success: false, error: error.response?.data?.error?.message };
   }
 }
+
 // Webhook verification
 function verifyWebhook(req, res) {
   const mode = req.query["hub.mode"];
