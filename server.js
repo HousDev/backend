@@ -134,6 +134,8 @@ app.use("/api/templates", require("./routes/templates.routes"));
 app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
 app.use("/api/rules", require("./routes/rules.routes"));
 app.use("/api/analytics", require("./routes/analytics.routes"));
+// Add this with other routes
+app.use('/api/campaigns', require('./routes/campaigns'));
 app.use("/api/webhook", require("./routes/webhook"));
 
 app.use("/api/rbac", rbacRoutes);
