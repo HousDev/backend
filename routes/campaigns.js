@@ -1,25 +1,34 @@
+// const router = require("express").Router();
+// const campaignController = require("../controllers/campaign.Controller");
+
+// router.get("/", campaignController.getAllCampaigns);
+// router.get("/:id", campaignController.getCampaignById);
+// router.post("/", campaignController.createCampaign);
+// router.put("/:id", campaignController.updateCampaign);
+// router.delete("/:id", campaignController.deleteCampaign);
+// router.post("/:id/launch", campaignController.launchCampaign);
+// router.get("/:id/logs", campaignController.getCampaignLogs);
+
+// module.exports = router;
+
 const router = require("express").Router();
 const campaignController = require("../controllers/campaign.Controller");
 
-// Get all campaigns
+// Campaign CRUD operations
 router.get("/", campaignController.getAllCampaigns);
-
-// Get campaign by ID
 router.get("/:id", campaignController.getCampaignById);
-
-// Create campaign
 router.post("/", campaignController.createCampaign);
-
-// Update campaign
 router.put("/:id", campaignController.updateCampaign);
-
-// Delete campaign
 router.delete("/:id", campaignController.deleteCampaign);
 
-// Launch campaign
+// Campaign actions
 router.post("/:id/launch", campaignController.launchCampaign);
 
-// Get campaign logs
+// Campaign logs
 router.get("/:id/logs", campaignController.getCampaignLogs);
+
+// Resend operations
+router.post("/:id/logs/:logId/resend", campaignController.resendMessage);
+router.post("/:id/resend-failed", campaignController.resendAllFailed);
 
 module.exports = router;

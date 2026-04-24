@@ -1,44 +1,8 @@
-// const Template = require("../models/template.Model");
-// const { submitTemplateToMeta } = require("../integrations/whatsapp");
-
-// exports.getAllTemplates = async (req, res) => {
-//   const templates = await Template.findAll();
-//   res.json(templates);
-// };
-
-// exports.createTemplate = async (req, res) => {
-//   const { name, label, category, language, body, variables } = req.body;
-//   // Submit to Meta (optional, but we do it)
-//   const metaResult = await submitTemplateToMeta({
-//     name,
-//     category,
-//     language,
-//     body,
-//   });
-//   if (!metaResult.success) {
-//     return res.status(400).json({ error: metaResult.error });
-//   }
-//   const id = await Template.create({
-//     name,
-//     label,
-//     category,
-//     language,
-//     body,
-//     variables,
-//     status: "pending",
-//     meta_id: metaResult.metaId,
-//   });
-//   res.status(201).json({ id, message: "Template submitted to Meta" });
-// };
-
-// exports.updateTemplateStatus = async (req, res) => {
-//   const { status, rejection_reason } = req.body;
-//   await Template.updateStatus(req.params.id, status, rejection_reason);
-//   res.json({ message: "Status updated" });
-// };
-
 const Template = require("../models/template.Model");
-const { submitTemplateToMeta } = require("../integrations/whatsapp"); // ✅ Import added
+const {
+  submitTemplateToMeta,
+  getTemplateStatus,
+} = require("../integrations/whatsapp");
 
 // Get all templates
 exports.getAllTemplates = async (req, res) => {
@@ -46,7 +10,7 @@ exports.getAllTemplates = async (req, res) => {
     const templates = await Template.findAll();
     res.json(templates);
   } catch (err) {
-    console.error(err);
+    console.error("Error in getAllTemplates:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -61,6 +25,7 @@ exports.getTemplateById = async (req, res) => {
     }
     res.json(template);
   } catch (err) {
+    console.error("Error in getTemplateById:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -70,39 +35,15 @@ exports.createTemplate = async (req, res) => {
   try {
     const templateData = req.body;
 
-    // Validate required fields
     if (!templateData.name || !templateData.body) {
       return res.status(400).json({ error: "Name and body are required" });
     }
 
-    // ✅ Submit to Meta API (optional - can be commented for now)
-    let metaResult = null;
-    try {
-      metaResult = await submitTemplateToMeta({
-        name: templateData.name,
-        category: templateData.category,
-        language: templateData.language || "en",
-        body: templateData.body,
-        header_type: templateData.header_type,
-        header_text: templateData.header_text,
-        footer: templateData.footer,
-        buttons: templateData.buttons,
-      });
-    } catch (metaErr) {
-      console.error("Meta submission failed:", metaErr);
-      // Continue without Meta submission
-    }
-
-    const id = await Template.create({
-      ...templateData,
-      status: metaResult?.success ? "PENDING" : "PENDING",
-      meta_id: metaResult?.success ? metaResult.metaId : null,
-    });
-
+    const id = await Template.create(templateData);
     const newTemplate = await Template.findById(id);
     res.status(201).json(newTemplate);
   } catch (err) {
-    console.error(err);
+    console.error("Error in createTemplate:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -117,9 +58,17 @@ exports.updateTemplate = async (req, res) => {
       return res.status(404).json({ error: "Template not found" });
     }
 
+    // Don't allow editing approved templates
+    if (existing.status === "APPROVED") {
+      return res
+        .status(400)
+        .json({ error: "Approved templates cannot be edited" });
+    }
+
     const updated = await Template.update(id, req.body);
     res.json(updated);
   } catch (err) {
+    console.error("Error in updateTemplate:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -137,61 +86,366 @@ exports.deleteTemplate = async (req, res) => {
     await Template.delete(id);
     res.json({ success: true, message: "Template deleted" });
   } catch (err) {
+    console.error("Error in deleteTemplate:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// Submit template to Meta for review
+// Submit template to Meta
+// exports.submitToMeta = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const template = await Template.findById(id);
+
+//     if (!template) {
+//       return res.status(404).json({ error: "Template not found" });
+//     }
+
+//     // Don't resubmit approved templates
+//     if (template.status === "APPROVED") {
+//       return res.status(400).json({ error: "Template is already approved" });
+//     }
+
+//     // Build payload for Meta API
+//     const components = [];
+
+//     // BODY
+//     components.push({
+//       type: "BODY",
+//       text: template.body,
+//     });
+
+//     // HEADER (TEXT only)
+//     if (template.header_type === "TEXT" && template.header_text) {
+//       components.push({
+//         type: "HEADER",
+//         format: "TEXT",
+//         text: template.header_text,
+//       });
+//     }
+
+//     // FOOTER
+//     if (template.footer) {
+//       components.push({
+//         type: "FOOTER",
+//         text: template.footer,
+//       });
+//     }
+
+//     // BUTTONS
+//     if (template.buttons && template.buttons.length > 0) {
+//       components.push({
+//         type: "BUTTONS",
+//         buttons: template.buttons.map((btn) => ({
+//           type: "QUICK_REPLY",
+//           text: btn.text,
+//         })),
+//       });
+//     }
+
+//     // 🔥 EXAMPLE (MOST IMPORTANT)
+//     const example = {};
+
+//     if (template.variables && template.variables.length > 0) {
+//       example.body_text = [template.variables];
+//     }
+
+//     if (
+//       template.header_type === "TEXT" &&
+//       template.header_text &&
+//       template.header_text.includes("{{")
+//     ) {
+//       example.header_text = [template.variables.slice(0, 1)];
+//     }
+
+//     // FINAL PAYLOAD
+//     const payload = {
+//       name: template.name.toLowerCase().replace(/\s+/g, "_"),
+//       category: template.category,
+//       language: template.language,
+//       components,
+//       example,
+//     };
+
+//     const result = await submitTemplateToMeta(payload);
+
+//     if (!result.success) {
+//       return res.status(400).json({ error: result.error });
+//     }
+
+//     const updated = await Template.updateStatus(
+//       id,
+//       "PENDING",
+//       null,
+//       result.metaId,
+//     );
+//     res.json({
+//       success: true,
+//       message: "Template submitted for review",
+//       template: updated,
+//     });
+//   } catch (err) {
+//     console.error("Submit to Meta error:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.submitToMeta = async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = await Template.findById(id);
-
-    if (!existing) {
+    const template = await Template.findById(id);
+    console.log(template);
+    if (!template) {
       return res.status(404).json({ error: "Template not found" });
     }
 
-    // ✅ Call Meta API when manually submitting
-    const metaResult = await submitTemplateToMeta({
-      name: existing.name,
-      category: existing.category,
-      language: existing.language,
-      body: existing.body,
-      header_type: existing.header_type,
-      header_text: existing.header_text,
-      footer: existing.footer,
-      buttons: existing.buttons,
-    });
-
-    if (!metaResult.success) {
-      return res.status(400).json({ error: metaResult.error });
+    if (template.status === "APPROVED") {
+      return res.status(400).json({ error: "Template is already approved" });
     }
 
-    const updated = await Template.submitToMeta(id, metaResult.metaId);
+    // ------------------------
+    // 🔧 HELPER
+    // ------------------------
+    function extractVariables(text) {
+      if (!text) return [];
+      const matches = text.match(/\{\{(\d+)\}\}/g) || [];
+      return [
+        ...new Set(matches.map((m) => parseInt(m.replace(/\D/g, "")))),
+      ].sort((a, b) => a - b);
+    }
+
+    // ------------------------
+    // 🔧 COMPONENTS
+    // ------------------------
+    const components = [];
+
+    // BODY
+    components.push({
+      type: "BODY",
+      text: template.body,
+    });
+
+    // HEADER TEXT
+    if (template.header_type === "TEXT" && template.header_text) {
+      components.push({
+        type: "HEADER",
+        format: "TEXT",
+        text: template.header_text,
+      });
+    }
+
+    // HEADER IMAGE / MEDIA
+    if (template.header_type === "IMAGE" && template.header_media_url) {
+      components.push({
+        type: "HEADER",
+        format: "IMAGE",
+        example: {
+          header_handle: [template.header_media_url], // ⚠️ ideally uploaded handle
+        },
+      });
+    }
+
+    // FOOTER
+    if (template.footer) {
+      components.push({
+        type: "FOOTER",
+        text: template.footer,
+      });
+    }
+
+    // BUTTONS (FIXED)
+    if (template.buttons && template.buttons.length > 0) {
+      components.push({
+        type: "BUTTONS",
+        buttons: template.buttons.map((btn) => {
+          if (btn.type === "URL") {
+            return {
+              type: "URL",
+              text: btn.text,
+              url: btn.url,
+            };
+          }
+
+          return {
+            type: "QUICK_REPLY",
+            text: btn.text,
+          };
+        }),
+      });
+    }
+
+    // ------------------------
+    // 🔥 EXAMPLE (CRITICAL)
+    // ------------------------
+    const example = {};
+
+    const bodyVars = extractVariables(template.body);
+
+    if (bodyVars.length > 0 && template.variables) {
+      example.body_text = [
+        bodyVars.map((n) => template.variables[n - 1] || ""),
+      ];
+    }
+
+    // ------------------------
+    // FINAL PAYLOAD
+    // ------------------------
+    // const payload = {
+    //   name: "car_offer_plain",
+    //   category: "MARKETING",
+    //   language: "en_US",
+    //   components: [
+    //     {
+    //       type: "BODY",
+    //       text: "Hello, we are offering a discount on our premium plan. Contact us for more details.",
+    //     },
+    //   ],
+    // };
+
+    // const payload = {
+    //   name: template.name, // new name
+    //   category: template.category,
+    //   language: template.language,
+    //   components: [
+    //     {
+    //       type: "BODY",
+    //       text: template.body,
+    //     },
+    //   ],
+    //   example: {
+    //     body_text: template.variables,
+    //   },
+    // };
+
+    // const payload = {
+    //   name: template.name.toLowerCase().replace(/\s+/g, "_"),
+    //   category: template.category,
+    //   language: template.language || "en_US",
+    //   components: [
+    //     {
+    //       type: "BODY",
+    //       text: template.body,
+
+    //       // ✅ FIX: example inside BODY + correct format
+    //       ...(template.variables &&
+    //         template.variables.length > 0 && {
+    //           example: {
+    //             body_text: [template.variables], // 🔥 IMPORTANT FIX
+    //           },
+    //         }),
+    //     },
+    //   ],
+    // };
+
+    // 🔧 Format text (IMPORTANT)
+    const formattedText = template.body
+      .replace(/\r\n/g, "\n") // windows support
+      .replace(/\n/g, "\\n"); // Meta format
+
+    // ✅ FINAL PAYLOAD
+    const payload = {
+      name: template.name.toLowerCase().replace(/\s+/g, "_"),
+      category: template.category,
+      language: template.language || "en_US",
+      components: [
+        {
+          type: "BODY",
+          text: formattedText, // 🔥 FIXED (NOT template.body)
+
+          ...(template.variables &&
+            template.variables.length > 0 && {
+              example: {
+                body_text: [template.variables], // correct format
+              },
+            }),
+        },
+      ],
+    };
+    console.log(payload);
+
+    console.log("📤 META PAYLOAD:", JSON.stringify(payload, null, 2));
+
+    const result = await submitTemplateToMeta(payload);
+    console.log("meta res : ", result);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    const updated = await Template.updateStatus(
+      id,
+      "PENDING",
+      null,
+      result.metaId,
+    );
+
     res.json({
       success: true,
       message: "Template submitted for review",
       template: updated,
     });
   } catch (err) {
+    console.error("❌ Submit to Meta error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// Update template status (for webhook or manual update)
-exports.updateTemplateStatus = async (req, res) => {
+// Sync template status from Meta
+exports.syncMetaStatus = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status, rejection_reason } = req.body;
+    // Get all templates that are not approved (pending, draft, rejected, in_appeal)
+    const pending = await Template.findPending();
+    const updates = [];
 
-    const existing = await Template.findById(id);
-    if (!existing) {
-      return res.status(404).json({ error: "Template not found" });
+    for (const template of pending) {
+      // If no meta_id, try to find by name
+      let metaId = template.meta_id;
+
+      if (!metaId) {
+        // You might want to search by name here
+        console.log(`Template ${template.name} has no meta_id, skipping sync`);
+        continue;
+      }
+
+      try {
+        const status = await getTemplateStatus(metaId);
+        // ✅ YAHI PE LOG LAGAO
+        // console.log({
+        //   template: template.name,
+        //   dbStatus: template.status,
+        //   metaStatus: status?.status,
+        //   metaId: metaId,
+        // });
+
+        if (status && status.status !== template.status) {
+          await Template.updateStatus(
+            template.id,
+            status.status,
+            status.rejection_reason || null,
+            metaId,
+          );
+          updates.push({
+            id: template.id,
+            name: template.name,
+            oldStatus: template.status,
+            newStatus: status.status,
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to sync template ${template.name}:`, err.message);
+        // Continue with next template
+        continue;
+      }
     }
 
-    const updated = await Template.updateStatus(id, status, rejection_reason);
-    res.json({ success: true, template: updated });
+    const allTemplates = await Template.findAll();
+    res.json({
+      success: true,
+      updated: updates.length,
+      templates: allTemplates,
+      updates: updates,
+    });
   } catch (err) {
+    console.error("Sync error:", err);
     res.status(500).json({ error: err.message });
   }
 };
