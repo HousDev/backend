@@ -542,11 +542,11 @@ const Template = {
     }
   },
 
-  findByMetaId: async (metaId) => {
+  findByMetaId: async (metaId, name="") => {
     try {
       const [rows] = await db.query(
-        "SELECT * FROM templates_wa WHERE meta_id = ? OR meta_template_id = ?",
-        [metaId, metaId],
+        "SELECT * FROM templates_wa WHERE meta_id = ? OR meta_template_id = ? OR name = ?",
+        [metaId, metaId, name],
       );
       if (rows.length === 0) return null;
       return Template._parseRow(rows[0]);

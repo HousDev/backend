@@ -97,106 +97,25 @@ function verifyWebhook(req, res) {
     res.sendStatus(403);
   }
 }
+async function fetchMetaTemplates() {
+  try {
+    const url = `https://graph.facebook.com/${API_VERSION}/${WABA_ID}/message_templates`;
 
-// Handle incoming messages
-// async function handleWebhook(req, res) {
-//   const body = req.body;
-//   console.log("🔥 WEBHOOK TRIGGERED");
-//   if (body.object === "whatsapp_business_account") {
-//     for (const entry of body.entry) {
-//       for (const change of entry.changes) {
-//         if (change.field === "messages") {
-//           const messages = change.value.messages || [];
-//           for (const msg of messages) {
-//             const from = msg.from;
-//             const text = msg.text?.body || "";
-//             const timestamp = msg.timestamp;
-//             console.log("📩 Incoming message from:", from, "| Text:", text);
+    const res = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    });
 
-//             // Find or create contact
-//             let [contact] = await db.query(
-//               "SELECT id FROM contacts_wa WHERE phone = ?",
-//               [from],
-//             );
-//             if (contact.length === 0) {
-//               const name =
-//                 change.value.contacts[0]?.profile?.name ??
-//                 `Customer ${from.slice(-4)}`;
-//               console.log(name)
-//               const [result] = await db.query(
-//                 "INSERT INTO contacts_wa (name, phone) VALUES (?, ?)",
-//                 [name, from],
-//               );
-//               contact = [{ id: result.insertId }];
-//               // Initialize pipeline stages
-//               const stages = [
-//                 "New",
-//                 "Enquiry",
-//                 "Qualified",
-//                 "Proposal",
-//                 "Negotiation",
-//                 "Closed Won",
-//               ];
-//               for (let s of stages) {
-//                 await db.query(
-//                   "INSERT INTO pipeline_stages (contact_id, stage_name, done) VALUES (?, ?, ?)",
-//                   [result.insertId, s, false],
-//                 );
-//               }
-//               console.log(
-//                 "✅ New contact created:",
-//                 name,
-//                 "| ID:",
-//                 result.insertId,
-//               );
-//             }
-//             const contactId = contact[0].id;
+    console.log("✅ Meta Templates:", res.data);
 
-//             // Save incoming message
-//             await db.query(
-//               "INSERT INTO messages_wa (contact_id, direction, text, time_sent) VALUES (?, ?, ?, FROM_UNIXTIME(?))",
-//               [contactId, "in", text, timestamp],
-//             );
-//             await db.query(
-//               "UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?",
-//               [text, contactId],
-//             );
-
-//             // ---------- AUTO REPLY (WITH PROPER ERROR HANDLING) ----------
-//             try {
-//               const msgId = await sendTextMessage(
-//                 from,
-//                 "Thanks for contacting us!",
-//               );
-//               console.log(
-//                 "✅ Auto-reply sent to",
-//                 from,
-//                 "| Message ID:",
-//                 msgId,
-//               );
-//             } catch (err) {
-//               console.error("❌ Auto-reply FAILED for", from);
-//               console.error(
-//                 "Error details:",
-//                 err.response?.data || err.message,
-//               );
-//               // Optional: store failed attempt in a log table
-//             }
-
-//             // Trigger automation rules
-//             const {
-//               triggerAutomation,
-//             } = require("../services/automationEngine");
-//             await triggerAutomation(contactId, text);
-//           }
-//         }
-//       }
-//     }
-//     res.sendStatus(200);
-//   } else {
-//     res.sendStatus(404);
-//   }
-// }
+    return res.data.data; // 🔥 templates array
+  } catch (error) {
+    console.error("❌ Error fetching templates:", error.response?.data);
+    return [];
+  }
+}
 
 async function handleWebhook(req, res) {
   const body = req.body;
@@ -374,4 +293,5 @@ module.exports = {
   getTemplateStatus,
   verifyWebhook,
   handleWebhook,
+  fetchMetaTemplates,
 };

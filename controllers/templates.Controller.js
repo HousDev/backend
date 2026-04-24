@@ -2,6 +2,7 @@ const Template = require("../models/template.Model");
 const {
   submitTemplateToMeta,
   getTemplateStatus,
+  fetchMetaTemplates,
 } = require("../integrations/whatsapp");
 
 // Get all templates
@@ -287,56 +288,6 @@ exports.submitToMeta = async (req, res) => {
       ];
     }
 
-    // ------------------------
-    // FINAL PAYLOAD
-    // ------------------------
-    // const payload = {
-    //   name: "car_offer_plain",
-    //   category: "MARKETING",
-    //   language: "en_US",
-    //   components: [
-    //     {
-    //       type: "BODY",
-    //       text: "Hello, we are offering a discount on our premium plan. Contact us for more details.",
-    //     },
-    //   ],
-    // };
-
-    // const payload = {
-    //   name: template.name, // new name
-    //   category: template.category,
-    //   language: template.language,
-    //   components: [
-    //     {
-    //       type: "BODY",
-    //       text: template.body,
-    //     },
-    //   ],
-    //   example: {
-    //     body_text: template.variables,
-    //   },
-    // };
-
-    // const payload = {
-    //   name: template.name.toLowerCase().replace(/\s+/g, "_"),
-    //   category: template.category,
-    //   language: template.language || "en_US",
-    //   components: [
-    //     {
-    //       type: "BODY",
-    //       text: template.body,
-
-    //       // ✅ FIX: example inside BODY + correct format
-    //       ...(template.variables &&
-    //         template.variables.length > 0 && {
-    //           example: {
-    //             body_text: [template.variables], // 🔥 IMPORTANT FIX
-    //           },
-    //         }),
-    //     },
-    //   ],
-    // };
-
     // 🔧 Format text (IMPORTANT)
     const formattedText = template.body
       .replace(/\r\n/g, "\n") // windows support
@@ -385,6 +336,48 @@ exports.submitToMeta = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Submit to Meta error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.syncFromMeta = async (req, res) => {
+  try {
+    const metaTemplates = await fetchMetaTemplates();
+
+    for (const mt of metaTemplates) {
+      // ✅ extract body
+      const bodyComponent = mt.components?.find((c) => c.type === "BODY");
+      const bodyText = bodyComponent?.text || "";
+
+      // ✅ check existing
+      const existing = await Template.findByMetaId(mt.id, mt.name);
+
+      if (!existing) {
+        // 🔥 CREATE
+        await Template.create({
+          name: mt.name,
+          label: mt.name,
+          category: mt.category,
+          language: mt.language,
+          body: bodyText,
+          status: mt.status,
+          meta_id: mt.id,
+        });
+      } else {
+        // 🔄 UPDATE
+        await Template.update(existing.id, {
+          status: mt.status,
+          body: bodyText,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Meta templates synced successfully",
+    });
+  } catch (err) {
+    console.error("❌ Sync From Meta Error:", err);
     res.status(500).json({ error: err.message });
   }
 };

@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const Template = require("../models/template.Model");
 const { getTemplateStatus } = require("../integrations/whatsapp");
+const { syncFromMeta } = require("../controllers/templates.Controller");
 
 async function syncTemplates() {
   try {
@@ -11,7 +12,7 @@ async function syncTemplates() {
       "PENDING",
       "IN_APPEAL",
     ]);
-      
+
     for (const template of pendingTemplates) {
       if (!template.meta_id) {
         console.log(`⚠️ Skipping ${template.name} (no meta_id)`);
@@ -50,5 +51,10 @@ async function syncTemplates() {
 
 // ⏰ Run every 2 minutes
 cron.schedule("*/2 * * * *", syncTemplates);
+
+cron.schedule("*/1 * * * *", async () => {
+  console.log("🔄 Auto syncing templates...");
+  await syncFromMeta({}, { json: () => {} });
+});
 
 module.exports = syncTemplates;
