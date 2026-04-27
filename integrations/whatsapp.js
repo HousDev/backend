@@ -323,7 +323,6 @@
 const axios = require("axios");
 const db = require("../config/database");
 const { emitToUser } = require("../utils/socket");
-const { processChatbotMessage } = require("../services/chatbotService");
 
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
@@ -481,6 +480,11 @@ async function handleWebhook(req, res) {
               "UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?",
               [text, contactId],
             );
+
+            // ✅ IMPORTANT: Require inside function to avoid circular dependency
+            const {
+              processChatbotMessage,
+            } = require("../services/chatbotService");
 
             // Process chatbot
             try {
