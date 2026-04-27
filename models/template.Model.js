@@ -506,7 +506,7 @@ const Template = {
   findAll: async () => {
     try {
       const [rows] = await db.query(
-        `SELECT * FROM templates_wa ORDER BY created_at DESC`,
+        `SELECT * FROM templates_wa where is_deleted = 0 ORDER BY created_at DESC`,
       );
       return rows.map((row) => Template._parseRow(row));
     } catch (error) {
@@ -654,8 +654,9 @@ const Template = {
         lto_has_expiry,
         lto_expiration_time_ms,
         lto_coupon_code,
-        meta_template_id,
+        meta_id,
       } = data;
+      const meta_template_id = meta_id; // For backward compatibility
 
       const [result] = await db.query(
         `INSERT INTO templates_wa 
@@ -664,8 +665,8 @@ const Template = {
          body, footer, buttons, variables,
          location_name, location_address, location_lat, location_lng,
          carousel_cards, lto_has_expiry, lto_expiration_time_ms, lto_coupon_code,
-         meta_template_id, usage_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(), NOW())`,
+         meta_template_id, meta_id, usage_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(), NOW())`,
         [
           name,
           label || name,
@@ -689,6 +690,7 @@ const Template = {
           lto_expiration_time_ms || null,
           lto_coupon_code || null,
           meta_template_id || null,
+          meta_id || null,
         ],
       );
 
@@ -766,7 +768,8 @@ const Template = {
 
   delete: async (id) => {
     try {
-      await db.query("DELETE FROM templates_wa WHERE id = ?", [id]);
+      console.log("delete : ",id)
+      await db.query("update templates_wa set is_deleted = 1 WHERE id = ?", [id]);
       return true;
     } catch (error) {
       console.error("Error in delete:", error);

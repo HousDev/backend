@@ -1,4 +1,5 @@
 const Template = require("../models/template.Model");
+const db = require("../config/database");
 const {
   submitTemplateToMeta,
   getTemplateStatus,
@@ -340,44 +341,107 @@ exports.submitToMeta = async (req, res) => {
   }
 };
 
+// exports.syncFromMeta = async (req, res) => {
+//   try {
+//     const metaTemplates = await fetchMetaTemplates();
+
+//     for (const mt of metaTemplates) {
+//       // ✅ extract body
+//       const bodyComponent = mt.components?.find((c) => c.type === "BODY");
+//       const bodyText = bodyComponent?.text || "";
+
+//       // ✅ check existing
+//       const existing = await Template.findByMetaId(mt.id, mt.name);
+
+//       if (!existing) {
+//         // 🔥 CREATE
+//         await Template.create({
+//           name: mt.name,
+//           label: mt.name,
+//           category: mt.category,
+//           language: mt.language,
+//           body: bodyText,
+//           status: mt.status,
+//           meta_id: mt.id,
+//         });
+//       } else {
+//         // 🔄 UPDATE
+//         await Template.update(existing.id, {
+//           status: mt.status,
+//           body: bodyText,
+//         });
+//       }
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Meta templates synced successfully",
+//     });
+//   } catch (err) {
+//     console.error("❌ Sync From Meta Error:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.syncFromMeta = async (req, res) => {
   try {
     const metaTemplates = await fetchMetaTemplates();
-
+    // console.log(metaTemplates);
+    const metaIds = metaTemplates.map((t) => t.id); // ✅ STEP 1
+    // console.log("ids", metaIds);
+    // -----------------------------
+    // ✅ CREATE / UPDATE LOOP
+    // -----------------------------
     for (const mt of metaTemplates) {
-      // ✅ extract body
-      const bodyComponent = mt.components?.find((c) => c.type === "BODY");
-      const bodyText = bodyComponent?.text || "";
+      try {
+        // console.log(mt);
+        const bodyComponent = mt.components?.find((c) => c.type === "BODY");
+        const bodyText = bodyComponent?.text || "";
 
-      // ✅ check existing
-      const existing = await Template.findByMetaId(mt.id, mt.name);
-
-      if (!existing) {
-        // 🔥 CREATE
-        await Template.create({
-          name: mt.name,
-          label: mt.name,
-          category: mt.category,
-          language: mt.language,
-          body: bodyText,
-          status: mt.status,
-          meta_id: mt.id,
-        });
-      } else {
-        // 🔄 UPDATE
-        await Template.update(existing.id, {
-          status: mt.status,
-          body: bodyText,
-        });
+        const existing = await Template.findByMetaId(mt.id);
+        // console.log(existing);
+        if (!existing) {
+          await Template.create({
+            name: mt.name,
+            label: mt.name,
+            category: mt.category,
+            language: mt.language,
+            body: bodyText,
+            status: mt.status,
+            meta_id: mt.id,
+          });
+        }
+        // else {
+        //   await Template.update(existing.id, {
+        //     status: mt.status,
+        //     body: bodyText,
+        //     is_deleted: 0, // 🔥 restore if was deleted
+        //   });
+        // }
+      } catch (err) {
+        console.log("⚠️ Skip:", mt.name, err.code);
+        continue;
       }
     }
+    const placeholders = metaIds.map(() => "?").join(",");
+    // -----------------------------
+    // ❌ DELETE SYNC (IMPORTANT)
+    // -----------------------------
+    await db.query(
+      `
+      DELETE FROM templates_wa
+      WHERE meta_id IS NOT NULL
+      AND meta_id NOT IN (${placeholders})
+    `,
+      metaIds,
+    );
 
     res.json({
       success: true,
-      message: "Meta templates synced successfully",
+      message: "Sync completed (create/update/delete)",
     });
   } catch (err) {
-    console.error("❌ Sync From Meta Error:", err);
+    console.error("❌ Sync Error:", err);
     res.status(500).json({ error: err.message });
   }
 };

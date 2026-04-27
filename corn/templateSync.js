@@ -52,7 +52,7 @@ async function syncTemplates() {
 // ⏰ Run every 2 minutes
 cron.schedule("*/2 * * * *", syncTemplates);
 
-cron.schedule("*/1 * * * *", async () => {
+cron.schedule("*/5 * * * *", async () => {
   console.log("🔄 Auto syncing templates...");
   await syncFromMeta({}, { json: () => {} });
 });

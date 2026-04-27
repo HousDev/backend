@@ -54,6 +54,7 @@ const http = require("http");
 const { initSocket } = require("./utils/socket");
 const templateSync = require("./corn/templateSync");
 
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -132,12 +133,20 @@ app.use("/api/integrations", integrationRoutes);
 app.use("/api/contacts", require("./routes/contacts.routes"));
 app.use("/api/messages", require("./routes/messages.routes"));
 app.use("/api/templates", require("./routes/templates.routes"));
+
+app.use("/api/campaigns", require("./routes/campaigns"));
+app.use("/api/chatbot", require("./routes/chatbot.routes"));
+
+app.use("/api/webhook", require("./routes/webhook"));
+
+
+
 app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
 app.use("/api/rules", require("./routes/rules.routes"));
 app.use("/api/analytics", require("./routes/analytics.routes"));
+
 // Add this with other routes
-app.use('/api/campaigns', require('./routes/campaigns'));
-app.use("/api/webhook", require("./routes/webhook"));
+
 
 app.use("/api/rbac", rbacRoutes);
 // for use for loacal
