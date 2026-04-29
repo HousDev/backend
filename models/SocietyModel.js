@@ -2,7 +2,6 @@
 // const { v4: uuidv4 } = require("uuid");
 
 // const SocietyModel = {
-//   // Create
 //   createSociety: async (data) => {
 //     const id = uuidv4();
 //     const [result] = await pool.query(
@@ -21,7 +20,6 @@
 //     return id;
 //   },
 
-//   // Read All
 //   getAllSocieties: async () => {
 //     const [rows] = await pool.query(
 //       "SELECT * FROM societies ORDER BY created_at DESC",
@@ -29,7 +27,6 @@
 //     return rows;
 //   },
 
-//   // Read By ID
 //   getSocietyById: async (id) => {
 //     const [rows] = await pool.query("SELECT * FROM societies WHERE id = ?", [
 //       id,
@@ -37,7 +34,6 @@
 //     return rows[0];
 //   },
 
-//   // Update
 //   updateSociety: async (id, data) => {
 //     const [result] = await pool.query(
 //       `UPDATE societies SET
@@ -59,7 +55,6 @@
 //     return result.affectedRows;
 //   },
 
-//   // Delete
 //   deleteSociety: async (id) => {
 //     const [result] = await pool.query("DELETE FROM societies WHERE id = ?", [
 //       id,
@@ -67,7 +62,6 @@
 //     return result.affectedRows;
 //   },
 
-//   // Search/Filter
 //   searchSocieties: async (searchTerm) => {
 //     const [rows] = await pool.query(
 //       `SELECT * FROM societies
@@ -86,7 +80,6 @@
 //     return rows;
 //   },
 
-//   // Get by Pincode
 //   getSocietiesByPincode: async (pincode) => {
 //     const [rows] = await pool.query(
 //       "SELECT * FROM societies WHERE pincode = ? ORDER BY society_name",
@@ -95,7 +88,6 @@
 //     return rows;
 //   },
 
-//   // Get by City
 //   getSocietiesByCity: async (city) => {
 //     const [rows] = await pool.query(
 //       "SELECT * FROM societies WHERE city = ? ORDER BY society_name",
@@ -127,6 +119,33 @@ const SocietyModel = {
       ],
     );
     return id;
+  },
+
+  // 🔥 NEW: Check duplicate society by all fields
+  checkDuplicate: async (societyName, locality, city, pincode) => {
+    const [rows] = await pool.query(
+      `SELECT * FROM societies 
+       WHERE society_name = ? 
+       AND locality = ? 
+       AND city = ? 
+       AND pincode = ?`,
+      [societyName, locality, city, pincode],
+    );
+    return rows[0];
+  },
+
+  // 🔥 NEW: Check duplicate for update (exclude current ID)
+  checkDuplicateForUpdate: async (id, societyName, locality, city, pincode) => {
+    const [rows] = await pool.query(
+      `SELECT * FROM societies 
+       WHERE society_name = ? 
+       AND locality = ? 
+       AND city = ? 
+       AND pincode = ?
+       AND id != ?`,
+      [societyName, locality, city, pincode, id],
+    );
+    return rows[0];
   },
 
   getAllSocieties: async () => {
