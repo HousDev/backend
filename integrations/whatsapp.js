@@ -412,15 +412,84 @@
 //   fetchMetaTemplates,
 // };
 
+
 const axios = require("axios");
 const db = require("../config/database");
 const { emitToUser, emitToContactRoom } = require("../utils/socket");
-
+const fs = require('fs');        // ← ADD THIS LINE
+const FormData = require('form-data');
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
 const API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
+// Send media message (Image, Video, Audio, Document)
+async function sendMediaMessage(to, filePath, mimeType, caption = '') {
+  const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+  
+  // Determine media type from mimeType
+let mediaType = 'document';
+if (['image/jpeg', 'image/png', 'image/jpg', 'image/gif'].includes(mimeType)) {
+  mediaType = 'image';
+} else if (mimeType.startsWith('video/')) {
+  mediaType = 'video';
+} else if (mimeType.startsWith('audio/')) {
+  mediaType = 'audio';
+}
+  
+  try {
+    // Step 1: Upload media to WhatsApp
+    const mediaUrl = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/media`;
+    const formData = new FormData();
+    formData.append('messaging_product', 'whatsapp');
+    formData.append('file', fs.createReadStream(filePath));
+    formData.append('type', mimeType);
+    
+    const uploadResponse = await axios.post(mediaUrl, formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+      },
+    });
+    
+    const mediaId = uploadResponse.data.id;
+    console.log('📤 Media uploaded, ID:', mediaId);
+    
+  const mediaPayload = { id: mediaId };
 
+if (mediaType === 'document') {
+  // Always use original filename from path, not caption
+  mediaPayload.filename = require('path').basename(filePath)
+    .replace(/^file-\d+-\d+-/, '');  // strip the multer prefix like "file-1778304324172-969728086-"
+} else if (caption) {
+  mediaPayload.caption = caption;
+}
+
+const payload = {
+  messaging_product: 'whatsapp',
+  to: to,
+  type: mediaType,
+  [mediaType]: mediaPayload
+};
+    
+    const response = await axios.post(url, payload, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    });
+    
+    const messageId = response.data.messages[0].id;
+    console.log("📤 Media message sent, ID:", messageId);
+    
+    // Step 3: Save to database
+   
+    
+    return messageId;
+  } catch (error) {
+    console.error("❌ sendMediaMessage error:", error.response?.data || error.message);
+    throw error;
+  }
+}
 // Send text message
 async function sendTextMessage(to, text) {
   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
@@ -749,6 +818,7 @@ async function getTemplateStatus(metaId) {
 module.exports = {
   sendTextMessage,
   sendTemplateMessage,
+  sendMediaMessage,
   submitTemplateToMeta,
   getTemplateStatus,
   verifyWebhook,

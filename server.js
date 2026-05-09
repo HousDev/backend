@@ -10,7 +10,7 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 // const path = require("path");   //for local
 
-const fs = require("fs"); //for server
+const fs = require("fs"); 
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
