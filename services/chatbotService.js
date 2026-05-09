@@ -290,7 +290,7 @@ const {
 const Contact = require("../models/contact.Model");
 const { sendTextMessage } = require("../integrations/whatsapp");
 
-// ================= HELPER: REPLACE VARIABLES =================
+// ================= HELPER =================
 function replaceVariables(text, contact) {
   if (!text) return text;
 
@@ -320,7 +320,7 @@ async function processChatbotMessage(contactId, message) {
     let conversation =
       await ChatbotConversation.findActiveByContact(contactId);
 
-    // 🔥 अगर completed conversation है → ignore करो
+    // 🔥 अगर completed है तो नया flow शुरू होगा
     if (conversation && conversation.status === "completed") {
       conversation = null;
     }
@@ -330,7 +330,7 @@ async function processChatbotMessage(contactId, message) {
     // ================= START NEW FLOW =================
     if (!conversation) {
       let flows = await ChatbotFlow.findActiveByKeyword(
-        message.toLowerCase()
+        String(message).toLowerCase()
       );
 
       flow =
@@ -350,7 +350,10 @@ async function processChatbotMessage(contactId, message) {
       const steps = await ChatbotStep.findByFlowId(flow.id);
 
       if (!steps || steps.length === 0) {
-        return { processed: false, error: "No steps found" };
+        return {
+          processed: false,
+          error: "No steps found",
+        };
       }
 
       const firstStep = steps[0];
@@ -371,8 +374,15 @@ async function processChatbotMessage(contactId, message) {
 
       await executeStep(contact, firstStep, conversation, null);
     } else {
-      // ================= CONTINUE EXISTING FLOW =================
+      // ================= CONTINUE FLOW =================
       flow = await ChatbotFlow.findById(conversation.flow_id);
+
+      if (!flow) {
+        return {
+          processed: false,
+          error: "Flow not found",
+        };
+      }
 
       const steps = await ChatbotStep.findByFlowId(flow.id);
 
@@ -380,14 +390,23 @@ async function processChatbotMessage(contactId, message) {
         (s) => s.id === conversation.current_step_id
       );
 
-      if (currentStep) {
-        await processUserResponse(
-          contact,
-          currentStep,
-          conversation,
-          message
-        );
+      if (!currentStep) {
+        await ChatbotConversation.update(conversation.id, {
+          status: "completed",
+        });
+
+        return {
+          processed: false,
+          error: "Current step not found",
+        };
       }
+
+      await processUserResponse(
+        contact,
+        currentStep,
+        conversation,
+        message
+      );
     }
 
     return { processed: true };
@@ -402,122 +421,212 @@ async function processChatbotMessage(contactId, message) {
 }
 
 // ================= EXECUTE STEP =================
-async function executeStep(contact, step, conversation, userResponse) {
-  switch (step.step_type) {
-    // ================= MESSAGE =================
-    case "message": {
-      const finalMessage = replaceVariables(
-        step.message_text || "",
-        contact
-      );
-
-      console.log("📤 Sending message:", finalMessage);
-
-      await sendTextMessage(contact.phone, finalMessage);
-
-      // 🔥 ONLY move if next_step_index exists
-      if (
-        step.next_step_index !== null &&
-        step.next_step_index !== undefined
-      ) {
-        await moveToNextStep(contact, step, conversation);
-      }
-
-      break;
-    }
-
-    // ================= QUESTION =================
-    case "question": {
-      const finalQuestion = replaceVariables(
-        step.message_text || "",
-        contact
-      );
-
-      console.log("📤 Asking question:", finalQuestion);
-
-      await sendTextMessage(contact.phone, finalQuestion);
-
-      break;
-    }
-
-    // ================= CONDITION =================
-    case "condition": {
-      console.log("🔍 CONDITION STEP");
-
-      let conditions = step.conditions || {};
-
-      // 🔥 parse JSON if string
-      if (typeof conditions === "string") {
-        try {
-          conditions = JSON.parse(conditions);
-        } catch (err) {
-          console.error("❌ Condition JSON parse error:", err);
-          return;
-        }
-      }
-
-      console.log("📌 Conditions:", conditions);
-      console.log("📌 User Response:", userResponse);
-
-      const nextIndex = conditions[userResponse];
-
-      console.log("📌 Next Index:", nextIndex);
-
-      if (nextIndex === undefined || nextIndex === null) {
-        await sendTextMessage(
-          contact.phone,
-          "Please reply with a valid option."
+async function executeStep(
+  contact,
+  step,
+  conversation,
+  userResponse
+) {
+  try {
+    switch (step.step_type) {
+      // ================= MESSAGE =================
+      case "message": {
+        const finalMessage = replaceVariables(
+          step.message_text || "",
+          contact
         );
 
-        return;
+        console.log("📤 Sending message:", finalMessage);
+
+        await sendTextMessage(contact.phone, finalMessage);
+
+        // 🔥 अगर next step है → move
+        if (
+          step.next_step_index !== null &&
+          step.next_step_index !== undefined
+        ) {
+          await moveToNextStep(
+            contact,
+            step,
+            conversation
+          );
+        } else {
+          // 🔥 LAST STEP COMPLETE
+          await ChatbotConversation.update(
+            conversation.id,
+            {
+              status: "completed",
+            }
+          );
+
+          console.log(
+            "✅ Conversation completed"
+          );
+        }
+
+        break;
       }
 
-      const steps = await ChatbotStep.findByFlowId(
-        conversation.flow_id
-      );
+      // ================= QUESTION =================
+      case "question": {
+        const finalQuestion = replaceVariables(
+          step.message_text || "",
+          contact
+        );
 
-      const nextStep = steps.find(
-        (s) => s.step_index === Number(nextIndex)
-      );
+        console.log(
+          "📤 Asking question:",
+          finalQuestion
+        );
 
-      if (!nextStep) {
-        console.log("❌ Next step not found");
-        return;
+        await sendTextMessage(
+          contact.phone,
+          finalQuestion
+        );
+
+        break;
       }
 
-      await ChatbotConversation.update(conversation.id, {
-        current_step_id: nextStep.id,
-      });
+      // ================= CONDITION =================
+      case "condition": {
+        console.log("🔍 CONDITION STEP");
 
-      await executeStep(
-        contact,
-        nextStep,
-        conversation,
-        userResponse
-      );
+        let conditions = step.conditions || {};
 
-      break;
+        // parse JSON if string
+        if (typeof conditions === "string") {
+          try {
+            conditions = JSON.parse(conditions);
+          } catch (err) {
+            console.error(
+              "❌ Condition parse error:",
+              err
+            );
+
+            return;
+          }
+        }
+
+        const cleanResponse = String(
+          userResponse
+        ).trim();
+
+        console.log(
+          "📌 User Response:",
+          cleanResponse
+        );
+
+        console.log(
+          "📌 Conditions:",
+          conditions
+        );
+
+        const nextIndex =
+          conditions[cleanResponse] ??
+          conditions[Number(cleanResponse)];
+
+        console.log(
+          "📌 Next Index:",
+          nextIndex
+        );
+
+        if (
+          nextIndex === undefined ||
+          nextIndex === null
+        ) {
+          await sendTextMessage(
+            contact.phone,
+            "Please reply with a valid option."
+          );
+
+          return;
+        }
+
+        const steps =
+          await ChatbotStep.findByFlowId(
+            conversation.flow_id
+          );
+
+        const nextStep = steps.find(
+          (s) =>
+            s.step_index === Number(nextIndex)
+        );
+
+        if (!nextStep) {
+          console.log(
+            "❌ Next step not found"
+          );
+
+          await ChatbotConversation.update(
+            conversation.id,
+            {
+              status: "completed",
+            }
+          );
+
+          return;
+        }
+
+        await ChatbotConversation.update(
+          conversation.id,
+          {
+            current_step_id: nextStep.id,
+          }
+        );
+
+        await executeStep(
+          contact,
+          nextStep,
+          conversation,
+          cleanResponse
+        );
+
+        break;
+      }
+
+      // ================= END =================
+      case "end": {
+        console.log("🏁 Flow completed");
+
+        await ChatbotConversation.update(
+          conversation.id,
+          {
+            status: "completed",
+          }
+        );
+
+        break;
+      }
+
+      // ================= DEFAULT =================
+      default: {
+        console.log(
+          "⚠ Unknown step type:",
+          step.step_type
+        );
+
+        await ChatbotConversation.update(
+          conversation.id,
+          {
+            status: "completed",
+          }
+        );
+
+        break;
+      }
     }
+  } catch (err) {
+    console.error(
+      "❌ executeStep Error:",
+      err
+    );
 
-    // ================= END =================
-    case "end": {
-      console.log("🏁 Flow completed");
-
-      await ChatbotConversation.update(conversation.id, {
+    await ChatbotConversation.update(
+      conversation.id,
+      {
         status: "completed",
-      });
-
-      break;
-    }
-
-    // ================= DEFAULT =================
-    default: {
-      console.log("⚠ Unknown step type:", step.step_type);
-
-      await moveToNextStep(contact, step, conversation);
-
-      break;
-    }
+      }
+    );
   }
 }
 
@@ -531,41 +640,63 @@ async function moveToNextStep(
     conversation.flow_id
   );
 
-  let nextIndex = currentStep.next_step_index;
+  const nextIndex =
+    currentStep.next_step_index;
 
+  // 🔥 अगर next नहीं है → complete
   if (
     nextIndex === null ||
     nextIndex === undefined
   ) {
+    await ChatbotConversation.update(
+      conversation.id,
+      {
+        status: "completed",
+      }
+    );
+
     return;
   }
 
   const nextStep = steps.find(
-    (s) => s.step_index === Number(nextIndex)
+    (s) =>
+      s.step_index === Number(nextIndex)
   );
 
   if (!nextStep) {
-    console.log("❌ No next step found");
+    console.log(
+      "❌ No next step found"
+    );
 
-    await ChatbotConversation.update(conversation.id, {
-      status: "completed",
-    });
+    await ChatbotConversation.update(
+      conversation.id,
+      {
+        status: "completed",
+      }
+    );
 
     return;
   }
 
-  await ChatbotConversation.update(conversation.id, {
-    current_step_id: nextStep.id,
-  });
+  await ChatbotConversation.update(
+    conversation.id,
+    {
+      current_step_id: nextStep.id,
+    }
+  );
 
-  // 🔥 ONLY auto execute MESSAGE step
-  if (nextStep.step_type === "message") {
-    await executeStep(contact, nextStep, conversation, null);
+  // 🔥 auto execute
+  if (
+    nextStep.step_type === "message" ||
+    nextStep.step_type === "condition"
+  ) {
+    await executeStep(
+      contact,
+      nextStep,
+      conversation,
+      null
+    );
   }
-
-  // ❌ DO NOT auto execute:
-  // question
-  // condition
 }
 
 // ================= PROCESS USER RESPONSE =================
@@ -575,52 +706,98 @@ async function processUserResponse(
   conversation,
   userResponse
 ) {
-  console.log("📩 User Response:", userResponse);
-  console.log("📌 Current Step Type:", currentStep.step_type);
-
-  let variables = {};
-
-  if (conversation.variables) {
-    try {
-      variables =
-        typeof conversation.variables === "string"
-          ? JSON.parse(conversation.variables)
-          : conversation.variables;
-    } catch (err) {
-      console.log("❌ Variable parse error:", err);
-    }
-  }
-
-  // ================= CONDITION =================
-  if (currentStep.step_type === "condition") {
-    await executeStep(
-      contact,
-      currentStep,
-      conversation,
+  try {
+    console.log(
+      "📩 User Response:",
       userResponse
     );
 
-    return;
-  }
+    console.log(
+      "📌 Current Step Type:",
+      currentStep.step_type
+    );
 
-  // ================= QUESTION =================
-  if (currentStep.step_type === "question") {
-    if (currentStep.save_response_as) {
-      variables[currentStep.save_response_as] =
-        userResponse;
+    let variables = {};
 
-      await ChatbotConversation.update(conversation.id, {
-        variables: JSON.stringify(variables),
-      });
+    if (conversation.variables) {
+      try {
+        variables =
+          typeof conversation.variables ===
+          "string"
+            ? JSON.parse(
+                conversation.variables
+              )
+            : conversation.variables;
+      } catch (err) {
+        console.log(
+          "❌ Variable parse error:",
+          err
+        );
+      }
     }
 
-    await moveToNextStep(contact, currentStep, conversation);
+    // ================= CONDITION =================
+    if (
+      currentStep.step_type ===
+      "condition"
+    ) {
+      await executeStep(
+        contact,
+        currentStep,
+        conversation,
+        userResponse
+      );
 
-    return;
+      return;
+    }
+
+    // ================= QUESTION =================
+    if (
+      currentStep.step_type ===
+      "question"
+    ) {
+      if (currentStep.save_response_as) {
+        variables[
+          currentStep.save_response_as
+        ] = userResponse;
+
+        await ChatbotConversation.update(
+          conversation.id,
+          {
+            variables:
+              JSON.stringify(variables),
+          }
+        );
+      }
+
+      await moveToNextStep(
+        contact,
+        currentStep,
+        conversation
+      );
+
+      return;
+    }
+
+    // ================= MESSAGE =================
+    await moveToNextStep(
+      contact,
+      currentStep,
+      conversation
+    );
+  } catch (err) {
+    console.error(
+      "❌ processUserResponse Error:",
+      err
+    );
+
+    await ChatbotConversation.update(
+      conversation.id,
+      {
+        status: "completed",
+      }
+    );
   }
-
-  // ================= MESSAGE =================
-  await moveToNextStep(contact, currentStep, conversation);
 }
 
 module.exports = {
