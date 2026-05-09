@@ -182,6 +182,26 @@ const ensureUploadDir = (...parts) => {
   return dir;
 };
 
+const uploadMedia = multer({
+  storage: makeStorage('messages'),
+  limits: { fileSize: 16 * 1024 * 1024 }, // 16MB
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif',
+      'video/mp4', 'video/3gpp', 'video/quicktime',
+      'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain', 'text/csv',
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('File type not allowed'));
+  },
+});
+
 /**
  * makeUploadTarget('documents', docId, 'original.pdf') =>
  *   { dir, absPath, publicUrl }
@@ -206,6 +226,7 @@ module.exports = {
   uploadAvatar, // user avatars
   uploadBlog, // blog featured image
   uploadHero, // ✅ hero images
+  uploadMedia,
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,
