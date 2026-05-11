@@ -60,7 +60,7 @@ const integrationRoutes = require("./routes/integration.routes");
 const http = require("http");
 // const { initSocket } = require("./utils/socket");
 const templateSync = require("./corn/templateSync");
-
+require("./corn/chatbotCleanup");
 const societyRoutes = require("./routes/SocietyRoutes");
 
 
