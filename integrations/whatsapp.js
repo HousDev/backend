@@ -415,13 +415,24 @@
 
 const axios = require("axios");
 const db = require("../config/database");
-const { emitToUser, emitToContactRoom } = require("../utils/socket");
+// const { emitToUser, emitToContactRoom } = require("../utils/socket");
 const fs = require('fs');        // ← ADD THIS LINE
 const FormData = require('form-data');
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
 const API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
+
+
+function emitToUser(userId, event, payload) {
+  if (!global.io) return;
+  global.io.to(`user:${userId}`).emit(event, payload);
+}
+
+function emitToContactRoom(contactId, event, payload) {
+  if (!global.io) return;
+  global.io.to(`contact:${contactId}`).emit(event, payload);
+}
 // Send media message (Image, Video, Audio, Document)
 async function sendMediaMessage(to, filePath, mimeType, caption = '') {
   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
@@ -511,32 +522,24 @@ async function sendTextMessage(to, text) {
     const messageId = response.data.messages[0].id;
     console.log("📤 Message sent, ID:", messageId);
 
-    // ✅ Save outgoing message to database
+    // ❌ REMOVED - Database insert is now handled by sendMessage controller
+    // This prevents duplicate messages and ensures sender_name is saved correctly
+    
+    // ✅ Keep ONLY the socket emit functionality (optional - can also be removed if controller handles it)
     const [contact] = await db.query(
       "SELECT id FROM contacts_wa WHERE phone = ?",
       [to],
     );
 
     if (contact.length > 0) {
-      await db.query(
-        `INSERT INTO messages_wa 
-         (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent) 
-         VALUES (?, 'out', ?, ?, 'sent', 1, NOW())`,
-        [contact[0].id, text, messageId],
-      );
-      console.log(
-        "💾 Outgoing message saved to DB for contact:",
-        contact[0].id,
-      );
-
-      // Get assigned user
+      // Get assigned user for socket emit only
       const [assignedResult] = await db.query(
         "SELECT assigned_to FROM contacts_wa WHERE id = ?",
         [contact[0].id],
       );
       const assignedTo = assignedResult[0]?.assigned_to;
 
-      // Emit socket event for real-time update
+      // Emit socket event for real-time update (optional - controller also emits)
       if (assignedTo) {
         emitToUser(assignedTo, "chat_update", {
           contact_id: contact[0].id,

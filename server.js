@@ -10,10 +10,17 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 // const path = require("path");   //for local
 
-const fs = require("fs"); 
-
+const fs = require("fs");
+//---SERVER CONFIG---
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
-const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; // URL base
+const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; 
+
+//USE FOR LOCAL DEV (overrides .env for easier testing)
+// const UPLOAD_ROOT = process.env.UPLOAD_ROOT 
+//   ? require('path').resolve(process.env.UPLOAD_ROOT)
+//   : require('path').join(__dirname, 'uploads');
+// const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
+
 
 // Routes
 const masterRoutes = require("./routes/masterRoutes");
@@ -51,8 +58,9 @@ const rbacRoutes = require("./routes/rbacRoutes");
 const integrationRoutes = require("./routes/integration.routes");
 
 const http = require("http");
-const { initSocket } = require("./utils/socket");
+// const { initSocket } = require("./utils/socket");
 const templateSync = require("./corn/templateSync");
+
 const societyRoutes = require("./routes/SocietyRoutes");
 
 
@@ -150,6 +158,7 @@ app.use("/api/analytics", require("./routes/analytics.routes"));
 
 
 app.use("/api/rbac", rbacRoutes);
+
 // for use for loacal
 // app.use(
 //   '/uploads',
@@ -171,6 +180,7 @@ app.use(
           "blob:",
           "https://resaleexpert.in",
           "https://resaleexpert.in",
+           "http://localhost:3000",
           "http://localhost:5173/",
         ],
         "style-src": ["'self'", "https:", "'unsafe-inline'"],
@@ -182,22 +192,17 @@ app.use(
 );
 
 
-const { emitToUser } = require("./utils/socket");
+// const { emitToUser } = require("./utils/socket");
 
 app.get("/test-socket", (req, res) => {
   const userId = "1";
-
-  console.log("🔥 TEST EMIT TO:", userId);
-
-  emitToUser(userId, "chat_update", {
-    contact_id: 999,
-    text: "Hello from app.get 🚀",
-  });
-
-  res.json({
-    success: true,
-    message: "Socket test triggered",
-  });
+  if (global.io) {
+    global.io.to(`user:${userId}`).emit("chat_update", {
+      contact_id: 999,
+      text: "Hello from app.get 🚀",
+    });
+  }
+  res.json({ success: true, message: "Socket test triggered" });
 });
 
 app.use(
@@ -265,7 +270,34 @@ app.get("/", (req, res) => {
 const slugRedirect = require("./middleware/slugRedirect");
 
 const server = http.createServer(app);
-initSocket(server);
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || "*",
+    credentials: true,
+  },
+  path: "/socket.io",
+});
+
+global.io = io;
+
+io.on('connection', (socket) => {
+  const { userId } = socket.handshake.query || {};
+  if (!userId) return;
+
+  socket.join(`user:${userId}`);
+
+  socket.on('join_contact_room', (contactId) => {
+    socket.join(`contact:${contactId}`);
+  });
+
+  socket.on('leave_contact_room', (contactId) => {
+    socket.leave(`contact:${contactId}`);
+  });
+});
+
+
+// initSocket(server);
 
 app.use(slugRedirect);
 

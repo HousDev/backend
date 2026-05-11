@@ -144,17 +144,27 @@ const Message = require("../models/message.Model");
 const Contact = require("../models/contact.Model");
 const { sendTextMessage } = require("../integrations/whatsapp");
 const { triggerAutomation } = require("../services/automationEngine");
-const { emitToUser, emitToContactRoom } = require("../utils/socket");
+// const { emitToUser, emitToContactRoom } = require("../utils/socket");
 const db = require("../config/database");
 const path = require('path');
 const { makeUploadTarget } = require('../middleware/upload');
 const fs = require('fs');
 // Add whatsapp media send function - import from your integration
 const { sendMediaMessage } = require('../integrations/whatsapp');
+
+function emitToUser(userId, event, payload) {
+  if (!global.io) return;
+  global.io.to(`user:${userId}`).emit(event, payload);
+}
+
+function emitToContactRoom(contactId, event, payload) {
+  if (!global.io) return;
+  global.io.to(`contact:${contactId}`).emit(event, payload);
+}
 // Send message
 exports.sendMessage = async (req, res) => {
   try {
-    const { contact_id, text, is_note } = req.body;
+    const { contact_id, text, is_note, sender_name } = req.body;
     const contact = await Contact.findById(contact_id);
 
     if (!contact) {
@@ -173,6 +183,7 @@ exports.sendMessage = async (req, res) => {
       direction: is_note ? "note" : "out",
       text: finalText,
       whatsapp_msg_id: whatsappMsgId,
+      sender_name: sender_name || null,
     });
 
     if (!is_note) {
@@ -231,9 +242,9 @@ exports.sendMedia = async (req, res) => {
 
     const contact = await Contact.findById(contact_id);
     if (!contact) {
-      if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      // if (filePath && fs.existsSync(filePath)) {
+      //   fs.unlinkSync(filePath);
+      // }
       return res.status(404).json({ error: 'Contact not found' });
     }
 
@@ -261,15 +272,19 @@ exports.sendMedia = async (req, res) => {
   whatsapp_msg_id: whatsappMsgId,
   media_url: file.publicUrl || null,   // ← ADD
   media_type: file.mimetype || null,   // ← ADD
-  file_name: file.originalname || null, // ← ADD
+  file_name: file.originalname || null,
+  sender_name: req.body.sender_name || null, // ← ADD
 });
 
     await Message.updateLastMessage(contact_id, messageText);
 
     // Clean up file
-    if (filePath && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    // if (filePath && fs.existsSync(filePath)) {
+    //   fs.unlinkSync(filePath);
+    // }
+    if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
+  fs.unlinkSync(filePath);
+}
 
     // Emit socket update
     emitToContactRoom(contact_id, 'chat_update', {
@@ -291,19 +306,26 @@ exports.sendMedia = async (req, res) => {
       file_name: file.originalname,
       status: 'sent',
       timestamp: new Date().toISOString(),
+      sender: { name: req.body.sender_name || 'You' },
     });
     
   } catch (err) {
     console.error('Send media error:', err);
     
-    if (filePath && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup file:', cleanupError);
-      }
-    }
-    
+    // if (filePath && fs.existsSync(filePath)) {
+    //   try {
+    //     fs.unlinkSync(filePath);
+    //   } catch (cleanupError) {
+    //     console.error('Failed to cleanup file:', cleanupError);
+    //   }
+    // }
+    if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
+  try {
+    fs.unlinkSync(filePath);
+  } catch (cleanupError) {
+    console.error('Failed to cleanup file:', cleanupError);
+  }
+}
     res.status(500).json({ error: err.message });
   }
 };
@@ -374,7 +396,7 @@ exports.getUnreadCount = async (req, res) => {
 
 exports.sendLocation = async (req, res) => {
   try {
-    const { contact_id, latitude, longitude, name, address } = req.body;
+    const { contact_id, latitude, longitude, name, address, sender_name } = req.body;  // ← ADD sender_name
     const contact = await Contact.findById(contact_id);
     if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
@@ -401,10 +423,20 @@ exports.sendLocation = async (req, res) => {
     );
 
     const messageText = `📍 Location shared`;
-    await Message.create({ contact_id, direction: 'out', text: messageText, whatsapp_msg_id: response.data.messages[0].id });
+    await Message.create({ 
+      contact_id, 
+      direction: 'out', 
+      text: messageText, 
+      whatsapp_msg_id: response.data.messages[0].id,
+      sender_name: sender_name || null  // ← ADD THIS LINE
+    });
     await Message.updateLastMessage(contact_id, messageText);
 
-    res.json({ success: true, text: messageText });
+    res.json({ 
+      success: true, 
+      text: messageText,
+      sender: { name: sender_name || 'You' }  // ← ADD THIS LINE
+    });
   } catch (err) {
     console.error('Send location error:', err);
     res.status(500).json({ error: err.message });

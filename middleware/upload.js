@@ -7,9 +7,13 @@ const path = require("path");
 const fs = require("fs");
 
 // ======= CONFIG =======
+//-----------------SERVER CONFIG-----------------
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
+//-------LOCAL DEV CONFIG (overrides .env for easier testing)-------
+// const UPLOAD_ROOT = process.env.UPLOAD_ROOT || path.join(__dirname, '..', 'uploads');
+// const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 // Ensure a directory exists
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) {
