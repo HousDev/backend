@@ -319,6 +319,33 @@ async function processChatbotMessage(contactId, message) {
     // ================= FIND ACTIVE CONVERSATION =================
     let conversation =
       await ChatbotConversation.findActiveByContact(contactId);
+// 🔥 restart keywords handling
+const normalizedMessage = String(message)
+  .trim()
+  .toLowerCase();
+
+const restartKeywords = [
+  "hi",
+  "hii",
+  "hello",
+  "start",
+  "menu"
+];
+
+// 🔥 reset stuck conversation
+if (
+  conversation &&
+  restartKeywords.includes(normalizedMessage)
+) {
+  await ChatbotConversation.update(
+    conversation.id,
+    {
+      status: "completed",
+    }
+  );
+
+  conversation = null;
+}
 
     // 🔥 अगर completed है तो नया flow शुरू होगा
     if (conversation && conversation.status === "completed") {
@@ -631,71 +658,40 @@ async function executeStep(
 }
 
 // ================= MOVE TO NEXT STEP =================
-async function moveToNextStep(
-  contact,
-  currentStep,
-  conversation
-) {
-  const steps = await ChatbotStep.findByFlowId(
-    conversation.flow_id
-  );
+async function moveToNextStep(contact, currentStep, conversation) {
+  const steps = await ChatbotStep.findByFlowId(conversation.flow_id);
 
-  const nextIndex =
-    currentStep.next_step_index;
+  const nextIndex = currentStep.next_step_index;
 
   // 🔥 अगर next नहीं है → complete
-  if (
-    nextIndex === null ||
-    nextIndex === undefined
-  ) {
-    await ChatbotConversation.update(
-      conversation.id,
-      {
-        status: "completed",
-      }
-    );
+  if (nextIndex === null || nextIndex === undefined) {
+    await ChatbotConversation.update(conversation.id, {
+      status: "completed",
+    });
 
     return;
   }
 
-  const nextStep = steps.find(
-    (s) =>
-      s.step_index === Number(nextIndex)
-  );
+  const nextStep = steps.find((s) => s.step_index === Number(nextIndex));
 
   if (!nextStep) {
-    console.log(
-      "❌ No next step found"
-    );
+    console.log("❌ No next step found");
 
-    await ChatbotConversation.update(
-      conversation.id,
-      {
-        status: "completed",
-      }
-    );
+    await ChatbotConversation.update(conversation.id, {
+      status: "completed",
+    });
 
     return;
   }
 
-  await ChatbotConversation.update(
-    conversation.id,
-    {
-      current_step_id: nextStep.id,
-    }
-  );
+  await ChatbotConversation.update(conversation.id, {
+    current_step_id: nextStep.id,
+  });
 
   // 🔥 auto execute
-  if (
-    nextStep.step_type === "message" ||
-    nextStep.step_type === "condition"
-  ) {
-    await executeStep(
-      contact,
-      nextStep,
-      conversation,
-      null
-    );
+  // 🔥 ONLY message auto execute
+  if (nextStep.step_type === "message") {
+    await executeStep(contact, nextStep, conversation, null);
   }
 }
 
