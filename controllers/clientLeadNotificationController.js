@@ -1,8 +1,12 @@
 
 
 const NotificationModel = require("../models/clientLeadNotificationModal");
-const { emitToUser } = require("../utils/socket"); // <<< add
+// const { emitToUser } = require("../utils/socket"); // <<< add
 
+function emitToUser(userId, event, payload) {
+  if (!global.io) return;
+  global.io.to(`user:${userId}`).emit(event, payload);
+}
 // ✅ Create Notification
 exports.createNotification = async (req, res) => {
   try {
