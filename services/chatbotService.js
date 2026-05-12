@@ -289,8 +289,7 @@ const {
 
 const Contact = require("../models/contact.Model");
 const { sendTextMessage } = require("../integrations/whatsapp");
-const db = require("../config/database");  // ← YEH ADD KARO
-
+const db = require("../config/database"); 
 // ================= HELPER =================
 function replaceVariables(text, contact) {
   if (!text) return text;
