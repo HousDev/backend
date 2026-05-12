@@ -457,81 +457,75 @@ async function executeStep(
   try {
     switch (step.step_type) {
       // ================= MESSAGE =================
-      case "message": {
-        const finalMessage = replaceVariables(
-          step.message_text || "",
-          contact
-        );
+     case "message": {
+  const finalMessage = replaceVariables(step.message_text || "", contact);
+  console.log("📤 Sending message:", finalMessage);
 
-        console.log("📤 Sending message:", finalMessage);
+  // Send ONCE to WhatsApp
+  const msgId = await sendTextMessage(contact.phone, finalMessage);
 
-        const msgId = await sendTextMessage(contact.phone, finalMessage);  // ← const msgId add karo
-    
-    // ← YEH ADD KARO
-    if (msgId) {
-        await db.query(
-            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
-            [msgId]
-        );
+  if (msgId) {
+    // ✅ INSERT bot message into database (so it persists after refresh)
+    await db.query(
+      `INSERT INTO messages_wa 
+       (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
+       VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
+      [contact.id, finalMessage, msgId]
+    );
+
+    // Optional: emit real‑time update to frontend
+    if (global.io) {
+      global.io.to(`contact:${contact.id}`).emit("chat_update", {
+        contact_id: contact.id,
+        text: finalMessage,
+        direction: "out",
+        timestamp: new Date().toISOString(),
+        isOwnMessage: true,
+        sender_name: "🤖 Bot"
+      });
     }
+  }
 
-        await sendTextMessage(contact.phone, finalMessage);
-
-        // 🔥 अगर next step है → move
-        if (
-          step.next_step_index !== null &&
-          step.next_step_index !== undefined
-        ) {
-          await moveToNextStep(
-            contact,
-            step,
-            conversation
-          );
-        } else {
-          // 🔥 LAST STEP COMPLETE
-          await ChatbotConversation.update(
-            conversation.id,
-            {
-              status: "completed",
-            }
-          );
-
-          console.log(
-            "✅ Conversation completed"
-          );
-        }
-
-        break;
-      }
+  // Move to next step or complete conversation
+  if (step.next_step_index !== null && step.next_step_index !== undefined) {
+    await moveToNextStep(contact, step, conversation);
+  } else {
+    await ChatbotConversation.update(conversation.id, { status: "completed" });
+    console.log("✅ Conversation completed");
+  }
+  break;
+}
 
       // ================= QUESTION =================
-      case "question": {
-        const finalQuestion = replaceVariables(
-          step.message_text || "",
-          contact
-        );
+    case "question": {
+  const finalQuestion = replaceVariables(step.message_text || "", contact);
+  console.log("📤 Asking question:", finalQuestion);
 
-        console.log(
-          "📤 Asking question:",
-          finalQuestion
-        );
+  const msgId = await sendTextMessage(contact.phone, finalQuestion);
 
-        const msgId = await sendTextMessage(contact.phone, finalQuestion);  // ← const msgId add karo
-    
-    // ← YEH ADD KARO
-    if (msgId) {
-        await db.query(
-            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
-            [msgId]
-        );
+  if (msgId) {
+    // ✅ INSERT bot question into database
+    await db.query(
+      `INSERT INTO messages_wa 
+       (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
+       VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
+      [contact.id, finalQuestion, msgId]
+    );
+
+    // Optional: emit real‑time update
+    if (global.io) {
+      global.io.to(`contact:${contact.id}`).emit("chat_update", {
+        contact_id: contact.id,
+        text: finalQuestion,
+        direction: "out",
+        timestamp: new Date().toISOString(),
+        isOwnMessage: true,
+        sender_name: "🤖 Bot"
+      });
     }
-        await sendTextMessage(
-          contact.phone,
-          finalQuestion
-        );
-
-        break;
-      }
+  }
+  break;
+}
 
       // ================= CONDITION =================
       case "condition": {
