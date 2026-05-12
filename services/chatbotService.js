@@ -289,6 +289,7 @@ const {
 
 const Contact = require("../models/contact.Model");
 const { sendTextMessage } = require("../integrations/whatsapp");
+const db = require("../config/database");  // ← YEH ADD KARO
 
 // ================= HELPER =================
 function replaceVariables(text, contact) {
@@ -465,6 +466,16 @@ async function executeStep(
 
         console.log("📤 Sending message:", finalMessage);
 
+        const msgId = await sendTextMessage(contact.phone, finalMessage);  // ← const msgId add karo
+    
+    // ← YEH ADD KARO
+    if (msgId) {
+        await db.query(
+            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
+            [msgId]
+        );
+    }
+
         await sendTextMessage(contact.phone, finalMessage);
 
         // 🔥 अगर next step है → move
@@ -506,6 +517,15 @@ async function executeStep(
           finalQuestion
         );
 
+        const msgId = await sendTextMessage(contact.phone, finalQuestion);  // ← const msgId add karo
+    
+    // ← YEH ADD KARO
+    if (msgId) {
+        await db.query(
+            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
+            [msgId]
+        );
+    }
         await sendTextMessage(
           contact.phone,
           finalQuestion
