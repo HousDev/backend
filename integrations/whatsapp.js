@@ -700,9 +700,25 @@ async function handleWebhook(req, res) {
 
             try {
               await db.query(
-                `UPDATE messages_wa SET status = ?, is_read = ? WHERE whatsapp_msg_id = ?`,
-                [statusType, statusType === "read" ? 1 : 0, messageId],
-              );
+  `UPDATE messages_wa SET status = ?, is_read = ? WHERE whatsapp_msg_id = ?`,
+  [statusType, statusType === "read" ? 1 : 0, messageId],
+);
+
+// ✅ Emit real-time status update to frontend
+try {
+  const [msgRow] = await db.query(
+    `SELECT contact_id FROM messages_wa WHERE whatsapp_msg_id = ?`,
+    [messageId]
+  );
+  if (msgRow.length > 0) {
+    emitToContactRoom(msgRow[0].contact_id, 'message_status_update', {
+      whatsapp_msg_id: messageId,
+      status: statusType,
+    });
+  }
+} catch (e) {
+  console.error('❌ Failed to emit status update:', e);
+}
             } catch (err) {
               console.error("❌ Status update failed:", err);
             }
@@ -747,6 +763,22 @@ async function handleWebhook(req, res) {
               `UPDATE contacts_wa SET last_message = ?, last_contact_time = NOW() WHERE id = ?`,
               [text, contactId],
             );
+
+            // ✅ Emit presence: contact is online when they send a message
+emitToContactRoom(contactId, 'contact_presence', {
+  contact_id: contactId,
+  status: 'online',   // they just messaged = online
+  last_seen: new Date().toISOString(),
+});
+
+// ✅ Auto set offline after 5 minutes
+setTimeout(() => {
+  emitToContactRoom(contactId, 'contact_presence', {
+    contact_id: contactId,
+    status: 'offline',
+    last_seen: new Date().toISOString(),
+  });
+}, 5 * 60 * 1000);
 
             // ✅ Get assigned user
             const [assignedResult] = await db.query(
