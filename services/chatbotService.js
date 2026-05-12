@@ -457,102 +457,81 @@ async function executeStep(
   try {
     switch (step.step_type) {
       // ================= MESSAGE =================
-case "message": {
+      case "message": {
+        const finalMessage = replaceVariables(
+          step.message_text || "",
+          contact
+        );
 
-  const finalMessage = replaceVariables(
-    step.message_text || "",
-    contact
-  );
+        console.log("📤 Sending message:", finalMessage);
 
-  console.log(
-    "📤 Sending message:",
-    finalMessage
-  );
+        const msgId = await sendTextMessage(contact.phone, finalMessage);  // ← const msgId add karo
+    
+    // ← YEH ADD KARO
+    if (msgId) {
+        await db.query(
+            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
+            [msgId]
+        );
+    }
 
-  // ✅ SEND ONLY ONCE
-  const msgId = await sendTextMessage(
-    contact.phone,
-    finalMessage
-  );
+        await sendTextMessage(contact.phone, finalMessage);
 
-  // ✅ UPDATE BOT NAME
-  if (msgId) {
+        // 🔥 अगर next step है → move
+        if (
+          step.next_step_index !== null &&
+          step.next_step_index !== undefined
+        ) {
+          await moveToNextStep(
+            contact,
+            step,
+            conversation
+          );
+        } else {
+          // 🔥 LAST STEP COMPLETE
+          await ChatbotConversation.update(
+            conversation.id,
+            {
+              status: "completed",
+            }
+          );
 
-    await db.query(
-      `
-      UPDATE messages_wa
-      SET sender_name = '🤖 Bot'
-      WHERE whatsapp_msg_id = ?
-      `,
-      [msgId]
-    );
-  }
+          console.log(
+            "✅ Conversation completed"
+          );
+        }
 
-  // 🔥 MOVE NEXT
-  if (
-    step.next_step_index !== null &&
-    step.next_step_index !== undefined
-  ) {
-
-    await moveToNextStep(
-      contact,
-      step,
-      conversation
-    );
-
-  } else {
-
-    await ChatbotConversation.update(
-      conversation.id,
-      {
-        status: "completed",
+        break;
       }
-    );
-
-    console.log(
-      "✅ Conversation completed"
-    );
-  }
-
-  break;
-}
-
 
       // ================= QUESTION =================
-case "question": {
+      case "question": {
+        const finalQuestion = replaceVariables(
+          step.message_text || "",
+          contact
+        );
 
-  const finalQuestion = replaceVariables(
-    step.message_text || "",
-    contact
-  );
+        console.log(
+          "📤 Asking question:",
+          finalQuestion
+        );
 
-  console.log(
-    "📤 Asking question:",
-    finalQuestion
-  );
+        const msgId = await sendTextMessage(contact.phone, finalQuestion);  // ← const msgId add karo
+    
+    // ← YEH ADD KARO
+    if (msgId) {
+        await db.query(
+            `UPDATE messages_wa SET sender_name = '🤖 Bot' WHERE whatsapp_msg_id = ?`,
+            [msgId]
+        );
+    }
+        await sendTextMessage(
+          contact.phone,
+          finalQuestion
+        );
 
-  // ✅ SEND ONLY ONCE
-  const msgId = await sendTextMessage(
-    contact.phone,
-    finalQuestion
-  );
-
-  // ✅ UPDATE BOT NAME
-  if (msgId) {
-
-    await db.query(
-      `
-      UPDATE messages_wa
-      SET sender_name = '🤖 Bot'
-      WHERE whatsapp_msg_id = ?
-      `,
-      [msgId]
-    );
-  }
-
-  break;
-}
-
+        break;
+      }
 
       // ================= CONDITION =================
       case "condition": {
