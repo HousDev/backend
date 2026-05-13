@@ -812,7 +812,6 @@
 // module.exports = {
 //   processChatbotMessage,
 // };
-
 // services/chatbotService.js
 
 const {
@@ -854,33 +853,34 @@ async function processChatbotMessage(contactId, message) {
     // ================= FIND ACTIVE CONVERSATION =================
     let conversation =
       await ChatbotConversation.findActiveByContact(contactId);
-// 🔥 restart keywords handling
-const normalizedMessage = String(message)
-  .trim()
-  .toLowerCase();
+    
+    // 🔥 restart keywords handling
+    const normalizedMessage = String(message)
+      .trim()
+      .toLowerCase();
 
-const restartKeywords = [
-  "hi",
-  "hii",
-  "hello",
-  "start",
-  "menu"
-];
+    const restartKeywords = [
+      "hi",
+      "hii",
+      "hello",
+      "start",
+      "menu"
+    ];
 
-// 🔥 reset stuck conversation
-if (
-  conversation &&
-  restartKeywords.includes(normalizedMessage)
-) {
-  await ChatbotConversation.update(
-    conversation.id,
-    {
-      status: "completed",
+    // 🔥 reset stuck conversation
+    if (
+      conversation &&
+      restartKeywords.includes(normalizedMessage)
+    ) {
+      await ChatbotConversation.update(
+        conversation.id,
+        {
+          status: "completed",
+        }
+      );
+
+      conversation = null;
     }
-  );
-
-  conversation = null;
-}
 
     // 🔥 अगर completed है तो नया flow शुरू होगा
     if (conversation && conversation.status === "completed") {
@@ -992,75 +992,75 @@ async function executeStep(
   try {
     switch (step.step_type) {
       // ================= MESSAGE =================
-     case "message": {
-  const finalMessage = replaceVariables(step.message_text || "", contact);
-  console.log("📤 Sending message:", finalMessage);
+      case "message": {
+        const finalMessage = replaceVariables(step.message_text || "", contact);
+        console.log("📤 Sending message:", finalMessage);
 
-  // Send ONCE to WhatsApp
-  const msgId = await sendTextMessage(contact.phone, finalMessage);
+        // Send ONCE to WhatsApp
+        const msgId = await sendTextMessage(contact.phone, finalMessage);
 
-  if (msgId) {
-    // ✅ INSERT bot message into database (so it persists after refresh)
-    await db.query(
-      `INSERT INTO messages_wa 
-       (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
-       VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
-      [contact.id, finalMessage, msgId]
-    );
+        if (msgId) {
+          // ✅ INSERT bot message into database
+          await db.query(
+            `INSERT INTO messages_wa 
+             (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
+             VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
+            [contact.id, finalMessage, msgId]
+          );
 
-    // Optional: emit real‑time update to frontend
-    if (global.io) {
-      global.io.to(`contact:${contact.id}`).emit("chat_update", {
-        contact_id: contact.id,
-        text: finalMessage,
-        direction: "out",
-        timestamp: new Date().toISOString(),
-        isOwnMessage: true,
-        sender_name: "🤖 Bot"
-      });
-    }
-  }
+          // Optional: emit real‑time update to frontend
+          if (global.io) {
+            global.io.to(`contact:${contact.id}`).emit("chat_update", {
+              contact_id: contact.id,
+              text: finalMessage,
+              direction: "out",
+              timestamp: new Date().toISOString(),
+              isOwnMessage: true,
+              sender_name: "🤖 Bot"
+            });
+          }
+        }
 
-  // Move to next step or complete conversation
-  if (step.next_step_index !== null && step.next_step_index !== undefined) {
-    await moveToNextStep(contact, step, conversation);
-  } else {
-    await ChatbotConversation.update(conversation.id, { status: "completed" });
-    console.log("✅ Conversation completed");
-  }
-  break;
-}
+        // Move to next step or complete conversation
+        if (step.next_step_index !== null && step.next_step_index !== undefined) {
+          await moveToNextStep(contact, step, conversation);
+        } else {
+          await ChatbotConversation.update(conversation.id, { status: "completed" });
+          console.log("✅ Conversation completed");
+        }
+        break;
+      }
 
       // ================= QUESTION =================
-    case "question": {
-  const finalQuestion = replaceVariables(step.message_text || "", contact);
-  console.log("📤 Asking question:", finalQuestion);
+      case "question": {
+        const finalQuestion = replaceVariables(step.message_text || "", contact);
+        console.log("📤 Asking question:", finalQuestion);
 
-  const msgId = await sendTextMessage(contact.phone, finalQuestion);
+        const msgId = await sendTextMessage(contact.phone, finalQuestion);
 
-  if (msgId) {
-    // ✅ INSERT bot question into database
-    await db.query(
-      `INSERT INTO messages_wa 
-       (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
-       VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
-      [contact.id, finalQuestion, msgId]
-    );
+        if (msgId) {
+          // ✅ INSERT bot question into database
+          await db.query(
+            `INSERT INTO messages_wa 
+             (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
+             VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
+            [contact.id, finalQuestion, msgId]
+          );
 
-    // Optional: emit real‑time update
-    if (global.io) {
-      global.io.to(`contact:${contact.id}`).emit("chat_update", {
-        contact_id: contact.id,
-        text: finalQuestion,
-        direction: "out",
-        timestamp: new Date().toISOString(),
-        isOwnMessage: true,
-        sender_name: "🤖 Bot"
-      });
-    }
-  }
-  break;
-}
+          // Optional: emit real‑time update
+          if (global.io) {
+            global.io.to(`contact:${contact.id}`).emit("chat_update", {
+              contact_id: contact.id,
+              text: finalQuestion,
+              direction: "out",
+              timestamp: new Date().toISOString(),
+              isOwnMessage: true,
+              sender_name: "🤖 Bot"
+            });
+          }
+        }
+        break;
+      }
 
       // ================= BUTTONS =================
       case "buttons": {
@@ -1136,7 +1136,10 @@ async function executeStep(
           }
         }
         
-        // Don't move automatically - wait for button click
+        // Move to next step if specified
+        if (step.next_step_index !== null && step.next_step_index !== undefined) {
+          await moveToNextStep(contact, step, conversation);
+        }
         break;
       }
 
@@ -1151,135 +1154,75 @@ async function executeStep(
           try {
             conditions = JSON.parse(conditions);
           } catch (err) {
-            console.error(
-              "❌ Condition parse error:",
-              err
-            );
-
+            console.error("❌ Condition parse error:", err);
             return;
           }
         }
 
-        const cleanResponse = String(
-          userResponse
-        ).trim();
+        const cleanResponse = String(userResponse).trim();
 
-        console.log(
-          "📌 User Response:",
-          cleanResponse
-        );
-
-        console.log(
-          "📌 Conditions:",
-          conditions
-        );
+        console.log("📌 User Response:", cleanResponse);
+        console.log("📌 Conditions:", conditions);
 
         const nextIndex =
           conditions[cleanResponse] ??
           conditions[Number(cleanResponse)];
 
-        console.log(
-          "📌 Next Index:",
-          nextIndex
-        );
+        console.log("📌 Next Index:", nextIndex);
 
-        if (
-          nextIndex === undefined ||
-          nextIndex === null
-        ) {
+        if (nextIndex === undefined || nextIndex === null) {
           await sendTextMessage(
             contact.phone,
             "Please reply with a valid option."
           );
-
           return;
         }
 
-        const steps =
-          await ChatbotStep.findByFlowId(
-            conversation.flow_id
-          );
+        const steps = await ChatbotStep.findByFlowId(conversation.flow_id);
 
         const nextStep = steps.find(
-          (s) =>
-            s.step_index === Number(nextIndex)
+          (s) => s.step_index === Number(nextIndex)
         );
 
         if (!nextStep) {
-          console.log(
-            "❌ Next step not found"
-          );
-
-          await ChatbotConversation.update(
-            conversation.id,
-            {
-              status: "completed",
-            }
-          );
-
+          console.log("❌ Next step not found");
+          await ChatbotConversation.update(conversation.id, {
+            status: "completed",
+          });
           return;
         }
 
-        await ChatbotConversation.update(
-          conversation.id,
-          {
-            current_step_id: nextStep.id,
-          }
-        );
+        await ChatbotConversation.update(conversation.id, {
+          current_step_id: nextStep.id,
+        });
 
-        await executeStep(
-          contact,
-          nextStep,
-          conversation,
-          cleanResponse
-        );
-
+        await executeStep(contact, nextStep, conversation, cleanResponse);
         break;
       }
 
       // ================= END =================
       case "end": {
         console.log("🏁 Flow completed");
-
-        await ChatbotConversation.update(
-          conversation.id,
-          {
-            status: "completed",
-          }
-        );
-
+        await ChatbotConversation.update(conversation.id, {
+          status: "completed",
+        });
         break;
       }
 
       // ================= DEFAULT =================
       default: {
-        console.log(
-          "⚠ Unknown step type:",
-          step.step_type
-        );
-
-        await ChatbotConversation.update(
-          conversation.id,
-          {
-            status: "completed",
-          }
-        );
-
+        console.log("⚠ Unknown step type:", step.step_type);
+        await ChatbotConversation.update(conversation.id, {
+          status: "completed",
+        });
         break;
       }
     }
   } catch (err) {
-    console.error(
-      "❌ executeStep Error:",
-      err
-    );
-
-    await ChatbotConversation.update(
-      conversation.id,
-      {
-        status: "completed",
-      }
-    );
+    console.error("❌ executeStep Error:", err);
+    await ChatbotConversation.update(conversation.id, {
+      status: "completed",
+    });
   }
 }
 
@@ -1294,7 +1237,6 @@ async function moveToNextStep(contact, currentStep, conversation) {
     await ChatbotConversation.update(conversation.id, {
       status: "completed",
     });
-
     return;
   }
 
@@ -1302,11 +1244,9 @@ async function moveToNextStep(contact, currentStep, conversation) {
 
   if (!nextStep) {
     console.log("❌ No next step found");
-
     await ChatbotConversation.update(conversation.id, {
       status: "completed",
     });
-
     return;
   }
 
@@ -1314,9 +1254,9 @@ async function moveToNextStep(contact, currentStep, conversation) {
     current_step_id: nextStep.id,
   });
 
-  // 🔥 auto execute
-  // 🔥 ONLY message auto execute
-  if (nextStep.step_type === "message") {
+  // 🔥 FIXED: Auto execute for message AND buttons (and any other step that needs auto-execution)
+  const autoExecuteTypes = ["message", "buttons", "condition"];
+  if (autoExecuteTypes.includes(nextStep.step_type)) {
     await executeStep(contact, nextStep, conversation, null);
   }
 }
@@ -1329,39 +1269,24 @@ async function processUserResponse(
   userResponse
 ) {
   try {
-    console.log(
-      "📩 User Response:",
-      userResponse
-    );
-
-    console.log(
-      "📌 Current Step Type:",
-      currentStep.step_type
-    );
+    console.log("📩 User Response:", userResponse);
+    console.log("📌 Current Step Type:", currentStep.step_type);
 
     let variables = {};
 
     if (conversation.variables) {
       try {
         variables =
-          typeof conversation.variables ===
-          "string"
-            ? JSON.parse(
-                conversation.variables
-              )
+          typeof conversation.variables === "string"
+            ? JSON.parse(conversation.variables)
             : conversation.variables;
       } catch (err) {
-        console.log(
-          "❌ Variable parse error:",
-          err
-        );
+        console.log("❌ Variable parse error:", err);
       }
     }
 
     // ================= BUTTONS RESPONSE =================
-    if (
-      currentStep.step_type === "buttons"
-    ) {
+    if (currentStep.step_type === "buttons") {
       // Button clicked - check which button
       let buttons = currentStep.buttons || [];
       if (typeof buttons === "string") {
@@ -1394,7 +1319,6 @@ async function processUserResponse(
           await ChatbotConversation.update(conversation.id, {
             current_step_id: nextStep.id,
           });
-          
           await executeStep(contact, nextStep, conversation, userResponse);
         } else {
           await moveToNextStep(contact, currentStep, conversation);
@@ -1402,71 +1326,34 @@ async function processUserResponse(
       } else {
         await moveToNextStep(contact, currentStep, conversation);
       }
-      
       return;
     }
 
     // ================= CONDITION =================
-    if (
-      currentStep.step_type ===
-      "condition"
-    ) {
-      await executeStep(
-        contact,
-        currentStep,
-        conversation,
-        userResponse
-      );
-
+    if (currentStep.step_type === "condition") {
+      await executeStep(contact, currentStep, conversation, userResponse);
       return;
     }
 
     // ================= QUESTION =================
-    if (
-      currentStep.step_type ===
-      "question"
-    ) {
+    if (currentStep.step_type === "question") {
       if (currentStep.save_response_as) {
-        variables[
-          currentStep.save_response_as
-        ] = userResponse;
-
-        await ChatbotConversation.update(
-          conversation.id,
-          {
-            variables:
-              JSON.stringify(variables),
-          }
-        );
+        variables[currentStep.save_response_as] = userResponse;
+        await ChatbotConversation.update(conversation.id, {
+          variables: JSON.stringify(variables),
+        });
       }
-
-      await moveToNextStep(
-        contact,
-        currentStep,
-        conversation
-      );
-
+      await moveToNextStep(contact, currentStep, conversation);
       return;
     }
 
     // ================= MESSAGE =================
-    await moveToNextStep(
-      contact,
-      currentStep,
-      conversation
-    );
+    await moveToNextStep(contact, currentStep, conversation);
   } catch (err) {
-    console.error(
-      "❌ processUserResponse Error:",
-      err
-    );
-
-    await ChatbotConversation.update(
-      conversation.id,
-      {
-        status: "completed",
-      }
-    );
+    console.error("❌ processUserResponse Error:", err);
+    await ChatbotConversation.update(conversation.id, {
+      status: "completed",
+    });
   }
 }
 
