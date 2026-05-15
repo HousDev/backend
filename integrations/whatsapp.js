@@ -1267,7 +1267,7 @@ async function handleWebhook(req, res) {
               messageType = "text";
               console.log("📩 Text message:", from, "|", text);
             } else if (msg.interactive?.button_reply) {
-              text = msg.interactive.button_reply.id;
+               text = msg.interactive.button_reply.title;
               messageType = "button";
               console.log("🔘 Button clicked:", {
                 from: from,
@@ -1386,6 +1386,7 @@ async function handleWebhook(req, res) {
               const chatbotResult = await processChatbotMessage(
                 contactId,
                 text,
+                msg.interactive?.button_reply?.id || text,
               );
               console.log("🤖 Chatbot processed:", chatbotResult);
             } catch (chatbotErr) {
