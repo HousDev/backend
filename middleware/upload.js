@@ -222,7 +222,25 @@ const makeUploadTarget = (...parts) => {
   const publicUrl = toPublicUrl(absPath);  // handles Windows slashes + absolute CDN if set
   return { dir, absPath, publicUrl };
 };
-
+const uploadFile = multer({
+  storage: makeStorage("temp"),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv', // .csv
+      'application/csv',
+      'text/x-csv'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  },
+});
 module.exports = {
   // storages
   upload, // properties
@@ -231,6 +249,7 @@ module.exports = {
   uploadBlog, // blog featured image
   uploadHero, // ✅ hero images
   uploadMedia,
+   uploadFile,
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,
