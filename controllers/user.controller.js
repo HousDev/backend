@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/database'); // Assuming you have a db config file
 const path = require("path");
 const fs = require("fs");
+const XLSX = require('xlsx');
+
 
 // Update user (admin only)
 exports.updateUser = async (req, res) => {
@@ -599,5 +601,564 @@ exports.getSalesExecutives = async (req, res) => {
   } catch (e) {
     console.error("getSalesExecutives error:", e);
     res.status(500).json({ ok: false, error: e.message });
+  }
+};
+
+
+
+exports.exportUsers = async (req, res) => {
+  try {
+    const { format = 'excel' } = req.query;
+    const users = await User.getAll();
+    
+    // Prepare data for export
+    const exportData = users.map(user => ({
+      'Username': user.username || '',
+      'Salutation': user.salutation || '',
+      'First Name': user.first_name || '',
+      'Last Name': user.last_name || '',
+      'Email': user.email || '',
+      'Phone': user.phone || '',
+      'Role': user.role || '',
+      'Department': user.department || '',
+      'Designation': user.designation || '',
+      'Status': user.is_active ? 'Active' : 'Inactive',
+      'Date of Birth': user.dob || '',
+      'Blood Group': user.blood_group || '',
+      'Created At': user.created_at ? new Date(user.created_at).toLocaleDateString() : '',
+      'Last Login': user.last_login ? new Date(user.last_login).toLocaleDateString() : ''
+    }));
+
+    if (format === 'csv') {
+      // CSV Export
+      const headers = Object.keys(exportData[0] || {});
+      const csvRows = [
+        headers.join(','),
+        ...exportData.map(row => headers.map(h => JSON.stringify(row[h] || '')).join(','))
+      ];
+      const csv = csvRows.join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=users-${Date.now()}.csv`);
+      return res.send(csv);
+    } else {
+      // Excel Export
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Users');
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=users-${Date.now()}.xlsx`);
+      return res.send(buffer);
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ success: false, message: 'Failed to export users' });
+  }
+};
+
+// 2. DOWNLOAD IMPORT TEMPLATE
+exports.downloadImportTemplate = async (req, res) => {
+  try {
+    const templateData = [{
+      'Username': 'john_doe',
+      'Salutation': 'Mr',
+      'First Name': 'John',
+      'Last Name': 'Doe',
+      'Email': 'john@example.com',
+      'Phone': '9876543210',
+      'Role': 'agent',
+      'Department': 'Sales',
+      'Designation': 'Sales Executive',
+      'Password': 'password123',
+      'Date of Birth': '1990-01-15',
+      'Blood Group': 'O+',
+      'Status': 'active'
+    }];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    
+    // Add instructions sheet
+    const instructions = [{
+      'Instruction': '1. Do not modify column headers',
+      'Note': ''
+    }, {
+      'Instruction': '2. Email must be unique',
+      'Note': ''
+    }, {
+      'Instruction': '3. Password minimum 6 characters',
+      'Note': ''
+    }, {
+      'Instruction': '4. Valid roles: admin, agent, manager, buyer, seller, executive',
+      'Note': ''
+    }, {
+      'Instruction': '5. Status: active or inactive',
+      'Note': ''
+    }, {
+      'Instruction': '6. Date format: YYYY-MM-DD',
+      'Note': ''
+    }];
+    
+    const wsInstructions = XLSX.utils.json_to_sheet(instructions);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'User Template');
+    XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
+    
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=user-import-template.xlsx');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Template download error:', error);
+    res.status(500).json({ success: false, message: 'Failed to download template' });
+  }
+};
+
+// 3. IMPORT USERS
+exports.importUsers = async (req, res) => {
+  let filePath = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    filePath = req.file.path;
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    
+    let usersData = [];
+    
+    if (fileExt === '.csv') {
+      // Parse CSV
+      const csv = fs.readFileSync(filePath, 'utf8');
+      const lines = csv.split('\n');
+      const headers = lines[0].split(',');
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const values = lines[i].split(',');
+        const row = {};
+        headers.forEach((header, idx) => {
+          row[header.trim()] = values[idx]?.trim().replace(/^"|"$/g, '') || '';
+        });
+        usersData.push(row);
+      }
+    } else {
+      // Parse Excel
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      usersData = XLSX.utils.sheet_to_json(worksheet);
+    }
+
+    const errors = [];
+    let importedCount = 0;
+    const bcrypt = require('bcryptjs');
+
+    for (let i = 0; i < usersData.length; i++) {
+      const row = usersData[i];
+      try {
+        // Validate required fields
+        if (!row['Email'] || !row['First Name'] || !row['Last Name']) {
+          errors.push(`Row ${i + 2}: Missing required fields (Email, First Name, Last Name)`);
+          continue;
+        }
+
+        // Check if email exists
+        const existingUser = await User.findByEmail(row['Email']);
+        if (existingUser) {
+          errors.push(`Row ${i + 2}: Email ${row['Email']} already exists`);
+          continue;
+        }
+
+        // Hash password
+        const hashedPassword = bcrypt.hashSync(row['Password'] || 'default123', 8);
+
+        // Create user
+        const newUser = {
+          username: row['Username'] || row['Email'].split('@')[0],
+          salutation: row['Salutation'] || null,
+          first_name: row['First Name'],
+          last_name: row['Last Name'],
+          email: row['Email'],
+          password: hashedPassword,
+          phone: row['Phone'] || null,
+          role: row['Role']?.toLowerCase() || 'agent',
+          department: row['Department'] || null,
+          designation: row['Designation'] || null,
+          is_active: row['Status']?.toLowerCase() === 'active',
+          dob: row['Date of Birth'] || null,
+          blood_group: row['Blood Group'] || null
+        };
+
+        await User.create(newUser);
+        importedCount++;
+      } catch (err) {
+        errors.push(`Row ${i + 2}: ${err.message}`);
+      }
+    }
+
+    // Clean up temp file
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${importedCount} users`,
+      importedCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    console.error('Import error:', error);
+    res.status(500).json({ success: false, message: 'Failed to import users: ' + error.message });
+  }
+};
+
+// ==================== NEW FUNCTIONS FOR TAB-WISE EXPORT/IMPORT ====================
+
+// 1. Tab-wise Export
+exports.exportUsersByTab = async (req, res) => {
+  try {
+    const { tabType = 'all', format = 'excel' } = req.query;
+    
+    let users = [];
+    
+    // Get data based on tab type
+    switch (tabType) {
+      case 'buyers':
+        // Fetch buyers from buyers table
+        const [buyers] = await db.query("SELECT id, salutation, name, email, phone, dob, is_active, created_at FROM buyers");
+        users = buyers.map(b => ({
+          'ID': b.id,
+          'Salutation': b.salutation || '',
+          'Name': b.name || '',
+          'Email': b.email || '',
+          'Phone': b.phone || '',
+          'Date of Birth': b.dob || '',
+          'Status': b.is_active ? 'Active' : 'Inactive',
+          'Created At': b.created_at ? new Date(b.created_at).toLocaleDateString() : ''
+        }));
+        break;
+        
+      case 'sellers':
+        // Fetch sellers from sellers table
+        const [sellers] = await db.query("SELECT id, salutation, name, email, phone, seller_dob as dob, is_active, created_at FROM sellers");
+        users = sellers.map(s => ({
+          'ID': s.id,
+          'Salutation': s.salutation || '',
+          'Name': s.name || '',
+          'Email': s.email || '',
+          'Phone': s.phone || '',
+          'Date of Birth': s.dob || '',
+          'Status': s.is_active ? 'Active' : 'Inactive',
+          'Created At': s.created_at ? new Date(s.created_at).toLocaleDateString() : ''
+        }));
+        break;
+        
+      case 'buyer-accounts':
+      case 'seller-accounts':
+        // Fetch users with role buyer or seller
+        const role = tabType === 'buyer-accounts' ? 'buyer' : 'seller';
+        const [accountUsers] = await db.query(
+          "SELECT id, username, salutation, first_name, last_name, email, phone, role, is_active, dob, created_at, last_login FROM users WHERE role = ?",
+          [role]
+        );
+        users = accountUsers.map(u => ({
+          'ID': u.id,
+          'Username': u.username || '',
+          'Salutation': u.salutation || '',
+          'First Name': u.first_name || '',
+          'Last Name': u.last_name || '',
+          'Email': u.email || '',
+          'Phone': u.phone || '',
+          'Role': u.role || '',
+          'Status': u.is_active ? 'Active' : 'Inactive',
+          'Date of Birth': u.dob || '',
+          'Created At': u.created_at ? new Date(u.created_at).toLocaleDateString() : '',
+          'Last Login': u.last_login ? new Date(u.last_login).toLocaleDateString() : ''
+        }));
+        break;
+        
+      default: // 'all' or team members
+        // Fetch all users
+        const [allUsers] = await db.query(
+          "SELECT id, username, salutation, first_name, last_name, email, phone, role, department, designation, is_active, dob, blood_group, created_at, last_login FROM users"
+        );
+        users = allUsers.map(u => ({
+          'ID': u.id,
+          'Username': u.username || '',
+          'Salutation': u.salutation || '',
+          'First Name': u.first_name || '',
+          'Last Name': u.last_name || '',
+          'Email': u.email || '',
+          'Phone': u.phone || '',
+          'Role': u.role || '',
+          'Department': u.department || '',
+          'Designation': u.designation || '',
+          'Status': u.is_active ? 'Active' : 'Inactive',
+          'Date of Birth': u.dob || '',
+          'Blood Group': u.blood_group || '',
+          'Created At': u.created_at ? new Date(u.created_at).toLocaleDateString() : '',
+          'Last Login': u.last_login ? new Date(u.last_login).toLocaleDateString() : ''
+        }));
+        break;
+    }
+
+    if (format === 'csv') {
+      // CSV Export
+      const headers = Object.keys(users[0] || {});
+      const csvRows = [
+        headers.join(','),
+        ...users.map(row => headers.map(h => JSON.stringify(row[h] || '')).join(','))
+      ];
+      const csv = csvRows.join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=${tabType}-${Date.now()}.csv`);
+      return res.send(csv);
+    } else {
+      // Excel Export
+      const ws = XLSX.utils.json_to_sheet(users);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, tabType);
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=${tabType}-${Date.now()}.xlsx`);
+      return res.send(buffer);
+    }
+  } catch (error) {
+    console.error('Export by tab error:', error);
+    res.status(500).json({ success: false, message: 'Failed to export data' });
+  }
+};
+
+// 2. Download Import Template (updated to handle type)
+exports.downloadImportTemplate = async (req, res) => {
+  try {
+    const { type = 'users' } = req.query;
+    
+    let templateData = [];
+    let sheetName = '';
+    
+    if (type === 'buyers') {
+      templateData = [{
+        'Salutation': 'Mr',
+        'Name': 'John Doe',
+        'Email': 'john@example.com',
+        'Phone': '9876543210',
+        'Date of Birth': '1990-01-15',
+        'Status': 'active'
+      }];
+      sheetName = 'Buyers Template';
+    } else if (type === 'sellers') {
+      templateData = [{
+        'Salutation': 'Mrs',
+        'Name': 'Jane Smith',
+        'Email': 'jane@example.com',
+        'Phone': '9876543211',
+        'Date of Birth': '1988-05-20',
+        'Status': 'active'
+      }];
+      sheetName = 'Sellers Template';
+    } else {
+      templateData = [{
+        'Username': 'john_doe',
+        'Salutation': 'Mr',
+        'First Name': 'John',
+        'Last Name': 'Doe',
+        'Email': 'john@example.com',
+        'Phone': '9876543210',
+        'Role': 'agent',
+        'Department': 'Sales',
+        'Designation': 'Sales Executive',
+        'Password': 'password123',
+        'Date of Birth': '1990-01-15',
+        'Blood Group': 'O+',
+        'Status': 'active'
+      }];
+      sheetName = 'Users Template';
+    }
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${type}-import-template.xlsx`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Template download error:', error);
+    res.status(500).json({ success: false, message: 'Failed to download template' });
+  }
+};
+
+// 3. Import Users By Type
+exports.importUsersByType = async (req, res) => {
+  let filePath = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const { type = 'users' } = req.body;
+    filePath = req.file.path;
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    
+    let importData = [];
+    
+    if (fileExt === '.csv') {
+      const csv = fs.readFileSync(filePath, 'utf8');
+      const lines = csv.split('\n');
+      const headers = lines[0].split(',');
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const values = lines[i].split(',');
+        const row = {};
+        headers.forEach((header, idx) => {
+          row[header.trim()] = values[idx]?.trim().replace(/^"|"$/g, '') || '';
+        });
+        importData.push(row);
+      }
+    } else {
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      importData = XLSX.utils.sheet_to_json(worksheet);
+    }
+
+    const errors = [];
+    let importedCount = 0;
+
+    if (type === 'buyers') {
+      // Import buyers
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          if (!row['Email'] || !row['Name']) {
+            errors.push(`Row ${i + 2}: Missing required fields (Email, Name)`);
+            continue;
+          }
+          // Check if buyer exists
+          const [existing] = await db.query("SELECT id FROM buyers WHERE email = ?", [row['Email']]);
+          if (existing.length > 0) {
+            errors.push(`Row ${i + 2}: Email ${row['Email']} already exists`);
+            continue;
+          }
+          
+          await db.query(
+            "INSERT INTO buyers (salutation, name, email, phone, dob, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
+            [
+              row['Salutation'] || null,
+              row['Name'],
+              row['Email'],
+              row['Phone'] || null,
+              row['Date of Birth'] || null,
+              row['Status']?.toLowerCase() === 'active' ? 1 : 0
+            ]
+          );
+          importedCount++;
+        } catch (err) {
+          errors.push(`Row ${i + 2}: ${err.message}`);
+        }
+      }
+    } else if (type === 'sellers') {
+      // Import sellers
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          if (!row['Email'] || !row['Name']) {
+            errors.push(`Row ${i + 2}: Missing required fields (Email, Name)`);
+            continue;
+          }
+          const [existing] = await db.query("SELECT id FROM sellers WHERE email = ?", [row['Email']]);
+          if (existing.length > 0) {
+            errors.push(`Row ${i + 2}: Email ${row['Email']} already exists`);
+            continue;
+          }
+          
+          await db.query(
+            "INSERT INTO sellers (salutation, name, email, phone, seller_dob, is_active, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+            [
+              row['Salutation'] || null,
+              row['Name'],
+              row['Email'],
+              row['Phone'] || null,
+              row['Date of Birth'] || null,
+              row['Status']?.toLowerCase() === 'active' ? 1 : 0,
+              row['Status']?.toLowerCase() === 'active' ? 'active' : 'inactive'
+            ]
+          );
+          importedCount++;
+        } catch (err) {
+          errors.push(`Row ${i + 2}: ${err.message}`);
+        }
+      }
+    } else {
+      // Import users (existing logic)
+      for (let i = 0; i < importData.length; i++) {
+        const row = importData[i];
+        try {
+          if (!row['Email'] || !row['First Name'] || !row['Last Name']) {
+            errors.push(`Row ${i + 2}: Missing required fields`);
+            continue;
+          }
+          const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [row['Email']]);
+          if (existing.length > 0) {
+            errors.push(`Row ${i + 2}: Email ${row['Email']} already exists`);
+            continue;
+          }
+          
+          const hashedPassword = bcrypt.hashSync(row['Password'] || 'default123', 8);
+          
+          await db.query(
+            `INSERT INTO users (username, salutation, first_name, last_name, email, password, phone, role, department, designation, is_active, dob, blood_group, created_at, updated_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [
+              row['Username'] || row['Email'].split('@')[0],
+              row['Salutation'] || null,
+              row['First Name'],
+              row['Last Name'],
+              row['Email'],
+              hashedPassword,
+              row['Phone'] || null,
+              row['Role']?.toLowerCase() || 'agent',
+              row['Department'] || null,
+              row['Designation'] || null,
+              row['Status']?.toLowerCase() === 'active' ? 1 : 0,
+              row['Date of Birth'] || null,
+              row['Blood Group'] || null
+            ]
+          );
+          importedCount++;
+        } catch (err) {
+          errors.push(`Row ${i + 2}: ${err.message}`);
+        }
+      }
+    }
+
+    // Clean up temp file
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${importedCount} ${type}`,
+      importedCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    console.error('Import error:', error);
+    res.status(500).json({ success: false, message: 'Failed to import: ' + error.message });
   }
 };
