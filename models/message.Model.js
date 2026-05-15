@@ -2,16 +2,27 @@ const db = require("../config/database");
 
 const Message = {
  create: async (data) => {
-  const { contact_id, direction, text, whatsapp_msg_id, media_url, media_type, file_name, sender_name } = data;
+  const { contact_id, direction, text, whatsapp_msg_id, media_url, media_type, file_name, sender_name,buttons_json } = data;
   const status = direction === "in" ? "read" : "sent";
 
   const [result] = await db.query(
-  `INSERT INTO messages_wa 
-   (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, media_url, media_type, file_name, sender_name) 
+    `INSERT INTO messages_wa 
+   (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, media_url, media_type, file_name,buttons_json, sender_name) 
    VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
-  [contact_id, direction, text, whatsapp_msg_id, status, status === "read" ? 1 : 0, 
-   media_url || null, media_type || null, file_name || null, sender_name || null],
-);
+    [
+      contact_id,
+      direction,
+      text,
+      whatsapp_msg_id,
+      status,
+      status === "read" ? 1 : 0,
+      media_url || null,
+      media_type || null,
+      file_name || null,
+      sender_name || null,
+      buttons_json || null,
+    ],
+  );
   return result.insertId;
 },
 
@@ -29,9 +40,13 @@ const Message = {
       text: row.text,
       timestamp: row.time_sent,
       status: row.status || (row.is_read ? "read" : "sent"),
-sender: row.direction === 'out' ? { name: row.sender_name || 'You' } : null,      media_url: row.media_url || null,      // ← ADD
-  media_type: row.media_type || null,    // ← ADD
-  file_name: row.file_name || null,  
+      sender:
+        row.direction === "out" ? { name: row.sender_name || "You" } : null,
+      media_url: row.media_url || null, // ← ADD
+      media_type: row.media_type || null, // ← ADD
+      file_name: row.file_name || null,
+      buttons: row.buttons_json ? JSON.parse(row.buttons_json) : null,
+      isInteractive: !!row.buttons_json,
     }));
   },
 

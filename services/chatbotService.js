@@ -1117,10 +1117,11 @@ async function executeStep(
         if (msgId) {
           await db.query(
             `INSERT INTO messages_wa 
-             (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
-             VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
-            [contact.id, finalMessage, msgId]
+   (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name, buttons_json) 
+   VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot', ?)`,
+            [contact.id, finalMessage, msgId, JSON.stringify(buttons)],
           );
+
           
           if (global.io) {
             global.io.to(`contact:${contact.id}`).emit("chat_update", {
@@ -1128,10 +1129,10 @@ async function executeStep(
               text: finalMessage,
               direction: "out",
               timestamp: new Date().toISOString(),
-              isOwnMessage: true,
+              isOwnMessage: false,
               sender_name: "🤖 Bot",
               isInteractive: true,
-              buttons: buttons
+              buttons: buttons,
             });
           }
         }

@@ -858,6 +858,8 @@
 //   fetchMetaTemplates,
 // };
 
+
+
 const axios = require("axios");
 const db = require("../config/database");
 const fs = require("fs");
@@ -1040,12 +1042,12 @@ async function sendInteractiveMessage(to, interactiveMessage) {
       const messageText =
         interactiveMessage.interactive.body?.text || "Interactive message";
 
-      await db.query(
-        `INSERT INTO messages_wa 
-         (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
-         VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
-        [contact[0].id, messageText, messageId],
-      );
+      // await db.query(
+      //   `INSERT INTO messages_wa 
+      //    (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name) 
+      //    VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot')`,
+      //   [contact[0].id, messageText, messageId],
+      // );
 
       const [assignedResult] = await db.query(
         "SELECT assigned_to FROM contacts_wa WHERE id = ?",
@@ -1068,6 +1070,7 @@ async function sendInteractiveMessage(to, interactiveMessage) {
         text: messageText,
         direction: "out",
         timestamp: new Date().toISOString(),
+        isOwnMessage: true,
         isInteractive: true,
       });
     }
