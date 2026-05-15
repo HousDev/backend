@@ -1383,10 +1383,10 @@ async function handleWebhook(req, res) {
             } = require("../services/chatbotService");
 
             try {
+              const chatbotInput = msg.interactive?.button_reply?.id || text;
               const chatbotResult = await processChatbotMessage(
                 contactId,
-                text,
-                msg.interactive?.button_reply?.id || text,
+                chatbotInput,
               );
               console.log("🤖 Chatbot processed:", chatbotResult);
             } catch (chatbotErr) {

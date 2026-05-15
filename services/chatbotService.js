@@ -812,6 +812,8 @@
 // module.exports = {
 //   processChatbotMessage,
 // };
+
+
 // services/chatbotService.js
 
 const {
@@ -1138,9 +1140,9 @@ async function executeStep(
         }
         
         // Move to next step if specified
-        if (step.next_step_index !== null && step.next_step_index !== undefined) {
-          await moveToNextStep(contact, step, conversation);
-        }
+        // if (step.next_step_index !== null && step.next_step_index !== undefined) {
+        //   await moveToNextStep(contact, step, conversation);
+        // }
         break;
       }
 
@@ -1256,7 +1258,7 @@ async function moveToNextStep(contact, currentStep, conversation) {
   });
 
   // 🔥 FIXED: Auto execute for message AND buttons (and any other step that needs auto-execution)
-  const autoExecuteTypes = ["message", "buttons", "condition"];
+  const autoExecuteTypes = ["message", "buttons", "condition","end"];
   if (autoExecuteTypes.includes(nextStep.step_type)) {
     await executeStep(contact, nextStep, conversation, null);
   }
@@ -1320,8 +1322,12 @@ async function processUserResponse(
           await ChatbotConversation.update(conversation.id, {
             current_step_id: nextStep.id,
           });
-          await executeStep(contact, nextStep, conversation, userResponse);
-        } else {
+await executeStep(
+  contact,
+  nextStep,
+  conversation,
+  nextStep.step_type === "condition" ? userResponse : null,
+);        } else {
           await moveToNextStep(contact, currentStep, conversation);
         }
       } else {
