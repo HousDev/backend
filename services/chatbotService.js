@@ -1301,12 +1301,95 @@ async function processUserResponse(
       }
       
       // Find which button was clicked
+      // const matchedButton = buttons.find((btn, idx) => {
+      //   const buttonId = `btn_${currentStep.step_index}_${idx}`;
+      //   return userResponse.includes(buttonId) || 
+      //          userResponse === btn.title ||
+      //          userResponse === String(idx + 1);
+      // });
       const matchedButton = buttons.find((btn, idx) => {
         const buttonId = `btn_${currentStep.step_index}_${idx}`;
-        return userResponse.includes(buttonId) || 
-               userResponse === btn.title ||
-               userResponse === String(idx + 1);
+        return (
+          userResponse.includes(buttonId) ||
+          userResponse === btn.title ||
+          userResponse === String(idx + 1)
+        );
       });
+
+      // ✅ AUTO TAG based on button clicked
+      if (matchedButton) {
+        const title = matchedButton.title.toLowerCase();
+        let tagName = null;
+
+        if (title.includes("buy")) tagName = "Buyer";
+        else if (title.includes("sell")) tagName = "Seller";
+        else if (title.includes("rent")) tagName = "Rental";
+
+        if (tagName) {
+          try {
+            // Find or create tag
+            const [existingTags] = await db.query(
+              `SELECT * FROM tags WHERE name = ? LIMIT 1`,
+              [tagName],
+            );
+
+            let tagId;
+            if (existingTags.length > 0) {
+              tagId = existingTags[0].id;
+            } else {
+              // Create tag with color
+              const colorMap = {
+                Buyer: "#3B82F6",
+                Seller: "#10B981",
+                Rental: "#F59E0B",
+              };
+              const [result] = await db.query(
+                `INSERT INTO tags (name, color, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`,
+                [tagName, colorMap[tagName]],
+              );
+              tagId = result.insertId;
+            }
+
+            // Check if tag already assigned to contact
+            const [existing] = await db.query(
+              `SELECT * FROM contact_tags WHERE contact_id = ? AND tag_id = ? LIMIT 1`,
+              [contact.id, tagId],
+            );
+
+            if (existing.length === 0) {
+              await db.query(
+                `INSERT INTO contact_tags (contact_id, tag_id) VALUES (?, ?)`,
+                [contact.id, tagId],
+              );
+              console.log(`✅ Auto-tagged contact ${contact.id} as ${tagName}`);
+              if (global.io) {
+                // Get assigned user for this contact
+                const [assignedResult] = await db.query(
+                  "SELECT assigned_to FROM contacts_wa WHERE id = ?",
+                  [contact.id],
+                );
+                const assignedTo = assignedResult[0]?.assigned_to;
+
+                if (assignedTo) {
+                  global.io.to(`user:${assignedTo}`).emit("contact_tagged", {
+                    contact_id: contact.id,
+                    tag_name: tagName,
+                    tag_id: tagId,
+                  });
+                }
+
+                // Also emit to all users who might have this contact in their view
+                global.io.emit("refresh_inbox", {
+                  contact_id: contact.id,
+                  tag_name: tagName,
+                });
+              }
+            }
+          } catch (err) {
+            console.error("❌ Auto-tag error:", err);
+          }
+        }
+      }
       
       let nextStepIndex = currentStep.next_step_index;
       
