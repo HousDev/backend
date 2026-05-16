@@ -5,10 +5,10 @@ const Message = {
   const { contact_id, direction, text, whatsapp_msg_id, media_url, media_type, file_name, sender_name,buttons_json } = data;
   const status = direction === "in" ? "read" : "sent";
 
-  const [result] = await db.query(
+ const [result] = await db.query(
     `INSERT INTO messages_wa 
-   (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, media_url, media_type, file_name,buttons_json, sender_name) 
-   VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+   (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, media_url, media_type, file_name, buttons_json, sender_name) 
+   VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?)`,
     [
       contact_id,
       direction,
@@ -19,8 +19,8 @@ const Message = {
       media_url || null,
       media_type || null,
       file_name || null,
-      sender_name || null,
       buttons_json || null,
+      sender_name || null,
     ],
   );
   return result.insertId;
