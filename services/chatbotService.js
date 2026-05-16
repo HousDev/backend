@@ -1449,6 +1449,8 @@
 //   processChatbotMessage,
 // };
 
+
+
 const {
   ChatbotFlow,
   ChatbotStep,
@@ -1982,6 +1984,43 @@ async function processUserResponse(
               );
               console.log(`✅ Auto-tagged contact ${contact.id} as ${tagName}`);
 
+              // ✅ AUTO CREATE LEAD in buyers/sellers table
+              try {
+                if (tagName === "Buyer") {
+                  const [existingBuyer] = await db.query(
+                    `SELECT id FROM buyers WHERE phone = ? LIMIT 1`,
+                    [contact.phone],
+                  );
+                  if (existingBuyer.length === 0) {
+                    await db.query(
+                      `INSERT INTO buyers (name, phone, whatsapp_number, buyer_lead_source, buyer_lead_stage, buyer_lead_status, created_at, updated_at)
+                       VALUES (?, ?, ?, 'WhatsApp', 'initial_contact', 'active', NOW(), NOW())`,
+                      [contact.name, contact.phone, contact.phone],
+                    );
+                    console.log(
+                      `✅ Buyer lead created for contact ${contact.id}`,
+                    );
+                  }
+                } else if (tagName === "Seller") {
+                  const [existingSeller] = await db.query(
+                    `SELECT id FROM sellers WHERE phone = ? LIMIT 1`,
+                    [contact.phone],
+                  );
+                  if (existingSeller.length === 0) {
+                    await db.query(
+                      `INSERT INTO sellers (name, phone, whatsapp, source, stage, status, created_at, updated_at)
+                       VALUES (?, ?, ?, 'WhatsApp', 'initial_contact', 'active', NOW(), NOW())`,
+                      [contact.name, contact.phone, contact.phone],
+                    );
+                    console.log(
+                      `✅ Seller lead created for contact ${contact.id}`,
+                    );
+                  }
+                }
+              } catch (leadErr) {
+                console.error("❌ Auto lead creation error:", leadErr);
+              }
+
               // ✅ AUTO ASSIGN based on tag (Buyer → buyer dept, Seller → seller dept)
               try {
                 const deptMap = {
@@ -1992,8 +2031,8 @@ async function processUserResponse(
                 const dept = deptMap[tagName];
 
                 if (dept) {
-                 const [salesUsers] = await db.query(
-                   `SELECT id FROM users 
+                  const [salesUsers] = await db.query(
+                    `SELECT id FROM users 
    WHERE LOWER(department) = ?
    AND (
       LOWER(role) = 'sales executive'
@@ -2002,8 +2041,8 @@ async function processUserResponse(
    AND is_active = 1
    ORDER BY RAND()
    LIMIT 1`,
-                   [dept],
-                 );
+                    [dept],
+                  );
 
                   if (salesUsers.length > 0) {
                     const assignedUserId = salesUsers[0].id;
