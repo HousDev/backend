@@ -1928,111 +1928,162 @@ async function processUserResponse(
       //          userResponse === btn.title ||
       //          userResponse === String(idx + 1);
       // });
-      const matchedButton = buttons.find((btn, idx) => {
-        const buttonId = `btn_${currentStep.step_index}_${idx}`;
-        return (
-          userResponse.includes(buttonId) ||
-          userResponse === btn.title ||
-          userResponse === String(idx + 1)
-        );
+const matchedButton = buttons.find((btn, idx) => {
+  const buttonId = `btn_${currentStep.step_index}_${idx}`;
+  return (
+    userResponse.includes(buttonId) ||
+    userResponse === btn.title ||
+    userResponse === String(idx + 1)
+  );
+});
+
+// ✅ If no button matched, resend the buttons message
+if (!matchedButton) {
+  console.log("⚠️ No button matched, resending button options...");
+  const finalMessage = replaceVariables(
+    currentStep.message_text || "",
+    contact,
+  );
+  const interactiveButtons = buttons.map((btn, idx) => ({
+    type: "reply",
+    reply: {
+      id: `btn_${currentStep.step_index}_${idx}`,
+      title: btn.title.substring(0, 20),
+    },
+  }));
+  const interactiveMessage = {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      header: { type: "text", text: "🏠 Property Assistant" },
+      body: {
+        text:
+          finalMessage.length > 60
+            ? finalMessage.substring(0, 60)
+            : finalMessage,
+      },
+      action: { buttons: interactiveButtons.slice(0, 3) },
+    },
+  };
+  const msgId = await sendInteractiveMessage(contact.phone, interactiveMessage);
+
+  if (msgId) {
+    await db.query(
+      `INSERT INTO messages_wa 
+       (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, sender_name, buttons_json) 
+       VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), '🤖 Bot', ?)`,
+      [contact.id, finalMessage, msgId, JSON.stringify(buttons)],
+    );
+
+    if (global.io) {
+      global.io.to(`contact:${contact.id}`).emit("chat_update", {
+        contact_id: contact.id,
+        text: finalMessage,
+        direction: "out",
+        timestamp: new Date().toISOString(),
+        isOwnMessage: false,
+        sender_name: "🤖 Bot",
+        isInteractive: true,
+        buttons: buttons,
       });
+    }
+  }
 
-      // ✅ AUTO TAG based on button clicked
-      if (matchedButton) {
-        const title = matchedButton.title.toLowerCase();
-        let tagName = null;
+  return; // stop here, don't proceed flow
+}
 
-        if (title.includes("buy")) tagName = "Buyer";
-        else if (title.includes("sell")) tagName = "Seller";
-        else if (title.includes("rent")) tagName = "Rental";
+// ✅ AUTO TAG based on button clicked
+if (matchedButton) {
+  const title = matchedButton.title.toLowerCase();
+  let tagName = null;
 
-        if (tagName) {
-          try {
-            // Find or create tag
-            const [existingTags] = await db.query(
-              `SELECT * FROM tags WHERE name = ? LIMIT 1`,
-              [tagName],
+  if (title.includes("buy")) tagName = "Buyer";
+  else if (title.includes("sell")) tagName = "Seller";
+  else if (title.includes("rent")) tagName = "Rental";
+
+  if (tagName) {
+    try {
+      // Find or create tag
+      const [existingTags] = await db.query(
+        `SELECT * FROM tags WHERE name = ? LIMIT 1`,
+        [tagName],
+      );
+
+      let tagId;
+      if (existingTags.length > 0) {
+        tagId = existingTags[0].id;
+      } else {
+        // Create tag with color
+        const colorMap = {
+          Buyer: "#3B82F6",
+          Seller: "#10B981",
+          Rental: "#F59E0B",
+        };
+        const [result] = await db.query(
+          `INSERT INTO tags (name, color, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`,
+          [tagName, colorMap[tagName]],
+        );
+        tagId = result.insertId;
+      }
+
+      // Check if tag already assigned to contact
+      const [existing] = await db.query(
+        `SELECT * FROM contact_tags WHERE contact_id = ? AND tag_id = ? LIMIT 1`,
+        [contact.id, tagId],
+      );
+
+      if (existing.length === 0) {
+        await db.query(
+          `INSERT INTO contact_tags (contact_id, tag_id) VALUES (?, ?)`,
+          [contact.id, tagId],
+        );
+        console.log(`✅ Auto-tagged contact ${contact.id} as ${tagName}`);
+
+        // ✅ AUTO CREATE LEAD in buyers/sellers table
+        try {
+          if (tagName === "Buyer") {
+            const [existingBuyer] = await db.query(
+              `SELECT id FROM buyers WHERE phone = ? LIMIT 1`,
+              [contact.phone],
             );
-
-            let tagId;
-            if (existingTags.length > 0) {
-              tagId = existingTags[0].id;
-            } else {
-              // Create tag with color
-              const colorMap = {
-                Buyer: "#3B82F6",
-                Seller: "#10B981",
-                Rental: "#F59E0B",
-              };
-              const [result] = await db.query(
-                `INSERT INTO tags (name, color, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`,
-                [tagName, colorMap[tagName]],
-              );
-              tagId = result.insertId;
-            }
-
-            // Check if tag already assigned to contact
-            const [existing] = await db.query(
-              `SELECT * FROM contact_tags WHERE contact_id = ? AND tag_id = ? LIMIT 1`,
-              [contact.id, tagId],
-            );
-
-            if (existing.length === 0) {
+            if (existingBuyer.length === 0) {
               await db.query(
-                `INSERT INTO contact_tags (contact_id, tag_id) VALUES (?, ?)`,
-                [contact.id, tagId],
+                `INSERT INTO buyers (name, phone, whatsapp_number, buyer_lead_source, buyer_lead_stage, buyer_lead_status, created_at, updated_at)
+                       VALUES (?, ?, ?, 'WhatsApp', 'initial_contact', 'active', NOW(), NOW())`,
+                [contact.name, contact.phone, contact.phone],
               );
-              console.log(`✅ Auto-tagged contact ${contact.id} as ${tagName}`);
-
-              // ✅ AUTO CREATE LEAD in buyers/sellers table
-              try {
-                if (tagName === "Buyer") {
-                  const [existingBuyer] = await db.query(
-                    `SELECT id FROM buyers WHERE phone = ? LIMIT 1`,
-                    [contact.phone],
-                  );
-                  if (existingBuyer.length === 0) {
-                    await db.query(
-                      `INSERT INTO buyers (name, phone, whatsapp_number, buyer_lead_source, buyer_lead_stage, buyer_lead_status, created_at, updated_at)
+              console.log(`✅ Buyer lead created for contact ${contact.id}`);
+            }
+          } else if (tagName === "Seller") {
+            const [existingSeller] = await db.query(
+              `SELECT id FROM sellers WHERE phone = ? LIMIT 1`,
+              [contact.phone],
+            );
+            if (existingSeller.length === 0) {
+              await db.query(
+                `INSERT INTO sellers (name, phone, whatsapp, source, stage, status, created_at, updated_at)
                        VALUES (?, ?, ?, 'WhatsApp', 'initial_contact', 'active', NOW(), NOW())`,
-                      [contact.name, contact.phone, contact.phone],
-                    );
-                    console.log(
-                      `✅ Buyer lead created for contact ${contact.id}`,
-                    );
-                  }
-                } else if (tagName === "Seller") {
-                  const [existingSeller] = await db.query(
-                    `SELECT id FROM sellers WHERE phone = ? LIMIT 1`,
-                    [contact.phone],
-                  );
-                  if (existingSeller.length === 0) {
-                    await db.query(
-                      `INSERT INTO sellers (name, phone, whatsapp, source, stage, status, created_at, updated_at)
-                       VALUES (?, ?, ?, 'WhatsApp', 'initial_contact', 'active', NOW(), NOW())`,
-                      [contact.name, contact.phone, contact.phone],
-                    );
-                    console.log(
-                      `✅ Seller lead created for contact ${contact.id}`,
-                    );
-                  }
-                }
-              } catch (leadErr) {
-                console.error("❌ Auto lead creation error:", leadErr);
-              }
+                [contact.name, contact.phone, contact.phone],
+              );
+              console.log(`✅ Seller lead created for contact ${contact.id}`);
+            }
+          }
+        } catch (leadErr) {
+          console.error("❌ Auto lead creation error:", leadErr);
+        }
 
-              // ✅ AUTO ASSIGN based on tag (Buyer → buyer dept, Seller → seller dept)
-              try {
-                const deptMap = {
-                  Buyer: "buyer",
-                  Seller: "seller",
-                  Rental: "buyer",
-                };
-                const dept = deptMap[tagName];
+        // ✅ AUTO ASSIGN based on tag (Buyer → buyer dept, Seller → seller dept)
+        try {
+          const deptMap = {
+            Buyer: "buyer",
+            Seller: "seller",
+            Rental: "buyer",
+          };
+          const dept = deptMap[tagName];
 
-                if (dept) {
-                  const [salesUsers] = await db.query(
-                    `SELECT id FROM users 
+          if (dept) {
+            const [salesUsers] = await db.query(
+              `SELECT id FROM users 
    WHERE LOWER(department) = ?
    AND (
       LOWER(role) = 'sales executive'
@@ -2041,62 +2092,60 @@ async function processUserResponse(
    AND is_active = 1
    ORDER BY RAND()
    LIMIT 1`,
-                    [dept],
-                  );
+              [dept],
+            );
 
-                  if (salesUsers.length > 0) {
-                    const assignedUserId = salesUsers[0].id;
-                    await db.query(
-                      `UPDATE contacts_wa SET assigned_to = ?, updated_at = NOW() WHERE id = ?`,
-                      [assignedUserId, contact.id],
-                    );
-                    console.log(
-                      `✅ Auto-assigned contact ${contact.id} to user ${assignedUserId} (dept: ${dept})`,
-                    );
-
-                    if (global.io) {
-                      global.io.emit("refresh_inbox", {
-                        contact_id: contact.id,
-                      });
-                    }
-                  } else {
-                    console.log(
-                      `⚠️ No active user found in department: ${dept}`,
-                    );
-                  }
-                }
-              } catch (assignErr) {
-                console.error("❌ Auto-assign error:", assignErr);
-              }
+            if (salesUsers.length > 0) {
+              const assignedUserId = salesUsers[0].id;
+              await db.query(
+                `UPDATE contacts_wa SET assigned_to = ?, updated_at = NOW() WHERE id = ?`,
+                [assignedUserId, contact.id],
+              );
+              console.log(
+                `✅ Auto-assigned contact ${contact.id} to user ${assignedUserId} (dept: ${dept})`,
+              );
 
               if (global.io) {
-                // Get assigned user for this contact
-                const [assignedResult] = await db.query(
-                  "SELECT assigned_to FROM contacts_wa WHERE id = ?",
-                  [contact.id],
-                );
-                const assignedTo = assignedResult[0]?.assigned_to;
-
-                if (assignedTo) {
-                  global.io.to(`user:${assignedTo}`).emit("contact_tagged", {
-                    contact_id: contact.id,
-                    tag_name: tagName,
-                    tag_id: tagId,
-                  });
-                }
-
-                // Also emit to all users who might have this contact in their view
                 global.io.emit("refresh_inbox", {
                   contact_id: contact.id,
-                  tag_name: tagName,
                 });
               }
+            } else {
+              console.log(`⚠️ No active user found in department: ${dept}`);
             }
-          } catch (err) {
-            console.error("❌ Auto-tag error:", err);
           }
+        } catch (assignErr) {
+          console.error("❌ Auto-assign error:", assignErr);
+        }
+
+        if (global.io) {
+          // Get assigned user for this contact
+          const [assignedResult] = await db.query(
+            "SELECT assigned_to FROM contacts_wa WHERE id = ?",
+            [contact.id],
+          );
+          const assignedTo = assignedResult[0]?.assigned_to;
+
+          if (assignedTo) {
+            global.io.to(`user:${assignedTo}`).emit("contact_tagged", {
+              contact_id: contact.id,
+              tag_name: tagName,
+              tag_id: tagId,
+            });
+          }
+
+          // Also emit to all users who might have this contact in their view
+          global.io.emit("refresh_inbox", {
+            contact_id: contact.id,
+            tag_name: tagName,
+          });
         }
       }
+    } catch (err) {
+      console.error("❌ Auto-tag error:", err);
+    }
+  }
+}
 
       let nextStepIndex = currentStep.next_step_index;
 
