@@ -48,6 +48,7 @@ const eSignRoutes = require("./routes/eSign.routes");
 
 const aiBlogRoutes = require("./routes/aiBlogs.routes");
 const homeHeroRoutes = require("./routes/homeHero.routes");
+const backupRoutes = require("./routes/backup.routes");
 
 const visitRoutes = require("./routes/propertyVisits");
 const smsRoutes = require("./routes/smsRoutes");
@@ -158,7 +159,7 @@ app.use("/api/analytics", require("./routes/analytics.routes"));
 
 
 app.use("/api/rbac", rbacRoutes);
-
+app.use("/api/backup", backupRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
