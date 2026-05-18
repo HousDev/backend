@@ -293,6 +293,7 @@ const CampaignLog = require("../models/campaignLog.Model");
 const Contact = require("../models/contact.Model");
 const Template = require("../models/template.Model");
 const { sendTemplateMessage } = require("../integrations/whatsapp");
+const db = require("../config/database");
 
 // Get all campaigns
 exports.getAllCampaigns = async (req, res) => {
@@ -377,6 +378,43 @@ exports.deleteCampaign = async (req, res) => {
     res.json({ success: true, message: "Campaign deleted" });
   } catch (err) {
     console.error("Error in deleteCampaign:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.bulkDeleteCampaigns = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Please provide an array of campaign IDs to delete" });
+    }
+    
+    const campaigns = await Promise.all(ids.map(id => Campaign.findById(id)));
+    
+    const runningCampaigns = campaigns.filter(c => c && c.status === 'running');
+    if (runningCampaigns.length > 0) {
+      return res.status(400).json({ 
+        error: "Cannot delete running campaigns. Please pause them first.",
+        running_ids: runningCampaigns.map(c => c.id)
+      });
+    }
+    
+    // Delete campaign logs first
+    for (const id of ids) {
+      await db.query("DELETE FROM campaign_logs WHERE campaign_id = ?", [id]);
+    }
+    
+    const deletedCount = await Campaign.bulkDelete(ids);
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${deletedCount} campaign(s)`,
+      deleted_count: deletedCount
+    });
+  } catch (err) {
+    console.error("Error in bulkDeleteCampaigns:", err);
     res.status(500).json({ error: err.message });
   }
 };

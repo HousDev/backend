@@ -115,36 +115,27 @@ const Contact = {
       }
 
       // Duplicate check
-      const [existing] = await db.query(
-        "SELECT id FROM contacts_wa WHERE phone = ?",
-        [phone],
-      );
+// Normalise phone: add '+' if missing
+let normalizedPhone = phone;
+if (normalizedPhone && !normalizedPhone.startsWith('+')) {
+  normalizedPhone = '+' + normalizedPhone;
+}
 
-      if (existing.length) {
-        return existing[0].id;
-      }
+// Check existence ignoring '+' (handles old data)
+const [existing] = await db.query(
+  "SELECT id FROM contacts_wa WHERE REPLACE(phone, '+', '') = REPLACE(?, '+', '')",
+  [normalizedPhone]
+);
+if (existing.length) return existing[0].id;
 
-      const [result] = await db.query(
-        `INSERT INTO contacts_wa 
-         (name, phone, email, tag, stage, assigned_to, color, initials, 
-          preferred_location, property_type, source, budget_min, budget_max, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-        [
-          name,
-          phone,
-          email || null,
-          tag || "new",
-          stage || "New",
-          assigned_to || "Unassigned",
-          color || "blue",
-          initials || name.slice(0, 2).toUpperCase(),
-          preferred_location || null,
-          property_type || null,
-          source || null,
-          budget_min || null,
-          budget_max || null,
-        ],
-      );
+const [result] = await db.query(
+  `INSERT INTO contacts_wa (name, phone, email, tag, stage, assigned_to, color, initials, 
+   preferred_location, property_type, source, budget_min, budget_max, created_at, updated_at) 
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+  [name, normalizedPhone, email || null, tag || "new", stage || "New", assigned_to || "Unassigned", color || "blue",
+   initials || name.slice(0, 2).toUpperCase(), preferred_location || null, property_type || null, source || null,
+   budget_min || null, budget_max || null]
+);
       return result.insertId;
     } catch (error) {
       console.error("Error in create:", error);
@@ -153,6 +144,9 @@ const Contact = {
   },
 
   update: async (id, data) => {
+    if (data.phone && !data.phone.startsWith('+')) {
+    data.phone = '+' + data.phone;
+  }
     try {
       const fields = [];
       const values = [];

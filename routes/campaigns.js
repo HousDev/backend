@@ -14,6 +14,9 @@
 const router = require("express").Router();
 const campaignController = require("../controllers/campaign.Controller");
 
+
+router.delete("/bulk", campaignController.bulkDeleteCampaigns);
+
 // Campaign CRUD operations
 router.get("/", campaignController.getAllCampaigns);
 router.get("/:id", campaignController.getCampaignById);
@@ -30,5 +33,6 @@ router.get("/:id/logs", campaignController.getCampaignLogs);
 // Resend operations
 router.post("/:id/logs/:logId/resend", campaignController.resendMessage);
 router.post("/:id/resend-failed", campaignController.resendAllFailed);
+
 
 module.exports = router;

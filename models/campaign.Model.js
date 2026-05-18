@@ -227,6 +227,17 @@ const Campaign = {
     await db.query("DELETE FROM campaigns WHERE id = ?", [id]);
     return true;
   },
+  bulkDelete: async (ids) => {
+  if (!ids || !ids.length) return 0;
+  
+  const placeholders = ids.map(() => '?').join(',');
+  const [result] = await db.query(
+    `DELETE FROM campaigns WHERE id IN (${placeholders})`,
+    ids
+  );
+  
+  return result.affectedRows;
+},
 
   // Update campaign stats
   updateStats: async (id, sent, delivered, read, failed) => {
@@ -241,6 +252,8 @@ const Campaign = {
     );
     return Campaign.findById(id);
   },
+ 
+
 };
 
 module.exports = Campaign;
