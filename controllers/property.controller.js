@@ -78,7 +78,8 @@ function parseMoneyToRupees(value) {
 
 
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
-  seller_name: req.body.seller || null,
+  // seller_name: req.body.seller || null,
+  seller_name: req.body.seller_name || req.body.seller || null,
   seller_id: req.body.seller_id || null,
   assigned_to: req.body.assigned_to || null,
   property_type_name:
@@ -113,7 +114,7 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
 
   address: req.body.address || null,
   status: req.body.status || null,
-lead_source: 'seller_portal',
+  lead_source: "seller_portal",
   possession_year: req.body.possessionYear || null,
   purchase_month: req.body.purchaseMonth || null,
   purchase_year: req.body.purchaseYear || null,
@@ -122,7 +123,7 @@ lead_source: 'seller_portal',
   photos: photoPaths,
   amenities: parseArrayField(req.body.amenities),
   furnishing_items: parseArrayField(
-    req.body.furnishingItems || req.body.furnishing_items
+    req.body.furnishingItems || req.body.furnishing_items,
   ),
   nearby_places: parseNearbyPlaces(req),
   description: req.body.description || null,
@@ -375,7 +376,8 @@ const updateProperty = async (req, res) => {
 
     // 7) Build payload (normalize)
     const propertyData = {
-      seller_name: req.body.seller || null,
+      // seller_name: req.body.seller || null,
+      seller_name: req.body.seller_name || req.body.seller || null,
       property_type_name:
         req.body.propertyType || req.body.property_type_name || null,
       property_subtype_name:
@@ -404,7 +406,11 @@ const updateProperty = async (req, res) => {
       budget: req.body.budget || null,
       address: req.body.address || null,
       status: req.body.status || null,
-lead_source: req.body.leadSource === 'seller_portal' ? 'seller_portal' : (req.body.leadSource || req.body.lead_source || 'website'),      possession_year: req.body.possessionYear || null,
+      lead_source:
+        req.body.leadSource === "seller_portal"
+          ? "seller_portal"
+          : req.body.leadSource || req.body.lead_source || "website",
+      possession_year: req.body.possessionYear || null,
       purchase_month: req.body.purchaseMonth || null,
       purchase_year: req.body.purchaseYear || null,
       selling_rights: req.body.sellingRights || null,
@@ -415,7 +421,7 @@ lead_source: req.body.leadSource === 'seller_portal' ? 'seller_portal' : (req.bo
 
       amenities: parseArrayField(req.body.amenities),
       furnishing_items: parseArrayField(
-        req.body.furnishingItems || req.body.furnishing_items
+        req.body.furnishingItems || req.body.furnishing_items,
       ),
       nearby_places: parseNearbyPlaces(req),
       description: req.body.description || null,
