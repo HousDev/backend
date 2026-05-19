@@ -141,6 +141,7 @@ app.use("/api", smsRoutes);
 app.use("/api/buyer-saved-properties", buyerSavedPropsRoutes);
 app.use("/api", blogCommentsRoutes);
 app.use("/api/integrations", integrationRoutes);
+app.use("/api/templates", templateRoutes);
 
 app.use("/api/contacts", require("./routes/contacts.routes"));
 app.use("/api/messages", require("./routes/messages.routes"));
