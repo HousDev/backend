@@ -1,16 +1,3 @@
-// const router = require("express").Router();
-// const campaignController = require("../controllers/campaign.Controller");
-
-// router.get("/", campaignController.getAllCampaigns);
-// router.get("/:id", campaignController.getCampaignById);
-// router.post("/", campaignController.createCampaign);
-// router.put("/:id", campaignController.updateCampaign);
-// router.delete("/:id", campaignController.deleteCampaign);
-// router.post("/:id/launch", campaignController.launchCampaign);
-// router.get("/:id/logs", campaignController.getCampaignLogs);
-
-// module.exports = router;
-
 const router = require("express").Router();
 const campaignController = require("../controllers/campaign.Controller");
 

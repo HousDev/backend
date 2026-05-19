@@ -257,21 +257,94 @@ const { WHATSAPP_TOKEN, PHONE_NUMBER_ID, API_VERSION } = await getWhatsAppConfig
 }
 
 // Send template message
-async function sendTemplateMessage(
-  to,
-  templateName,
-  language = "en",
-  components = [],
-) {
-const { WHATSAPP_TOKEN, PHONE_NUMBER_ID, API_VERSION } = await getWhatsAppConfig();
+// async function sendTemplateMessage(
+//   to,
+//   templateName,
+//   language = "en",
+//   components = [],
+// ) {
+// const { WHATSAPP_TOKEN, PHONE_NUMBER_ID, API_VERSION } = await getWhatsAppConfig();
+
+//   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+//   const payload = {
+//     messaging_product: "whatsapp",
+//     to: to,
+//     type: "template",
+//     template: { name: templateName, language: { code: language }, components },
+//   };
+
+//   try {
+//     const response = await axios.post(url, payload, {
+//       headers: {
+//         Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+//         "Content-Type": "application/json",
+//       },
+//     });
+
+//     const messageId = response.data.messages[0].id;
+//     console.log("📤 Template message sent, ID:", messageId);
+
+//     const [contact] = await db.query(
+//       "SELECT id FROM contacts_wa WHERE phone = ?",
+//       [to],
+//     );
+
+//     if (contact.length > 0) {
+//       const templateText = `Template: ${templateName}`;
+//       await db.query(
+//         `INSERT INTO messages_wa
+//          (contact_id, direction, text, whatsapp_msg_id, status, is_read, time_sent, template_name)
+//          VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), ?)`,
+//         [contact[0].id, templateText, messageId, templateName],
+//       );
+//       console.log(
+//         "💾 Outgoing template message saved to DB for contact:",
+//         contact[0].id,
+//       );
+//     }
+
+//     return messageId;
+//   } catch (error) {
+//     console.error(
+//       "❌ sendTemplateMessage error:",
+//       error.response?.data || error.message,
+//     );
+//     throw error;
+//   }
+// }
+
+// Send template message - FIXED VERSION
+async function sendTemplateMessage(to, templateName, language = "en", variables = []) {
+  const { WHATSAPP_TOKEN, PHONE_NUMBER_ID, API_VERSION } = await getWhatsAppConfig();
 
   const url = `https://graph.facebook.com/${API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+  
+  // ✅ Build components array from variables (FIX)
+  let components = [];
+  if (variables && variables.length > 0) {
+    components = [
+      {
+        type: "body",
+        parameters: variables.map(v => ({
+          type: "text",
+          text: String(v)
+        }))
+      }
+    ];
+  }
+  
   const payload = {
     messaging_product: "whatsapp",
     to: to,
     type: "template",
-    template: { name: templateName, language: { code: language }, components },
+    template: { 
+      name: templateName, 
+      language: { code: language },
+      components  // ← Now this will have the variables
+    },
   };
+
+  console.log("📤 Template payload:", JSON.stringify(payload, null, 2));
 
   try {
     const response = await axios.post(url, payload, {
@@ -297,22 +370,15 @@ const { WHATSAPP_TOKEN, PHONE_NUMBER_ID, API_VERSION } = await getWhatsAppConfig
          VALUES (?, 'out', ?, ?, 'sent', 1, NOW(), ?)`,
         [contact[0].id, templateText, messageId, templateName],
       );
-      console.log(
-        "💾 Outgoing template message saved to DB for contact:",
-        contact[0].id,
-      );
+      console.log("💾 Outgoing template message saved to DB for contact:", contact[0].id);
     }
 
     return messageId;
   } catch (error) {
-    console.error(
-      "❌ sendTemplateMessage error:",
-      error.response?.data || error.message,
-    );
+    console.error("❌ sendTemplateMessage error:", error.response?.data || error.message);
     throw error;
   }
 }
-
 // Submit template to Meta
 async function submitTemplateToMeta(payload) {
 const { WHATSAPP_TOKEN, WABA_ID, API_VERSION } = await getWhatsAppConfig();

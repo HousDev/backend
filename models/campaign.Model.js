@@ -141,7 +141,7 @@ const Campaign = {
         name,
         template_id,
         status || "draft",
-        scheduled_at || null,
+       scheduled_at ? new Date(scheduled_at).toISOString().replace('T', ' ').slice(0, 19) : null,
         total_contacts || 0,
         filters ? JSON.stringify(filters) : JSON.stringify({}),
         audience_mode || "segment",

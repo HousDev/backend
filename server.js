@@ -61,7 +61,9 @@ const integrationRoutes = require("./routes/integration.routes");
 const http = require("http");
 // const { initSocket } = require("./utils/socket");
 const templateSync = require("./corn/templateSync");
+// Add this line with other requires
 require("./corn/chatbotCleanup");
+const { startCampaignScheduler } = require("./corn/campaignScheduler");
 const societyRoutes = require("./routes/SocietyRoutes");
 
 
@@ -330,5 +332,8 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server: http://localhost:${PORT}`);
 });
+
+// ✅ Start campaign scheduler AFTER server is ready
+startCampaignScheduler();
 
 module.exports = app;
