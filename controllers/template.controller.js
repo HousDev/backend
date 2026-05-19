@@ -1,5 +1,5 @@
 // controllers/template.controller.js
-const fetch = global.fetch || require("node-fetch"); // Node18+ has global fetch
+const fetch = global.fetch || require("node-fetch"); 
 const { buildTemplatePrompt } = require("../utils/promptBuilder");
 
 async function generateTemplate(req, res) {
