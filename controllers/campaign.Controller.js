@@ -711,10 +711,16 @@ exports.launchCampaign = async (req, res) => {
       total_contacts: total,
     });
 
-    const contactIds = contacts.map((c) => c.id).filter((id) => id);
-    if (contactIds.length > 0) {
-      await CampaignLog.bulkCreate(id, contactIds);
-    }
+   if (campaign.audience_mode === "upload") {
+     for (let i = 0; i < contacts.length; i++) {
+       await CampaignLog.create(id, null, "pending");
+     }
+   } else {
+     const contactIds = contacts.map((c) => c.id).filter((id) => id);
+     if (contactIds.length > 0) {
+       await CampaignLog.bulkCreate(id, contactIds);
+     }
+   }
 
     // Start sending messages asynchronously
     sendCampaignMessages(
@@ -724,6 +730,7 @@ exports.launchCampaign = async (req, res) => {
       campaign.template_variables,
       campaign.media_url,
       campaign.carousel_media,
+      campaign.audience_mode,
     );
 
     const updated = await Campaign.findById(id);
@@ -998,6 +1005,7 @@ async function sendCampaignMessages(
   templateVars,
   mediaUrl,
   carouselMedia,
+  audienceMode,
 ) {
   let sent = 0;
   let failed = 0;
@@ -1025,7 +1033,12 @@ async function sendCampaignMessages(
   }
 
   console.log("📤 Final templateVars to use:", parsedTemplateVars);
-
+let uploadLogs = [];
+if (audienceMode === "upload") {
+  const allLogs = await CampaignLog.findByCampaignId(campaignId);
+  uploadLogs = allLogs.filter((l) => l.status === "pending");
+}
+let contactIndex = 0;
   for (const contact of contacts) {
     try {
       // Prepare variables
@@ -1060,10 +1073,11 @@ async function sendCampaignMessages(
 
       sent++;
 
-      const log = await CampaignLog.findByContactAndCampaign(
-        campaignId,
-        contact.id,
-      );
+      const log =
+        audienceMode === "upload"
+          ? uploadLogs[contactIndex] || null
+          : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
+
       if (log) {
         await CampaignLog.updateStatus(log.id, "sent", {
           whatsapp_msg_id: messageId,
@@ -1080,16 +1094,18 @@ async function sendCampaignMessages(
       await Campaign.updateStats(campaignId, 0, 0, 0, 1);
       console.error(`Failed to send to ${contact.phone}:`, err.message);
 
-      const log = await CampaignLog.findByContactAndCampaign(
-        campaignId,
-        contact.id,
-      );
-      if (log) {
-        await CampaignLog.updateStatus(log.id, "failed", {
-          error_message: err.message,
-        });
-      }
+    const log =
+      audienceMode === "upload"
+        ? uploadLogs[contactIndex] || null
+        : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
+
+    if (log) {
+      await CampaignLog.updateStatus(log.id, "failed", {
+        error_message: err.message,
+      });
     }
+    }
+    contactIndex++;  
   }
 
   await Campaign.update(campaignId, { status: "completed" });
