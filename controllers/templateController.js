@@ -57,23 +57,18 @@ function validate(body) {
   }
 
   // ✅ ADD THIS - Handle rejection_reason
-  const rejection_reason = body.rejection_reason || null;
+ const rejection_reason = body.rejection_reason || null;
+const subject = (body.subject || "").trim() || null;   // ← ADD
 
-  return {
-    ok: errors.length === 0,
-    errors,
-    value: { 
-      name, 
-      category, 
-      content, 
-      priority, 
-      autoApprove, 
-      status, 
-      channel,
-      is_active,      // ✅ ADD THIS
-      rejection_reason // ✅ ADD THIS
-    },
-  };
+return {
+  ok: errors.length === 0,
+  errors,
+  value: { 
+    name, category, content, subject,   // ← ADD subject
+    priority, autoApprove, status, channel,
+    is_active, rejection_reason
+  },
+};
 }
 
 async function create(req, res) {
