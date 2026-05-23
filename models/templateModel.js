@@ -5,7 +5,7 @@
 const pool = require("../config/database");       // if your pool is at projectRoot/config/database.js
 
 const SELECT = `
-  id, name, category, content, priority, autoApprove, status, is_active, channel, createdAt, updatedAt
+  id, name, category, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel, createdAt, updatedAt
 `;
 
 function toInt(v, def = 0) {
@@ -15,14 +15,15 @@ function toInt(v, def = 0) {
 
 async function createTemplate(data) {
   const sql = `
-    INSERT INTO templates
-      (name, category, content, priority, autoApprove, status, is_active, rejection_reason, channel)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+   INSERT INTO templates
+  (name, category, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const params = [
     data.name,
     data.category,
     data.content,
+    data.subject || null,
     data.priority,
     data.autoApprove ? 1 : 0,
     data.status,
@@ -98,6 +99,7 @@ async function updateTemplate(id, data) {
        SET name = ?,
            category = ?,
            content = ?,
+           subject = ?,
            priority = ?,
            autoApprove = ?,
            status = ?,
@@ -110,7 +112,9 @@ async function updateTemplate(id, data) {
     data.name,
     data.category,
     data.content,
+    data.subject || null,
     data.priority,
+
     data.autoApprove ? 1 : 0,
     data.autoApprove ? "approved" : data.status,
     data.is_active !== undefined ? data.is_active : 1,  // ✅ ADD THIS
