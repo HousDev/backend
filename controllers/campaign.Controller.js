@@ -527,6 +527,7 @@
 //   );
 // }
 
+
 const Campaign = require("../models/campaign.Model");
 const CampaignLog = require("../models/campaignLog.Model");
 const Contact = require("../models/contact.Model");
@@ -692,11 +693,32 @@ exports.launchCampaign = async (req, res) => {
         phone: c.phone,
       }));
     } else if (campaign.audience_mode === "manual") {
-      const selectedIds = campaign.selected_contact_ids || [];
-      if (selectedIds.length) {
-        contacts = await getContactsByIds(selectedIds);
-      }
+  let selectedIds = campaign.selected_contact_ids || [];
+
+  // Parse if it's a JSON string
+  if (typeof selectedIds === "string") {
+    try {
+      selectedIds = JSON.parse(selectedIds);
+      console.log("📋 Parsed selected_contact_ids:", selectedIds);
+    } catch (e) {
+      console.error("Failed to parse selected_contact_ids:", e);
+      selectedIds = [];
     }
+  }
+
+  // Ensure it's an array
+  if (!Array.isArray(selectedIds)) {
+    selectedIds = [];
+  }
+
+  if (selectedIds.length) {
+    contacts = await getContactsByIds(selectedIds);
+    console.log(`📋 Manual mode: Found ${contacts.length} contacts`);
+  } else {
+    console.log("⚠️ Manual mode: No selected_contact_ids found");
+  }
+}
+    
 
     const total = contacts.length;
 
@@ -713,7 +735,11 @@ exports.launchCampaign = async (req, res) => {
 
    if (campaign.audience_mode === "upload") {
      for (let i = 0; i < contacts.length; i++) {
-       await CampaignLog.create(id, null, "pending");
+       await db.query(
+         `INSERT INTO campaign_logs (campaign_id, contact_id, status, error_message, whatsapp_msg_id, contact_name, contact_phone, created_at, updated_at) 
+          VALUES (?, NULL, 'pending', NULL, NULL, ?, ?, NOW(), NOW())`,
+         [id, contacts[i].name || null, contacts[i].phone || null],
+       );
      }
    } else {
      const contactIds = contacts.map((c) => c.id).filter((id) => id);
@@ -989,13 +1015,177 @@ async function getContactsByFilters(filters) {
 // Helper: Get contacts by IDs
 async function getContactsByIds(ids) {
   try {
+    // Convert string IDs to numbers for comparison
+    const numericIds = ids.map((id) => Number(id));
     let contacts = await Contact.findAll();
-    return contacts.filter((c) => ids.includes(c.id));
+    const filtered = contacts.filter((c) => numericIds.includes(Number(c.id)));
+    console.log(`Found ${filtered.length} contacts from IDs:`, numericIds);
+    return filtered;
   } catch (err) {
     console.error("Error in getContactsByIds:", err);
     return [];
   }
 }
+// Helper: Send campaign messages - FIXED VERSION
+// async function sendCampaignMessages(
+//   campaignId,
+//   contacts,
+//   template,
+//   templateVars,
+//   mediaUrl,
+//   carouselMedia,
+//   audienceMode,
+// ) {
+//   let sent = 0;
+//   let failed = 0;
+
+//   console.log(
+//     `Starting to send ${contacts.length} messages for campaign ${campaignId}`,
+//   );
+
+//   // ✅ FIX: Parse template_variables if it's a string
+//   let parsedTemplateVars = templateVars;
+//   if (typeof parsedTemplateVars === "string") {
+//     try {
+//       parsedTemplateVars = JSON.parse(parsedTemplateVars);
+//       console.log("📤 Parsed templateVars from string:", parsedTemplateVars);
+//     } catch (e) {
+//       console.error("Failed to parse templateVars:", e);
+//       parsedTemplateVars = [];
+//     }
+//   }
+
+//   // ✅ FIX: If still empty, use default
+//   if (!parsedTemplateVars || parsedTemplateVars.length === 0) {
+//     console.log("⚠️ No template variables found, using defaults");
+//     parsedTemplateVars = ["{{contact.name}}"];
+//   }
+
+//   console.log("📤 Final templateVars to use:", parsedTemplateVars);
+//   let uploadLogs = [];
+//   if (audienceMode === "upload") {
+//     const allLogs = await CampaignLog.findByCampaignId(campaignId);
+//     uploadLogs = allLogs.filter((l) => l.status === "pending");
+//   }
+//   let contactIndex = 0;
+//   for (const contact of contacts) {
+//     try {
+//       // Prepare variables
+//       const variables = [];
+//       if (parsedTemplateVars && parsedTemplateVars.length) {
+//         for (let i = 0; i < parsedTemplateVars.length; i++) {
+//           let val = parsedTemplateVars[i];
+//           // Replace {{contact.field}} with actual contact data
+//           if (val && val.includes("{{contact.")) {
+//             const field = val.match(/{{contact\.(\w+)}}/)?.[1];
+//             if (field && contact[field]) {
+//               val = contact[field];
+//             } else if (field === "name") {
+//               val = contact.name || "Customer";
+//             } else {
+//               val = "";
+//             }
+//           }
+//           variables.push(val);
+//         }
+//       }
+
+//       console.log(`📤 Sending to ${contact.phone} with variables:`, variables);
+
+//       // Send template message
+//       const messageId = await sendTemplateMessage(
+//         contact.phone,
+//         template.name,
+//         template.language || "en",
+//         variables,
+//       );
+
+//       sent++;
+
+//       const log =
+//         audienceMode === "upload"
+//           ? uploadLogs[contactIndex] || null
+//           : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
+
+//       if (log) {
+//         await CampaignLog.updateStatus(log.id, "sent", {
+//           whatsapp_msg_id: messageId,
+//         });
+//       }
+
+//       await Campaign.updateStats(campaignId, 1, 0, 0, 0);
+
+//       // ✅ Emit live sent count update
+//       if (global.io) {
+//         global.io.emit("campaign_stats_update", {
+//           campaign_id: campaignId,
+//           stats: {
+//             id: campaignId,
+//             sent_count: sent,
+//             failed_count: failed,
+//             delivered_count: 0,
+//             read_count: 0,
+//             status: "running",
+//             total_contacts: contacts.length,
+//           },
+//         });
+//       }
+
+//       console.log(
+//         `Message sent to ${contact.phone} (${sent}/${contacts.length})`,
+//       );
+//     } catch (err) {
+//       failed++;
+//       await Campaign.updateStats(campaignId, 0, 0, 0, 1);
+//       console.error(`Failed to send to ${contact.phone}:`, err.message);
+
+//       const log =
+//         audienceMode === "upload"
+//           ? uploadLogs[contactIndex] || null
+//           : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
+
+//       if (log) {
+//         await CampaignLog.updateStatus(log.id, "failed", {
+//           error_message: err.message,
+//         });
+//       }
+//     }
+//     contactIndex++;
+//   }
+
+//   // After updating campaign status to completed
+//   await Campaign.update(campaignId, { status: "completed" });
+//   console.log(
+//     `✅ Campaign ${campaignId} completed. Sent: ${sent}, Failed: ${failed}`,
+//   );
+
+//   // ✅ ADD DEBUG LOGS
+//   console.log(`🔍 Emitting events for campaign ${campaignId}`);
+//   if (global.io) {
+//     console.log(`✅ global.io exists, emitting...`);
+//     const [campRows] = await db.query(
+//       `SELECT id, status, sent_count, delivered_count, read_count,
+//        failed_count, total_contacts FROM campaigns WHERE id = ?`,
+//       [campaignId],
+//     );
+//     if (campRows.length > 0) {
+//       console.log(
+//         `📤 Emitting campaign_completed with status: ${campRows[0].status}`,
+//       );
+//       global.io.emit("campaign_stats_update", {
+//         campaign_id: campaignId,
+//         stats: campRows[0],
+//       });
+//       global.io.emit("campaign_completed", {
+//         campaign_id: campaignId,
+//         stats: campRows[0],
+//       });
+//     }
+//   } else {
+//     console.log(`❌ global.io is NULL!`);
+//   }
+// }
+
 
 // Helper: Send campaign messages - FIXED VERSION
 async function sendCampaignMessages(
@@ -1014,7 +1204,7 @@ async function sendCampaignMessages(
     `Starting to send ${contacts.length} messages for campaign ${campaignId}`,
   );
 
-  // ✅ FIX: Parse template_variables if it's a string
+  // Parse template_variables if it's a string
   let parsedTemplateVars = templateVars;
   if (typeof parsedTemplateVars === "string") {
     try {
@@ -1026,19 +1216,21 @@ async function sendCampaignMessages(
     }
   }
 
-  // ✅ FIX: If still empty, use default
+  // If still empty, use default
   if (!parsedTemplateVars || parsedTemplateVars.length === 0) {
     console.log("⚠️ No template variables found, using defaults");
     parsedTemplateVars = ["{{contact.name}}"];
   }
 
   console.log("📤 Final templateVars to use:", parsedTemplateVars);
-let uploadLogs = [];
-if (audienceMode === "upload") {
-  const allLogs = await CampaignLog.findByCampaignId(campaignId);
-  uploadLogs = allLogs.filter((l) => l.status === "pending");
-}
-let contactIndex = 0;
+
+  let uploadLogs = [];
+  if (audienceMode === "upload") {
+    const allLogs = await CampaignLog.findByCampaignId(campaignId);
+    uploadLogs = allLogs.filter((l) => l.status === "pending");
+  }
+  
+  let contactIndex = 0;
   for (const contact of contacts) {
     try {
       // Prepare variables
@@ -1063,7 +1255,7 @@ let contactIndex = 0;
 
       console.log(`📤 Sending to ${contact.phone} with variables:`, variables);
 
-      // Send template message
+      // Send template message - THIS WILL NOW SAVE CORRECT BODY
       const messageId = await sendTemplateMessage(
         contact.phone,
         template.name,
@@ -1086,6 +1278,22 @@ let contactIndex = 0;
 
       await Campaign.updateStats(campaignId, 1, 0, 0, 0);
 
+      // Emit live sent count update
+      if (global.io) {
+        global.io.emit("campaign_stats_update", {
+          campaign_id: campaignId,
+          stats: {
+            id: campaignId,
+            sent_count: sent,
+            failed_count: failed,
+            delivered_count: 0,
+            read_count: 0,
+            status: "running",
+            total_contacts: contacts.length,
+          },
+        });
+      }
+
       console.log(
         `Message sent to ${contact.phone} (${sent}/${contacts.length})`,
       );
@@ -1094,22 +1302,42 @@ let contactIndex = 0;
       await Campaign.updateStats(campaignId, 0, 0, 0, 1);
       console.error(`Failed to send to ${contact.phone}:`, err.message);
 
-    const log =
-      audienceMode === "upload"
-        ? uploadLogs[contactIndex] || null
-        : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
+      const log =
+        audienceMode === "upload"
+          ? uploadLogs[contactIndex] || null
+          : await CampaignLog.findByContactAndCampaign(campaignId, contact.id);
 
-    if (log) {
-      await CampaignLog.updateStatus(log.id, "failed", {
-        error_message: err.message,
-      });
+      if (log) {
+        await CampaignLog.updateStatus(log.id, "failed", {
+          error_message: err.message,
+        });
+      }
     }
-    }
-    contactIndex++;  
+    contactIndex++;
   }
 
+  // Update campaign status to completed
   await Campaign.update(campaignId, { status: "completed" });
   console.log(
-    `Campaign ${campaignId} completed. Sent: ${sent}, Failed: ${failed}`,
+    `✅ Campaign ${campaignId} completed. Sent: ${sent}, Failed: ${failed}`,
   );
+
+  // Emit events
+  if (global.io) {
+    const [campRows] = await db.query(
+      `SELECT id, status, sent_count, delivered_count, read_count, 
+       failed_count, total_contacts FROM campaigns WHERE id = ?`,
+      [campaignId],
+    );
+    if (campRows.length > 0) {
+      global.io.emit("campaign_stats_update", {
+        campaign_id: campaignId,
+        stats: campRows[0],
+      });
+      global.io.emit("campaign_completed", {
+        campaign_id: campaignId,
+        stats: campRows[0],
+      });
+    }
+  }
 }

@@ -196,19 +196,42 @@ async function processScheduledCampaigns() {
         // Send messages to each contact
         for (const contact of contacts) {
           try {
+            // Prepare variables - FIXED VERSION
             const variables = [];
-            for (let i = 0; i < templateVars.length; i++) {
-              let val = templateVars[i];
-              if (val && val.includes("{{contact.")) {
-                const field = val.match(/{{contact\.(\w+)}}/)?.[1];
-                if (field && contact[field]) {
-                  val = contact[field];
-                } else {
-                  val = "";
+            if (parsedTemplateVars && parsedTemplateVars.length) {
+              for (let i = 0; i < parsedTemplateVars.length; i++) {
+                let val = parsedTemplateVars[i];
+
+                // ✅ CRITICAL FIX: Handle string values that might contain the placeholder
+                if (typeof val === "string") {
+                  // If this is a placeholder like "{{contact.name}}"
+                  if (val.includes("{{contact.")) {
+                    const field = val.match(/{{contact\.(\w+)}}/)?.[1];
+                    if (field && contact[field]) {
+                      val = contact[field];
+                    } else if (field === "name") {
+                      val = contact.name || "Customer";
+                    } else {
+                      val = "";
+                    }
+                  }
+                  // If this is a direct string like "2BHK" or "Wakad" (from your logs)
+                  else if (val && !val.includes("{{")) {
+                    // Keep as is - this is a literal value
+                    val = val;
+                  }
                 }
+
+                variables.push(val);
               }
-              variables.push(val);
             }
+
+            // ✅ ADD THIS DEBUG LOG
+            console.log(
+              `📤 Sending to ${contact.phone} with variables:`,
+              variables,
+            );
+            console.log(`📤 Template name: ${template.name}`);
 
             const messageId = await sendTemplateMessage(
               contact.phone,
@@ -248,14 +271,36 @@ async function processScheduledCampaigns() {
           }
         }
 
-        // Update campaign status to completed
-        await db.query(
-          `UPDATE campaigns SET status = 'completed' WHERE id = ?`,
-          [campaign.id],
-        );
-        console.log(
-          `✅ Campaign ${campaign.id} completed. Sent: ${sent}, Failed: ${failed}`,
-        );
+        
+       // Update campaign status to completed
+await db.query(
+  `UPDATE campaigns SET status = 'completed' WHERE id = ?`,
+  [campaign.id],
+);
+console.log(
+  `✅ Campaign ${campaign.id} completed. Sent: ${sent}, Failed: ${failed}`,
+);
+
+// ✅ Emit live completed status to frontend
+if (global.io) {
+  const [campRows] = await db.query(
+    `SELECT id, status, sent_count, delivered_count, read_count,
+     failed_count, total_contacts FROM campaigns WHERE id = ?`,
+    [campaign.id],
+  );
+  if (campRows.length > 0) {
+    global.io.emit("campaign_stats_update", {
+      campaign_id: campaign.id,
+      stats: campRows[0],
+    });
+    
+    // ✅ YEH 5 LINES ADD KARO
+    global.io.emit("campaign_completed", {
+      campaign_id: campaign.id,
+      stats: campRows[0],
+    });
+  }
+}
       } catch (err) {
         console.error(`❌ Failed to process campaign ${campaign.id}:`, err);
         await db.query(`UPDATE campaigns SET status = 'failed' WHERE id = ?`, [

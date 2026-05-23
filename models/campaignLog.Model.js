@@ -8,7 +8,7 @@ const CampaignLog = {
     try {
       const [rows] = await db.query(
         `
-        SELECT 
+       SELECT 
           cl.id,
           cl.campaign_id,
           cl.contact_id,
@@ -20,6 +20,8 @@ const CampaignLog = {
           cl.read_at,
           cl.created_at,
           cl.updated_at,
+          cl.contact_name as upload_name,
+          cl.contact_phone as upload_phone,
           c.id as contact_db_id,
           c.name as contact_name,
           c.phone as contact_phone,
@@ -29,7 +31,7 @@ const CampaignLog = {
         WHERE cl.campaign_id = ?
         ORDER BY cl.created_at DESC
         `,
-        [campaignId]
+        [campaignId],
       );
 
       return rows.map((row) => ({
@@ -51,7 +53,14 @@ const CampaignLog = {
               phone: row.contact_phone || "Unknown",
               stage: row.contact_stage || "New",
             }
-          : null,
+          : row.upload_name || row.upload_phone
+            ? {
+                id: null,
+                name: row.upload_name || "Unknown",
+                phone: row.upload_phone || "Unknown",
+                stage: "—",
+              }
+            : null,
       }));
     } catch (error) {
       console.error("Error in findByCampaignId:", error);
