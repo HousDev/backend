@@ -101,7 +101,7 @@ exports.signin = async (req, res) => {
     if (!user) {
       return res.status(401).send({
         success: false,
-        message: 'Invalid username or password!'
+message: 'User not found!'
       });
     }
 
@@ -118,7 +118,7 @@ exports.signin = async (req, res) => {
     if (!passwordIsValid) {
       return res.status(401).send({
         success: false,
-        message: 'Invalid username or password!'
+message: 'Incorrect password!'
       });
     }
 
