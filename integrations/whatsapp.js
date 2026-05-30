@@ -869,9 +869,15 @@ try {
 
             // If still not found, create a new contact
             if (contact.length === 0) {
+              // const name =
+              //   change.value.contacts?.[0]?.profile?.name ??
+              //   `Customer ${from.slice(-4)}`;
+              const profileName = change.value.contacts?.[0]?.profile?.name;
+
               const name =
-                change.value.contacts?.[0]?.profile?.name ??
-                `Customer ${from.slice(-4)}`;
+                profileName && profileName.trim() ? profileName : lookupPhone;
+              
+              
               const [result] = await db.query(
                 "INSERT INTO contacts_wa (name, phone) VALUES (?, ?)",
                 [name, lookupPhone]  // Store with '+'

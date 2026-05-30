@@ -66,7 +66,7 @@ require("./corn/chatbotCleanup");
 const { startCampaignScheduler } = require("./corn/campaignScheduler");
 const societyRoutes = require("./routes/SocietyRoutes");
 
-
+const googleSheetsRoutes = require("./routes/googleSheets.routes");
 const app = express();
 
 app.set("trust proxy", 1);
@@ -163,6 +163,8 @@ app.use("/api/analytics", require("./routes/analytics.routes"));
 
 app.use("/api/rbac", rbacRoutes);
 app.use("/api/backup", backupRoutes);
+
+app.use("/api/google-sheets", googleSheetsRoutes);
 // for use for loacal
 // app.use(
 //   '/uploads',
