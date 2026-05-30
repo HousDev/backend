@@ -297,3 +297,36 @@ exports.deleteContact = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ADD this export (in your contacts controller file or new file)
+exports.blockContact = async (req, res) => {
+    try {
+        const { id } = req.params;            // ✅ matches route /:id/block
+        const contact_id = id;
+        await db.query(
+            `UPDATE contacts_wa SET is_blocked = 1 WHERE id = ?`,
+            [contact_id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Block contact error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
+exports.unblockContact = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.query(
+            `UPDATE contacts_wa SET is_blocked = 0 WHERE id = ?`,
+            [id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Unblock contact error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
