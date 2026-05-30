@@ -303,3 +303,23 @@ exports.sendLocation = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+
+// ADD at end of file
+exports.clearChatHistory = async (req, res) => {
+    try {
+        const { contact_id } = req.params;
+        await db.query(
+            `UPDATE messages_wa SET is_deleted = 1 WHERE contact_id = ?`,
+            [contact_id]
+        );
+        await db.query(
+            `UPDATE contacts_wa SET last_message = NULL WHERE id = ?`,
+            [contact_id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Clear chat error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};

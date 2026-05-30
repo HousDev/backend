@@ -99,9 +99,9 @@ const Message = {
     return result.insertId;
   },
 
-  findByContact: async (contact_id) => {
+ findByContact: async (contact_id) => {
     const [rows] = await db.query(
-      "SELECT * FROM messages_wa WHERE contact_id = ? ORDER BY time_sent ASC",
+      "SELECT * FROM messages_wa WHERE contact_id = ? AND is_deleted = 0 ORDER BY time_sent ASC",
       [contact_id],
     );
     // Format messages for frontend compatibility

@@ -42,7 +42,8 @@ router.get("/tags/:id", tagCtrl.getTagById);
 router.post("/tags", tagCtrl.createTag);
 router.put("/tags/:id", tagCtrl.updateTag);
 router.delete("/tags/:id", tagCtrl.deleteTag);
-// POST /api/contacts/count - Estimate contact count for campaigns
+router.patch('/:id/block', ctrl.blockContact);
+router.patch('/:id/unblock', ctrl.unblockContact);// POST /api/contacts/count - Estimate contact count for campaigns
 router.post("/count", async (req, res) => {
   try {
     const filters = req.body;

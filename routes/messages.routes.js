@@ -35,4 +35,6 @@ router.post(
 );
 
 router.post("/send-location", ctrl.sendLocation);
+
+router.patch('/:contact_id/clear', ctrl.clearChatHistory);
 module.exports = router;
