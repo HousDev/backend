@@ -142,9 +142,9 @@ exports.sendMedia = async (req, res) => {
     // if (filePath && fs.existsSync(filePath)) {
     //   fs.unlinkSync(filePath);
     // }
-    if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
-  fs.unlinkSync(filePath);
-}
+//     if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
+//   fs.unlinkSync(filePath);
+// }
 
     // Emit socket update
     emitToContactRoom(contact_id, 'chat_update', {
@@ -180,13 +180,13 @@ exports.sendMedia = async (req, res) => {
     //     console.error('Failed to cleanup file:', cleanupError);
     //   }
     // }
-    if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
-  try {
-    fs.unlinkSync(filePath);
-  } catch (cleanupError) {
-    console.error('Failed to cleanup file:', cleanupError);
-  }
-}
+//     if (process.env.NODE_ENV === 'production' && filePath && fs.existsSync(filePath)) {
+//   try {
+//     fs.unlinkSync(filePath);
+//   } catch (cleanupError) {
+//     console.error('Failed to cleanup file:', cleanupError);
+//   }
+// }
     res.status(500).json({ error: err.message });
   }
 };
