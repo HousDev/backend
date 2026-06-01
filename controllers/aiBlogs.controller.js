@@ -1,4 +1,6 @@
 const sanitizeHtml = require("sanitize-html");
+const Integration = require("../models/integration.model");
+
 
 /* ----------------------------------------------------------
    LTR sanitizer (removes hidden bidi chars)
@@ -237,11 +239,17 @@ function sanitizeHtmlSafe(html = "") {
 ---------------------------------------------------------- */
 exports.generateBlogFromTitle = async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return res
-        .status(500)
-        .json({ success: false, message: "Missing OPENAI_API_KEY" });
-    }
+    // if (!process.env.OPENAI_API_KEY) {
+    //   return res
+    //     .status(500)
+    //     .json({ success: false, message: "Missing OPENAI_API_KEY" });
+    // }
+
+    const apiKey = await Integration.getSetting("chatgpt", "api_key");
+const model  = await Integration.getSetting("chatgpt", "model") || "gpt-4o-mini";
+if (!apiKey) {
+  return res.status(500).json({ success: false, message: "ChatGPT integration not configured." });
+}
     const { title, includeToc = true } = req.body || {};
     if (!title || typeof title !== "string") {
       return res
@@ -253,10 +261,10 @@ exports.generateBlogFromTitle = async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: model,
         temperature: 0.7,
         response_format: { type: "json_object" },
         messages: [
