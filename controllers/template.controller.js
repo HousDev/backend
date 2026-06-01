@@ -1,14 +1,20 @@
 // controllers/template.controller.js
 const fetch = global.fetch || require("node-fetch"); 
 const { buildTemplatePrompt } = require("../utils/promptBuilder");
+const Integration = require("../models/integration.model");
 
 async function generateTemplate(req, res) {
   try {
     const payload = req.body || {};
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
-    }
+    // if (!process.env.OPENAI_API_KEY) {
+    //   return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+    // }
+    const apiKey = await Integration.getSetting("chatgpt", "api_key");
+const model  = await Integration.getSetting("chatgpt", "model") || "gpt-4o-mini";
+if (!apiKey) {
+  return res.status(500).json({ error: "ChatGPT integration not configured. Please configure it in Settings > Integrations." });
+}
 
     const prompt = buildTemplatePrompt(payload);
 
@@ -16,10 +22,14 @@ async function generateTemplate(req, res) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        // Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
+
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // choose model available to you
+        // model: "gpt-4o-mini", 
+        model: model,
+
         input: [
           {
             role: "system",

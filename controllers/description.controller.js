@@ -1,4 +1,5 @@
 const { buildPrompt } = require("../utils/promptBuilder");
+const Integration = require("../models/integration.model");
 
 // Node 18+ has global fetch. If you’re on Node <18, uncomment below:
 // const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
@@ -8,18 +9,24 @@ async function generateDescription(req, res) {
     const payload = req.body || {};
     const prompt = buildPrompt(payload);
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
-    }
+    // if (!process.env.OPENAI_API_KEY) {
+    //   return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+    // }
+
+    const apiKey = await Integration.getSetting("chatgpt", "api_key");
+const model  = await Integration.getSetting("chatgpt", "model") || "gpt-4o-mini";
+if (!apiKey) {
+  return res.status(500).json({ error: "ChatGPT integration not configured." });
+}
 
     const r = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: model,
         input: [
           {
             role: "system",
