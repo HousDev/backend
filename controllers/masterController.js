@@ -319,7 +319,7 @@
 
 // module.exports = MasterController;
 
-const MasterModel = require("../models/MasterModel");
+const MasterModel = require("../models/masterModel");
 const csv = require("csv-parser");
 const fs = require("fs");
 
