@@ -322,6 +322,8 @@
 const MasterModel = require("../models/masterModel");
 const csv = require("csv-parser");
 const fs = require("fs");
+const XLSX = require('xlsx');
+
 
 const MasterController = {
   // ==================== MASTER TYPES ====================
@@ -586,7 +588,71 @@ const MasterController = {
   },
 
   // 🔥 UPDATED: Import Master Types with duplicate filtering
-  importMasterTypes: async (req, res) => {
+//   importMasterTypes: async (req, res) => {
+//     try {
+//       const { tabId } = req.params;
+
+//       if (!req.file) {
+//         return res.status(400).json({ error: "No file uploaded" });
+//       }
+
+//       const results = [];
+//       fs.createReadStream(req.file.path)
+//         .pipe(
+//   csv({
+//     mapHeaders: ({ header }) => header.trim().toLowerCase().replace(/\s+/g, '_'),
+//   }),
+// )
+//         .on("data", (data) => results.push(data))
+//         .on("end", async () => {
+//           try {
+//             // Filter out duplicates
+//             const uniqueResults = [];
+//             const existingNames = new Set();
+//             let duplicateCount = 0;
+
+//          for (const item of results) {
+//   const itemName = item.name || item.Name || item.NAME;
+//   if (!itemName) continue;
+
+//   const existing = await MasterModel.checkDuplicateMasterType(tabId, itemName);
+//   if (!existing && !existingNames.has(itemName.trim().toLowerCase())) {
+//     existingNames.add(itemName.trim().toLowerCase());
+//     uniqueResults.push({ ...item, name: itemName.trim() });
+//   } else {
+//     duplicateCount++;
+//   }
+// }
+
+//             if (uniqueResults.length === 0) {
+//               fs.unlinkSync(req.file.path);
+//               return res.json({
+//                 success: true,
+//                 message: `No new master types to import (${duplicateCount} duplicates skipped)`,
+//                 imported: 0,
+//                 skipped: duplicateCount,
+//               });
+//             }
+
+//             await MasterModel.importMasterTypes(tabId, uniqueResults);
+//             fs.unlinkSync(req.file.path);
+//             res.json({
+//               success: true,
+//               message: `${uniqueResults.length} master types imported successfully (${duplicateCount} duplicates skipped)`,
+//               imported: uniqueResults.length,
+//               skipped: duplicateCount,
+//             });
+//           } catch (error) {
+//             fs.unlinkSync(req.file.path);
+//             res.status(500).json({ error: error.message });
+//           }
+//         });
+//     } catch (error) {
+//       res.status(500).json({ error: error.message });
+//     }
+//   },
+
+importMasterTypes: async (req, res) => {
     try {
       const { tabId } = req.params;
 
@@ -594,58 +660,106 @@ const MasterController = {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const results = [];
-      fs.createReadStream(req.file.path)
-        .pipe(
-          csv({
-            mapHeaders: ({ header }) => header.trim().toLowerCase(),
-          }),
-        )
-        .on("data", (data) => results.push(data))
-        .on("end", async () => {
-          try {
-            // Filter out duplicates
-            const uniqueResults = [];
-            const existingNames = new Set();
-            let duplicateCount = 0;
+      const fileExt = req.file.originalname.split('.').pop().toLowerCase();
+      let results = [];
 
-            for (const item of results) {
-              const existing = await MasterModel.checkDuplicateMasterType(
-                tabId,
-                item.name,
-              );
-              if (!existing && !existingNames.has(item.name.toLowerCase())) {
-                existingNames.add(item.name.toLowerCase());
-                uniqueResults.push(item);
-              } else {
-                duplicateCount++;
-              }
-            }
+      if (fileExt === 'xlsx' || fileExt === 'xls') {
+        // Parse Excel file
+        const workbook = XLSX.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
-            if (uniqueResults.length === 0) {
-              fs.unlinkSync(req.file.path);
-              return res.json({
-                success: true,
-                message: `No new master types to import (${duplicateCount} duplicates skipped)`,
-                imported: 0,
-                skipped: duplicateCount,
-              });
-            }
+        results = jsonData.map(row => ({
+          name: String(row['Name'] || row['name'] || row['NAME'] || '').trim(),
+          status: String(row['Status'] || row['status'] || row['STATUS'] || 'Active').trim(),
+          // Value Count column automatically ignore ho jaayega
+        })).filter(r => r.name);
 
-            await MasterModel.importMasterTypes(tabId, uniqueResults);
-            fs.unlinkSync(req.file.path);
-            res.json({
-              success: true,
-              message: `${uniqueResults.length} master types imported successfully (${duplicateCount} duplicates skipped)`,
-              imported: uniqueResults.length,
-              skipped: duplicateCount,
-            });
-          } catch (error) {
-            fs.unlinkSync(req.file.path);
-            res.status(500).json({ error: error.message });
+        fs.unlinkSync(req.file.path);
+
+        // Duplicate check
+        const uniqueResults = [];
+        const existingNames = new Set();
+        let duplicateCount = 0;
+
+        for (const item of results) {
+          const existing = await MasterModel.checkDuplicateMasterType(tabId, item.name);
+          if (!existing && !existingNames.has(item.name.toLowerCase())) {
+            existingNames.add(item.name.toLowerCase());
+            uniqueResults.push(item);
+          } else {
+            duplicateCount++;
           }
+        }
+
+        if (uniqueResults.length === 0) {
+          return res.json({
+            success: true,
+            message: `No new master types to import (${duplicateCount} duplicates skipped)`,
+            imported: 0,
+            skipped: duplicateCount,
+          });
+        }
+
+        await MasterModel.importMasterTypes(tabId, uniqueResults);
+        return res.json({
+          success: true,
+          message: `${uniqueResults.length} master types imported successfully (${duplicateCount} duplicates skipped)`,
+          imported: uniqueResults.length,
+          skipped: duplicateCount,
         });
+
+      } else {
+        // Parse CSV file
+        await new Promise((resolve, reject) => {
+          fs.createReadStream(req.file.path)
+            .pipe(csv({
+              mapHeaders: ({ header }) => header.trim().toLowerCase().replace(/\s+/g, '_'),
+            }))
+            .on("data", (data) => results.push(data))
+            .on("end", resolve)
+            .on("error", reject);
+        });
+        fs.unlinkSync(req.file.path);
+
+        const uniqueResults = [];
+        const existingNames = new Set();
+        let duplicateCount = 0;
+
+        for (const item of results) {
+          const itemName = item.name || item.Name || item.NAME;
+          if (!itemName) continue;
+
+          const existing = await MasterModel.checkDuplicateMasterType(tabId, itemName);
+          if (!existing && !existingNames.has(itemName.trim().toLowerCase())) {
+            existingNames.add(itemName.trim().toLowerCase());
+            uniqueResults.push({ ...item, name: itemName.trim() });
+          } else {
+            duplicateCount++;
+          }
+        }
+
+        if (uniqueResults.length === 0) {
+          return res.json({
+            success: true,
+            message: `No new master types to import (${duplicateCount} duplicates skipped)`,
+            imported: 0,
+            skipped: duplicateCount,
+          });
+        }
+
+        await MasterModel.importMasterTypes(tabId, uniqueResults);
+        return res.json({
+          success: true,
+          message: `${uniqueResults.length} master types imported successfully (${duplicateCount} duplicates skipped)`,
+          imported: uniqueResults.length,
+          skipped: duplicateCount,
+        });
+      }
+
     } catch (error) {
+      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       res.status(500).json({ error: error.message });
     }
   },
@@ -674,69 +788,148 @@ const MasterController = {
   },
 
   // 🔥 UPDATED: Import Master Values with duplicate filtering
-  importMasterValues: async (req, res) => {
-    try {
-      const { masterTypeId } = req.params;
+//   importMasterValues: async (req, res) => {
+//     try {
+//       const { masterTypeId } = req.params;
 
-      if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded" });
-      }
+//       if (!req.file) {
+//         return res.status(400).json({ error: "No file uploaded" });
+//       }
 
-      const results = [];
-      fs.createReadStream(req.file.path)
-        .pipe(
-          csv({
-            mapHeaders: ({ header }) => header.trim().toLowerCase(),
-          }),
-        )
-        .on("data", (data) => results.push(data))
-        .on("end", async () => {
-          try {
-            // Filter out duplicates
-            const uniqueResults = [];
-            const existingValues = new Set();
-            let duplicateCount = 0;
+//       const results = [];
+//       fs.createReadStream(req.file.path)
+//         .pipe(
+//           csv({
+// mapHeaders: ({ header }) => header.trim().toLowerCase().replace(/\s+/g, ''),
+//           }),
+//         )
+//         .on("data", (data) => results.push(data))
+//         .on("end", async () => {
+//           try {
+//             // Filter out duplicates
+//             const uniqueResults = [];
+//             const existingValues = new Set();
+//             let duplicateCount = 0;
 
-            for (const item of results) {
-              const existing = await MasterModel.checkDuplicateMasterValue(
-                masterTypeId,
-                item.value,
-              );
-              if (!existing && !existingValues.has(item.value.toLowerCase())) {
-                existingValues.add(item.value.toLowerCase());
-                uniqueResults.push(item);
-              } else {
-                duplicateCount++;
-              }
-            }
+//            for (const item of results) {
+//   const itemValue = item.value || item.Value || item.VALUE;
+//   if (!itemValue) continue;
 
-            if (uniqueResults.length === 0) {
-              fs.unlinkSync(req.file.path);
-              return res.json({
-                success: true,
-                message: `No new values to import (${duplicateCount} duplicates skipped)`,
-                imported: 0,
-                skipped: duplicateCount,
-              });
-            }
+//   const existing = await MasterModel.checkDuplicateMasterValue(masterTypeId, itemValue);
+//   if (!existing && !existingValues.has(itemValue.trim().toLowerCase())) {
+//     existingValues.add(itemValue.trim().toLowerCase());
+//     uniqueResults.push({ ...item, value: itemValue.trim() });
+//   } else {
+//     duplicateCount++;
+//   }
+// }
 
-            await MasterModel.importMasterValues(masterTypeId, uniqueResults);
-            fs.unlinkSync(req.file.path);
-            res.json({
-              success: true,
-              message: `${uniqueResults.length} values imported successfully (${duplicateCount} duplicates skipped)`,
-              imported: uniqueResults.length,
-              skipped: duplicateCount,
-            });
-          } catch (error) {
-            fs.unlinkSync(req.file.path);
-            res.status(500).json({ error: error.message });
-          }
-        });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+//             if (uniqueResults.length === 0) {
+//               fs.unlinkSync(req.file.path);
+//               return res.json({
+//                 success: true,
+//                 message: `No new values to import (${duplicateCount} duplicates skipped)`,
+//                 imported: 0,
+//                 skipped: duplicateCount,
+//               });
+//             }
+
+//             await MasterModel.importMasterValues(masterTypeId, uniqueResults);
+//             fs.unlinkSync(req.file.path);
+//             res.json({
+//               success: true,
+//               message: `${uniqueResults.length} values imported successfully (${duplicateCount} duplicates skipped)`,
+//               imported: uniqueResults.length,
+//               skipped: duplicateCount,
+//             });
+//           } catch (error) {
+//             fs.unlinkSync(req.file.path);
+//             res.status(500).json({ error: error.message });
+//           }
+//         });
+//     } catch (error) {
+//       res.status(500).json({ error: error.message });
+//     }
+//   },
+
+importMasterValues: async (req, res) => {
+  try {
+    const { masterTypeId } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
     }
-  },
+
+    const fileExt = req.file.originalname.split('.').pop().toLowerCase();
+    let results = [];
+
+    if (fileExt === 'xlsx' || fileExt === 'xls') {
+      // Parse Excel file
+      const workbook = XLSX.readFile(req.file.path);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+      
+      results = jsonData.map(row => ({
+        value: String(row['value'] || row['Value'] || row['VALUE'] || '').trim(),
+        status: String(row['status'] || row['Status'] || row['STATUS'] || 'Active').trim(),
+      })).filter(r => r.value);
+
+      fs.unlinkSync(req.file.path);
+      
+    } else {
+      // Parse CSV file
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(req.file.path)
+          .pipe(csv({
+            mapHeaders: ({ header }) => header.trim().toLowerCase().replace(/\s+/g, ''),
+          }))
+          .on("data", (data) => results.push(data))
+          .on("end", resolve)
+          .on("error", reject);
+      });
+      fs.unlinkSync(req.file.path);
+    }
+
+    const uniqueResults = [];
+    const existingValues = new Set();
+    let duplicateCount = 0;
+
+    for (const item of results) {
+      const itemValue = item.value || item.Value || item.VALUE;
+      if (!itemValue) continue;
+
+      const existing = await MasterModel.checkDuplicateMasterValue(masterTypeId, itemValue);
+      if (!existing && !existingValues.has(itemValue.trim().toLowerCase())) {
+        existingValues.add(itemValue.trim().toLowerCase());
+        uniqueResults.push({ ...item, value: itemValue.trim() });
+      } else {
+        duplicateCount++;
+      }
+    }
+
+    if (uniqueResults.length === 0) {
+      return res.json({
+        success: true,
+        message: `No new values to import (${duplicateCount} duplicates skipped)`,
+        imported: 0,
+        skipped: duplicateCount,
+      });
+    }
+
+    await MasterModel.importMasterValues(masterTypeId, uniqueResults);
+    res.json({
+      success: true,
+      message: `${uniqueResults.length} values imported successfully (${duplicateCount} duplicates skipped)`,
+      imported: uniqueResults.length,
+      skipped: duplicateCount,
+    });
+
+  } catch (error) {
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: error.message });
+  }
+},
 };
 
 module.exports = MasterController;
