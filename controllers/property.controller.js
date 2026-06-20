@@ -1604,6 +1604,27 @@ const getSimilarProperties = async (req, res) => {
     });
   }
 };
+/* =========================
+   POPULAR LOCATIONS
+   ========================= */
+const getPopularLocations = async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 5;
+    const popularLocations = await Property.getPopularLocations(limit);
+
+    return res.json({
+      success: true,
+      data: popularLocations,
+    });
+  } catch (error) {
+    console.error("getPopularLocations error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch popular locations",
+      data: [],
+    });
+  }
+};
 
 
 module.exports = {
@@ -1630,5 +1651,7 @@ module.exports = {
   PublicgetPropertyBySlug,
   PublicgetProperty,
   updateAssignedTo,
-  getSimilarProperties
+  getSimilarProperties,
+  getPopularLocations   // ✅ NEW
+
 };
