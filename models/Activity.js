@@ -59,11 +59,15 @@ class Activity {
       SELECT a.*, 
              CONCAT(u.first_name, ' ', u.last_name) as user_name,
              CONCAT(l.first_name, ' ', l.last_name) as lead_name,
-             p.title as property_title
+             CONCAT(
+    IFNULL(p.property_type_name, ''),
+    ' - ',
+    IFNULL(p.location_name, '')
+) AS property_title
       FROM activities a
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN leads l ON a.lead_id = l.id
-      LEFT JOIN properties p ON a.property_id = p.id
+      LEFT JOIN my_properties p ON a.property_id = p.id
       WHERE a.id = ?
     `;
 
@@ -84,11 +88,15 @@ class Activity {
       SELECT a.*, 
              CONCAT(u.first_name, ' ', u.last_name) as user_name,
              CONCAT(l.first_name, ' ', l.last_name) as lead_name,
-             p.title as property_title
+             CONCAT(
+    IFNULL(p.property_type_name, ''),
+    ' - ',
+    IFNULL(p.location_name, '')
+) AS property_title
       FROM activities a
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN leads l ON a.lead_id = l.id
-      LEFT JOIN properties p ON a.property_id = p.id
+      LEFT JOIN my_properties p ON a.property_id = p.id
       WHERE 1=1
     `;
 
@@ -209,11 +217,15 @@ class Activity {
       SELECT a.*, 
              CONCAT(u.first_name, ' ', u.last_name) as user_name,
              CONCAT(l.first_name, ' ', l.last_name) as lead_name,
-             p.title as property_title
+             CONCAT(
+    IFNULL(p.property_type_name, ''),
+    ' - ',
+    IFNULL(p.location_name, '')
+) AS property_title
       FROM activities a
       LEFT JOIN users u ON a.user_id = u.id
       LEFT JOIN leads l ON a.lead_id = l.id
-      LEFT JOIN properties p ON a.property_id = p.id
+      LEFT JOIN my_properties p ON a.property_id = p.id
       WHERE a.status = 'pending'
         AND a.scheduled_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL ? DAY)
     `;

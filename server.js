@@ -121,7 +121,7 @@ app.get("/api/health", (req, res) => {
     version: "1.0.0",
   });
 });
-app.set("trust proxy", true);
+// app.set("trust proxy", true);
 // API routes
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/leads", leadRoutes);
