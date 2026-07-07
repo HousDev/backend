@@ -2,6 +2,7 @@
 // const SocietyModel = require("../models/SocietyModel");
 // const { v4: uuidv4 } = require("uuid");
 // const XLSX = require("xlsx");
+
 // const parseArrayField = (field) => {
 //   if (!field) return [];
 //   if (Array.isArray(field)) return field;
@@ -20,6 +21,7 @@
 
 //   return [];
 // };
+
 // const safeJsonParse = (str, defaultValue = []) => {
 //   if (!str) return defaultValue;
 
@@ -43,7 +45,7 @@
 // };
 
 // const SocietyController = {
-//   // 🔥 UPDATED: Create new society with duplicate check
+//   // 🔥 UPDATED: Create new society with duplicate check (without city)
 //   create: async (req, res) => {
 //     try {
 //       const { societyName, locality, city, pincode, amenities, status } =
@@ -64,17 +66,16 @@
 //         });
 //       }
 
-//       // 🔥 CHECK FOR DUPLICATE BEFORE CREATING
+//       // 🔥 CHECK FOR DUPLICATE BEFORE CREATING (ONLY societyName + locality + pincode)
 //       const existing = await SocietyModel.checkDuplicate(
 //         societyName,
 //         locality,
-//         city,
-//         pincode,
+//         pincode, // city removed from duplicate check
 //       );
 
 //       if (existing) {
 //         return res.status(409).json({
-//           error: `Society "${societyName}" already exists in ${locality}, ${city} - ${pincode}`,
+//           error: `Society "${societyName}" already exists in ${locality} - ${pincode}`,
 //           existingId: existing.id,
 //         });
 //       }
@@ -200,7 +201,7 @@
 //     }
 //   },
 
-//   // 🔥 UPDATED: Update society with duplicate check
+//   // 🔥 UPDATED: Update society with duplicate check (without city)
 //   update: async (req, res) => {
 //     try {
 //       const { societyName, locality, city, pincode, amenities, status } =
@@ -221,18 +222,17 @@
 //         }
 //       }
 
-//       // 🔥 CHECK FOR DUPLICATE BEFORE UPDATING (excluding current society)
+//       // 🔥 CHECK FOR DUPLICATE BEFORE UPDATING (excluding current society, without city)
 //       const duplicate = await SocietyModel.checkDuplicateForUpdate(
 //         req.params.id,
 //         societyName,
 //         locality,
-//         city,
-//         pincode,
+//         pincode, // city removed from duplicate check
 //       );
 
 //       if (duplicate) {
 //         return res.status(409).json({
-//           error: `Another society "${societyName}" already exists in ${locality}, ${city} - ${pincode}`,
+//           error: `Another society "${societyName}" already exists in ${locality} - ${pincode}`,
 //           existingId: duplicate.id,
 //         });
 //       }
@@ -286,7 +286,7 @@
 //     }
 //   },
 
-//   // Bulk create societies
+//   // 🔥 UPDATED: Bulk create societies with duplicate check (without city)
 //   bulkCreate: async (req, res) => {
 //     try {
 //       const { societies } = req.body;
@@ -312,6 +312,21 @@
 //           const pincodeRegex = /^[1-9][0-9]{5}$/;
 //           if (!pincodeRegex.test(pincode)) {
 //             errors.push({ society, error: "Invalid pincode format" });
+//             continue;
+//           }
+
+//           // 🔥 Check duplicate before creating
+//           const existing = await SocietyModel.checkDuplicate(
+//             societyName,
+//             locality,
+//             pincode,
+//           );
+
+//           if (existing) {
+//             errors.push({
+//               society,
+//               error: `Duplicate: ${societyName} already exists in ${locality} - ${pincode}`,
+//             });
 //             continue;
 //           }
 
@@ -383,7 +398,7 @@
 //     }
 //   },
 
-//   // 📌 UPDATED: IMPORT societies with duplicate check
+//   // 🔥 UPDATED: IMPORT societies with duplicate check (without city)
 //   importSocieties: async (req, res) => {
 //     try {
 //       if (!req.file) {
@@ -432,7 +447,7 @@
 //         });
 //       }
 
-//       // Process each row with duplicate check
+//       // Process each row with duplicate check (without city)
 //       for (let i = 0; i < jsonData.length; i++) {
 //         const row = jsonData[i];
 
@@ -461,18 +476,18 @@
 //           continue;
 //         }
 
-//         // 🔥 CHECK FOR DUPLICATE BEFORE IMPORTING
+//         // 🔥 CHECK FOR DUPLICATE BEFORE IMPORTING (ONLY societyName + locality + pincode)
 //         const existing = await SocietyModel.checkDuplicate(
 //           societyName,
 //           locality,
-//           city,
-//           pincode,
+//           pincode, // city removed from duplicate check
 //         );
 
 //         if (existing) {
 //           duplicates.push({
 //             row: i + 2,
-//             error: "Duplicate - already exists",
+//             error:
+//               "Duplicate - already exists (Same Society Name, Locality & Pincode)",
 //             data: { societyName, locality, city, pincode },
 //             existingId: existing.id,
 //           });
@@ -513,6 +528,8 @@ const db = require("../config/database");
 const SocietyModel = require("../models/SocietyModel");
 const { v4: uuidv4 } = require("uuid");
 const XLSX = require("xlsx");
+const path = require("path");
+const fs = require("fs");
 
 const parseArrayField = (field) => {
   if (!field) return [];
@@ -556,11 +573,18 @@ const safeJsonParse = (str, defaultValue = []) => {
 };
 
 const SocietyController = {
-  // 🔥 UPDATED: Create new society with duplicate check (without city)
+  // 🔥 UPDATED: Create new society with duplicate check (without city) + imageUrls
   create: async (req, res) => {
     try {
-      const { societyName, locality, city, pincode, amenities, status } =
-        req.body;
+      const {
+        societyName,
+        locality,
+        city,
+        pincode,
+        amenities,
+        status,
+        imageUrls,
+      } = req.body;
 
       if (!societyName || !locality || !city || !pincode) {
         return res.status(400).json({
@@ -581,7 +605,7 @@ const SocietyController = {
       const existing = await SocietyModel.checkDuplicate(
         societyName,
         locality,
-        pincode, // city removed from duplicate check
+        pincode,
       );
 
       if (existing) {
@@ -597,6 +621,7 @@ const SocietyController = {
         city,
         pincode,
         amenities: parseArrayField(amenities),
+        imageUrls: parseArrayField(imageUrls),
         status: status || "Active",
       });
 
@@ -611,7 +636,7 @@ const SocietyController = {
     }
   },
 
-  // Get all societies
+  // 🔥 UPDATED: Get all societies with imageUrls
   getAll: async (req, res) => {
     try {
       const { search, pincode, city } = req.query;
@@ -634,6 +659,7 @@ const SocietyController = {
         city: society.city,
         pincode: society.pincode,
         amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
         status: society.status,
         createdAt: society.created_at,
       }));
@@ -645,7 +671,7 @@ const SocietyController = {
     }
   },
 
-  // Get society by ID
+  // 🔥 UPDATED: Get society by ID with imageUrls
   getById: async (req, res) => {
     try {
       const society = await SocietyModel.getSocietyById(req.params.id);
@@ -661,6 +687,7 @@ const SocietyController = {
         city: society.city,
         pincode: society.pincode,
         amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
         status: society.status,
         createdAt: society.created_at,
       };
@@ -672,7 +699,7 @@ const SocietyController = {
     }
   },
 
-  // Get society by ID or Name
+  // 🔥 UPDATED: Get society by ID or Name with imageUrls
   getSocietyByIdentifier: async (req, res) => {
     try {
       const { identifier } = req.params;
@@ -702,6 +729,7 @@ const SocietyController = {
         city: society.city,
         pincode: society.pincode,
         amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
         status: society.status,
         created_at: society.created_at,
       };
@@ -712,11 +740,18 @@ const SocietyController = {
     }
   },
 
-  // 🔥 UPDATED: Update society with duplicate check (without city)
+  // 🔥 UPDATED: Update society with duplicate check + imageUrls
   update: async (req, res) => {
     try {
-      const { societyName, locality, city, pincode, amenities, status } =
-        req.body;
+      const {
+        societyName,
+        locality,
+        city,
+        pincode,
+        amenities,
+        status,
+        imageUrls,
+      } = req.body;
 
       const existingSociety = await SocietyModel.getSocietyById(req.params.id);
       if (!existingSociety) {
@@ -738,7 +773,7 @@ const SocietyController = {
         req.params.id,
         societyName,
         locality,
-        pincode, // city removed from duplicate check
+        pincode,
       );
 
       if (duplicate) {
@@ -754,6 +789,7 @@ const SocietyController = {
         city,
         pincode,
         amenities: parseArrayField(amenities),
+        imageUrls: parseArrayField(imageUrls),
         status,
       });
 
@@ -772,12 +808,22 @@ const SocietyController = {
     }
   },
 
-  // Delete society
+  // 🗑️ Delete society (with image cleanup)
   delete: async (req, res) => {
     try {
       const existingSociety = await SocietyModel.getSocietyById(req.params.id);
       if (!existingSociety) {
         return res.status(404).json({ error: "Society not found" });
+      }
+
+      // Delete associated images from disk
+      const imageUrls = safeJsonParse(existingSociety.image_urls, []);
+      for (const imageUrl of imageUrls) {
+        const imagePath = path.join(process.cwd(), imageUrl);
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+          console.log(`Deleted image: ${imagePath}`);
+        }
       }
 
       const deleted = await SocietyModel.deleteSociety(req.params.id);
@@ -797,7 +843,7 @@ const SocietyController = {
     }
   },
 
-  // 🔥 UPDATED: Bulk create societies with duplicate check (without city)
+  // 🔥 UPDATED: Bulk create with duplicate check
   bulkCreate: async (req, res) => {
     try {
       const { societies } = req.body;
@@ -909,7 +955,7 @@ const SocietyController = {
     }
   },
 
-  // 🔥 UPDATED: IMPORT societies with duplicate check (without city)
+  // 📥 IMPORT societies with duplicate check
   importSocieties: async (req, res) => {
     try {
       if (!req.file) {
@@ -991,7 +1037,7 @@ const SocietyController = {
         const existing = await SocietyModel.checkDuplicate(
           societyName,
           locality,
-          pincode, // city removed from duplicate check
+          pincode,
         );
 
         if (existing) {
@@ -1029,6 +1075,315 @@ const SocietyController = {
     } catch (err) {
       console.error("Error importing societies:", err);
       res.status(500).json({ error: "Failed to import societies" });
+    }
+  },
+
+  // ============================================
+  // 🖼️ IMAGE METHODS
+  // ============================================
+
+  // 🖼️ Upload multiple images
+  uploadImages: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const files = req.files || [];
+
+      if (!files.length) {
+        return res.status(400).json({ error: "No images uploaded" });
+      }
+
+      const society = await SocietyModel.getSocietyById(id);
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      let imageUrls = safeJsonParse(society.image_urls, []);
+
+      // Use publicUrl from middleware
+      const newImageUrls = files.map((file) => file.publicUrl);
+      imageUrls = [...imageUrls, ...newImageUrls];
+
+      await SocietyModel.updateSocietyImages(id, imageUrls);
+
+      res.json({
+        success: true,
+        message: `${files.length} image(s) uploaded successfully`,
+        data: {
+          imageUrls: newImageUrls,
+          allImages: imageUrls,
+        },
+      });
+    } catch (err) {
+      console.error("Error uploading images:", err);
+      res.status(500).json({ error: "Failed to upload images" });
+    }
+  },
+
+  // 🖼️ Upload single image
+  uploadImage: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({ error: "No image uploaded" });
+      }
+
+      const society = await SocietyModel.getSocietyById(id);
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      let imageUrls = safeJsonParse(society.image_urls, []);
+
+      // Use publicUrl from middleware
+      const newImageUrl = file.publicUrl;
+      imageUrls.push(newImageUrl);
+
+      await SocietyModel.updateSocietyImages(id, imageUrls);
+
+      res.json({
+        success: true,
+        message: "Image uploaded successfully",
+        data: {
+          imageUrl: newImageUrl,
+          allImages: imageUrls,
+        },
+      });
+    } catch (err) {
+      console.error("Error uploading image:", err);
+      res.status(500).json({ error: "Failed to upload image" });
+    }
+  },
+
+  // 🖼️ Get all images
+  getImages: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const society = await SocietyModel.getSocietyImages(id);
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      const imageUrls = safeJsonParse(society.image_urls, []);
+
+      res.json({
+        success: true,
+        data: {
+          imageUrls,
+          count: imageUrls.length,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching images:", err);
+      res.status(500).json({ error: "Failed to fetch images" });
+    }
+  },
+
+  // 🖼️ Delete specific image
+  deleteImage: async (req, res) => {
+    try {
+      const { id, imageIndex } = req.params;
+
+      const society = await SocietyModel.getSocietyById(id);
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      let imageUrls = safeJsonParse(society.image_urls, []);
+      const index = parseInt(imageIndex);
+
+      if (index < 0 || index >= imageUrls.length) {
+        return res.status(400).json({ error: "Invalid image index" });
+      }
+
+      // Delete file from disk
+      const imagePath = path.join(process.cwd(), imageUrls[index]);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+        console.log(`Deleted image: ${imagePath}`);
+      }
+
+      // Remove from array
+      imageUrls.splice(index, 1);
+      await SocietyModel.updateSocietyImages(id, imageUrls);
+
+      res.json({
+        success: true,
+        message: "Image deleted successfully",
+        data: { imageUrls },
+      });
+    } catch (err) {
+      console.error("Error deleting image:", err);
+      res.status(500).json({ error: "Failed to delete image" });
+    }
+  },
+
+  // 🖼️ Delete all images
+  deleteAllImages: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const society = await SocietyModel.getSocietyById(id);
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      const imageUrls = safeJsonParse(society.image_urls, []);
+
+      // Delete all files from disk
+      for (const imageUrl of imageUrls) {
+        const imagePath = path.join(process.cwd(), imageUrl);
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+          console.log(`Deleted image: ${imagePath}`);
+        }
+      }
+
+      await SocietyModel.updateSocietyImages(id, []);
+
+      res.json({
+        success: true,
+        message: "All images deleted successfully",
+      });
+    } catch (err) {
+      console.error("Error deleting all images:", err);
+      res.status(500).json({ error: "Failed to delete all images" });
+    }
+  },
+
+  // 🖼️ Get society by name with images
+  getSocietyByName: async (req, res) => {
+    try {
+      const { name } = req.params;
+
+      if (!name) {
+        return res.status(400).json({ error: "Society name is required" });
+      }
+
+      const allSocieties = await SocietyModel.getAllSocieties();
+      const society = allSocieties.find(
+        (s) => s.society_name.toLowerCase() === name.toLowerCase(),
+      );
+
+      if (!society) {
+        return res.status(404).json({ error: "Society not found" });
+      }
+
+      const formattedSociety = {
+        id: society.id,
+        societyName: society.society_name,
+        locality: society.locality,
+        city: society.city,
+        pincode: society.pincode,
+        amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
+        status: society.status,
+        createdAt: society.created_at,
+      };
+
+      res.json({
+        success: true,
+        data: formattedSociety,
+      });
+    } catch (err) {
+      console.error("Error fetching society by name:", err);
+      res.status(500).json({ error: "Failed to fetch society" });
+    }
+  },
+
+  // 🔍 Search societies
+  searchSocieties: async (req, res) => {
+    try {
+      const { q } = req.query;
+
+      if (!q) {
+        return res.status(400).json({ error: "Search query is required" });
+      }
+
+      const societies = await SocietyModel.searchSocieties(q);
+
+      const formattedSocieties = societies.map((society) => ({
+        id: society.id,
+        societyName: society.society_name,
+        locality: society.locality,
+        city: society.city,
+        pincode: society.pincode,
+        amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
+        status: society.status,
+        createdAt: society.created_at,
+      }));
+
+      res.json({
+        success: true,
+        data: formattedSocieties,
+        count: formattedSocieties.length,
+      });
+    } catch (err) {
+      console.error("Error searching societies:", err);
+      res.status(500).json({ error: "Failed to search societies" });
+    }
+  },
+
+  // 📍 Get societies by pincode
+  getSocietiesByPincode: async (req, res) => {
+    try {
+      const { pincode } = req.params;
+
+      const societies = await SocietyModel.getSocietiesByPincode(pincode);
+
+      const formattedSocieties = societies.map((society) => ({
+        id: society.id,
+        societyName: society.society_name,
+        locality: society.locality,
+        city: society.city,
+        pincode: society.pincode,
+        amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
+        status: society.status,
+        createdAt: society.created_at,
+      }));
+
+      res.json({
+        success: true,
+        data: formattedSocieties,
+        count: formattedSocieties.length,
+      });
+    } catch (err) {
+      console.error("Error fetching societies by pincode:", err);
+      res.status(500).json({ error: "Failed to fetch societies" });
+    }
+  },
+
+  // 📍 Get societies by city
+  getSocietiesByCity: async (req, res) => {
+    try {
+      const { city } = req.params;
+
+      const societies = await SocietyModel.getSocietiesByCity(city);
+
+      const formattedSocieties = societies.map((society) => ({
+        id: society.id,
+        societyName: society.society_name,
+        locality: society.locality,
+        city: society.city,
+        pincode: society.pincode,
+        amenities: safeJsonParse(society.amenities, []),
+        imageUrls: safeJsonParse(society.image_urls, []),
+        status: society.status,
+        createdAt: society.created_at,
+      }));
+
+      res.json({
+        success: true,
+        data: formattedSocieties,
+        count: formattedSocieties.length,
+      });
+    } catch (err) {
+      console.error("Error fetching societies by city:", err);
+      res.status(500).json({ error: "Failed to fetch societies" });
     }
   },
 };

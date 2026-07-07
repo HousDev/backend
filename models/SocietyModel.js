@@ -21,29 +21,27 @@
 //     return id;
 //   },
 
-//   // 🔥 NEW: Check duplicate society by all fields
-//   checkDuplicate: async (societyName, locality, city, pincode) => {
+//   // 🔥 UPDATED: Check duplicate by Society Name + Locality + Pincode ONLY (City ignored)
+//   checkDuplicate: async (societyName, locality, pincode) => {
 //     const [rows] = await pool.query(
 //       `SELECT * FROM societies
 //        WHERE society_name = ?
 //        AND locality = ?
-//        AND city = ?
 //        AND pincode = ?`,
-//       [societyName, locality, city, pincode],
+//       [societyName, locality, pincode],
 //     );
 //     return rows[0];
 //   },
 
-//   // 🔥 NEW: Check duplicate for update (exclude current ID)
-//   checkDuplicateForUpdate: async (id, societyName, locality, city, pincode) => {
+//   // 🔥 UPDATED: Check duplicate for update (exclude current ID) - without city
+//   checkDuplicateForUpdate: async (id, societyName, locality, pincode) => {
 //     const [rows] = await pool.query(
 //       `SELECT * FROM societies
 //        WHERE society_name = ?
 //        AND locality = ?
-//        AND city = ?
 //        AND pincode = ?
 //        AND id != ?`,
-//       [societyName, locality, city, pincode, id],
+//       [societyName, locality, pincode, id],
 //     );
 //     return rows[0];
 //   },
@@ -133,12 +131,13 @@ const pool = require("../config/database");
 const { v4: uuidv4 } = require("uuid");
 
 const SocietyModel = {
+  // 🔥 UPDATED: Create society with image_urls
   createSociety: async (data) => {
     const id = uuidv4();
     const [result] = await pool.query(
       `INSERT INTO societies 
-        (id, society_name, locality, city, pincode, amenities, status, created_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        (id, society_name, locality, city, pincode, amenities, image_urls, status, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         id,
         data.societyName,
@@ -146,13 +145,14 @@ const SocietyModel = {
         data.city,
         data.pincode,
         JSON.stringify(data.amenities || []),
+        JSON.stringify(data.imageUrls || []),
         data.status || "Active",
       ],
     );
     return id;
   },
 
-  // 🔥 UPDATED: Check duplicate by Society Name + Locality + Pincode ONLY (City ignored)
+  // 🔥 Check duplicate by Society Name + Locality + Pincode ONLY
   checkDuplicate: async (societyName, locality, pincode) => {
     const [rows] = await pool.query(
       `SELECT * FROM societies 
@@ -164,7 +164,7 @@ const SocietyModel = {
     return rows[0];
   },
 
-  // 🔥 UPDATED: Check duplicate for update (exclude current ID) - without city
+  // 🔥 Check duplicate for update (exclude current ID)
   checkDuplicateForUpdate: async (id, societyName, locality, pincode) => {
     const [rows] = await pool.query(
       `SELECT * FROM societies 
@@ -191,6 +191,7 @@ const SocietyModel = {
     return rows[0];
   },
 
+  // 🔥 UPDATED: Update society with image_urls
   updateSociety: async (id, data) => {
     const [result] = await pool.query(
       `UPDATE societies SET 
@@ -199,6 +200,7 @@ const SocietyModel = {
         city = ?, 
         pincode = ?, 
         amenities = ?, 
+        image_urls = ?,
         status = ?
       WHERE id = ?`,
       [
@@ -207,6 +209,7 @@ const SocietyModel = {
         data.city,
         data.pincode,
         JSON.stringify(data.amenities || []),
+        JSON.stringify(data.imageUrls || []),
         data.status || "Active",
         id,
       ],
@@ -253,6 +256,23 @@ const SocietyModel = {
       [city],
     );
     return rows;
+  },
+
+  // 🖼️ IMAGE METHODS
+  updateSocietyImages: async (id, imageUrls) => {
+    const [result] = await pool.query(
+      `UPDATE societies SET image_urls = ? WHERE id = ?`,
+      [JSON.stringify(imageUrls || []), id],
+    );
+    return result.affectedRows;
+  },
+
+  getSocietyImages: async (id) => {
+    const [rows] = await pool.query(
+      "SELECT id, image_urls FROM societies WHERE id = ?",
+      [id],
+    );
+    return rows[0];
   },
 };
 
