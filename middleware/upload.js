@@ -154,6 +154,14 @@ const uploadHero = multer({
   },
 });
 
+const uploadSociety = multer({
+  storage: makeStorage("societies"),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for society images"));
+  },
+});
 // ======= ERROR HANDLER =======
 const handleUploadErrors = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -248,8 +256,9 @@ module.exports = {
   uploadAvatar, // user avatars
   uploadBlog, // blog featured image
   uploadHero, // ✅ hero images
+  uploadSociety, // 🆕 society images
   uploadMedia,
-   uploadFile,
+  uploadFile,
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,
@@ -257,7 +266,7 @@ module.exports = {
   toPublicUrl,
   UPLOAD_ROOT,
   UPLOAD_PUBLIC_BASE,
-   ensureUploadDir,
+  ensureUploadDir,
   makeUploadTarget,
 };
 
