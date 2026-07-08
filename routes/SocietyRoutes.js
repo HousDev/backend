@@ -31,7 +31,7 @@ const express = require("express");
 const router = express.Router();
 const SocietyController = require("../controllers/SocietyController");
 const {
-  upload,
+  uploadSociety,
   uploadFile,
   attachPublicUrls,
   handleUploadErrors,
@@ -45,14 +45,14 @@ const {
 router.get("/:id/images", SocietyController.getImages);
 router.post(
   "/:id/images",
-  upload.array("images", 10),
+  uploadSociety.array("images", 10),
   attachPublicUrls,
   handleUploadErrors,
   SocietyController.uploadImages,
 );
 router.post(
   "/:id/image",
-  upload.single("image"),
+  uploadSociety.single("image"),
   attachPublicUrls,
   handleUploadErrors,
   SocietyController.uploadImage,
