@@ -8,7 +8,8 @@ const Contact = {
       const [rows] = await db.query(
         `SELECT c.*, 
                 (SELECT COUNT(*) FROM contact_tags WHERE contact_id = c.id) as tag_count,
-                (SELECT COUNT(*) FROM notes WHERE contact_id = c.id) as note_count
+                (SELECT COUNT(*) FROM notes WHERE contact_id = c.id) as note_count,
+                (SELECT COUNT(*) FROM messages_wa WHERE contact_id = c.id AND direction = 'in' AND is_read = 0 AND is_deleted = 0) as unread_count
          FROM contacts_wa c 
          ORDER BY c.last_contact_time DESC`,
       );
@@ -51,9 +52,12 @@ const Contact = {
 
   findById: async (id) => {
     try {
-      const [rows] = await db.query("SELECT * FROM contacts_wa WHERE id = ?", [
-        id,
-      ]);
+      const [rows] = await db.query(
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM messages_wa WHERE contact_id = c.id AND direction = 'in' AND is_read = 0 AND is_deleted = 0) as unread_count
+         FROM contacts_wa c WHERE c.id = ?`,
+        [id],
+      );
       return rows[0] || null;
     } catch (error) {
       console.error("Error in findById:", error);
@@ -329,9 +333,11 @@ const [result] = await db.query(
   search: async (query) => {
     try {
       const [rows] = await db.query(
-        `SELECT * FROM contacts_wa 
-         WHERE name LIKE ? OR phone LIKE ? OR email LIKE ? 
-         ORDER BY created_at DESC`,
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM messages_wa WHERE contact_id = c.id AND direction = 'in' AND is_read = 0 AND is_deleted = 0) as unread_count
+         FROM contacts_wa c 
+         WHERE c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? 
+         ORDER BY c.created_at DESC`,
         [`%${query}%`, `%${query}%`, `%${query}%`],
       );
       return rows;
@@ -345,7 +351,9 @@ const [result] = await db.query(
   findByStage: async (stage) => {
     try {
       const [rows] = await db.query(
-        `SELECT * FROM contacts_wa WHERE stage = ? ORDER BY created_at DESC`,
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM messages_wa WHERE contact_id = c.id AND direction = 'in' AND is_read = 0 AND is_deleted = 0) as unread_count
+         FROM contacts_wa c WHERE c.stage = ? ORDER BY c.created_at DESC`,
         [stage],
       );
       return rows;
@@ -359,7 +367,9 @@ const [result] = await db.query(
   findByAssignedTo: async (userId) => {
     try {
       const [rows] = await db.query(
-        `SELECT * FROM contacts_wa WHERE assigned_to = ? ORDER BY last_contact_time DESC`,
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM messages_wa WHERE contact_id = c.id AND direction = 'in' AND is_read = 0 AND is_deleted = 0) as unread_count
+         FROM contacts_wa c WHERE c.assigned_to = ? ORDER BY c.last_contact_time DESC`,
         [userId],
       );
       return rows;

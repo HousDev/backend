@@ -27,6 +27,29 @@ async function getAll() {
   }));
 }
 
+/** Fetch tags for multiple property IDs in a single DB query.
+ *  Returns a plain object map: { [propertyId]: string[] }
+ */
+async function getBulk(ids = []) {
+  if (!ids.length) return {};
+  const nums = ids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+  if (!nums.length) return {};
+
+  const placeholders = nums.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT property_id, tags FROM property_tags_json WHERE property_id IN (${placeholders})`,
+    nums
+  );
+
+  const map = {};
+  // Pre-populate with empty arrays so every requested id is present
+  nums.forEach(id => { map[id] = []; });
+  for (const r of rows) {
+    map[r.property_id] = Array.isArray(r.tags) ? r.tags : JSON.parse(r.tags || "[]");
+  }
+  return map;
+}
+
 async function get(propertyId) {
   const [rows] = await db.execute(
     `SELECT property_id, tags, created_at, updated_at FROM property_tags_json WHERE property_id = ?`,
@@ -105,6 +128,7 @@ async function deleteTagEverywhere(tag) {
 
 module.exports = {
   getAll,
+  getBulk,
   get,
   replace,
   add,

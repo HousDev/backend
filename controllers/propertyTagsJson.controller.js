@@ -99,8 +99,22 @@ const deleteTagEverywhere = async (req, res) => {
   }
 };
 
+/* POST /api/property-tags/bulk  { ids: [1,2,3,...] } */
+const getBulk = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids
+      : String(req.query.ids || "").split(",").filter(Boolean);
+    const map = await M.getBulk(ids);
+    res.json({ success: true, data: map });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+};
+
 module.exports = {
   getAll,
+  getBulk,
   getById,
   replace,
   add,

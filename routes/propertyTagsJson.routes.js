@@ -5,7 +5,9 @@ const router = express.Router();
 
 /* Collection */
 router.get("/getall", ctl.getAll);           // Get all rows
-router.get("/known", ctl.listKnown);           // Unique tags (for dropdowns)
+router.get("/known", ctl.listKnown);          // Unique tags (for dropdowns)
+router.post("/bulk", ctl.getBulk);            // Bulk fetch by IDs -> { [id]: string[] }
+router.get("/bulk", ctl.getBulk);             // Bulk fetch via ?ids=1,2,3
 
 /* Per property */
 router.get("/:id", ctl.getById);      // Get by property id
