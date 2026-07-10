@@ -96,6 +96,9 @@ router.put("/bulk-update", verifyToken, ctrl.bulkUpdatePosts);
 // BULK DELETE
 router.post("/bulk-delete", verifyToken, ctrl.bulkDeletePosts);
 router.post("/delete-many", verifyToken, ctrl.bulkDeletePosts); // alias
+router.post("/:id/view", ctrl.recordPostView);
+router.post("/:id/like", ctrl.likePost);
+
 
 // DELETE (single)
 router.delete("/delete/:id", verifyToken, ctrl.deletePost);
