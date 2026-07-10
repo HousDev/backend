@@ -36,6 +36,8 @@ function mapRow(row) {
     seoTitle: row.seo_title || null,
     seoDescription: row.seo_description || null,
     status: row.status,
+     views: Number(row.views) || 0,     
+    likes: Number(row.likes) || 0, 
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -293,6 +295,32 @@ class BlogPost {
     return result.affectedRows;
   }
 
+
+  static async incrementViews(id) {
+  const [res] = await db.execute(
+    "UPDATE blog_posts SET views = views + 1 WHERE id = ?",
+    [id]
+  );
+  return res.affectedRows;
+}
+
+
+
+  static async incrementLikes(id) {
+    const [res] = await db.execute(
+      "UPDATE blog_posts SET likes = likes + 1 WHERE id = ?",
+      [id]
+    );
+    return res.affectedRows;
+  }
+
+  static async decrementLikes(id) {
+    const [res] = await db.execute(
+      "UPDATE blog_posts SET likes = GREATEST(likes - 1, 0) WHERE id = ?",
+      [id]
+    );
+    return res.affectedRows;
+  }
   static async getFeatured(limit = 5) {
     const [rows] = await db.execute(
       `SELECT bp.*, bp.source_id AS rssSourceId, rs.name AS rssSourceName
