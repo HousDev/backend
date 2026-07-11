@@ -280,6 +280,16 @@ class Lead {
   Object.entries(leadData).map(([k, v]) => [k, v === undefined || v === "" ? null : v])
 );
 
+    // 🔒 Protected fields — never allow these to be updated via dynamic query
+    const PROTECTED_FIELDS = new Set([
+      'id', 'lead_number', 'created_at',
+      'transferred_to_buyer', 'transferred_to_buyer_at', 'transferred_to_buyer_by',
+      'transferred_to_seller', 'transferred_to_seller_at', 'transferred_to_seller_by',
+    ]);
+    for (const field of PROTECTED_FIELDS) {
+      delete cleanData[field];
+    }
+
     cleanData.updated_at = new Date();
 
     // 🔹 Email duplicate check
