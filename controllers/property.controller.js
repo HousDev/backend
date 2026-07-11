@@ -2989,6 +2989,31 @@ const updateAssignedTo = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ success: false, message: result.message || "Failed" });
     }
+
+    if (assigned_to) {
+      try {
+        const db = require("../config/database");
+        const [propRows] = await db.query(
+          "SELECT title FROM my_properties WHERE id = ?",
+          [id]
+        );
+        if (propRows && propRows.length > 0) {
+          const propTitle = propRows[0].title;
+          const { sendAssignmentNotification } = require("../utils/notificationHelper");
+          await sendAssignmentNotification({
+            userId: assigned_to,
+            type: "property_assign",
+            itemId: id,
+            itemName: propTitle,
+            message: `You have been assigned a new property: ${propTitle}`,
+            link: `/dashboard/properties`
+          });
+        }
+      } catch (err) {
+        console.error("Failed to send property assignment notification:", err);
+      }
+    }
+
     return res.json({
       success: true,
       affected: result.affected,

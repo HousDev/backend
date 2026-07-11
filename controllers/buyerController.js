@@ -339,6 +339,22 @@ exports.assignExecutive = async (req, res) => {
     const result = await Buyer.assignExecutive(id, executive_id);
     const updated = await Buyer.findById(id);
 
+    if (executive_id && updated) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        await sendAssignmentNotification({
+          userId: executive_id,
+          type: "buyer_assign",
+          itemId: id,
+          itemName: updated.name,
+          message: `You have been assigned a new buyer: ${updated.name}`,
+          link: `/dashboard/buyers`
+        });
+      } catch (err) {
+        console.error("Notification trigger failed for buyer:", err);
+      }
+    }
+
     return res.json({
       success: true,
       message: `Executive ${executive_id ? "assigned" : "cleared"} successfully.`,
@@ -362,6 +378,31 @@ exports.bulkAssignExecutive = async (req, res) => {
       return res.status(400).json({ error: "buyer_ids array required" });
 
     const result = await Buyer.bulkAssignSameExecutive(buyer_ids, executive_id, !!only_empty);
+
+    if (executive_id && result.affected > 0) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        const placeholders = buyer_ids.map(() => "?").join(",");
+        const [buyers] = await db.execute(
+          `SELECT id, name FROM buyers WHERE id IN (${placeholders})`,
+          buyer_ids
+        );
+        if (Array.isArray(buyers)) {
+          for (const buyer of buyers) {
+            await sendAssignmentNotification({
+              userId: executive_id,
+              type: "buyer_assign",
+              itemId: buyer.id,
+              itemName: buyer.name,
+              message: `You have been assigned a new buyer: ${buyer.name}`,
+              link: `/dashboard/buyers`
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Bulk notifications trigger failed for buyers:", err);
+      }
+    }
 
     return res.json({
       success: true,

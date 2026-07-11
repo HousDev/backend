@@ -172,6 +172,23 @@ exports.updateAssignedExecutive = async (req, res) => {
       return res.status(404).json({ success: false, message: "Lead not found" });
     }
 
+    const lead = await Lead.findById(id);
+    if (lead && assigned_executive) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        await sendAssignmentNotification({
+          userId: assigned_executive,
+          type: "lead_assign",
+          itemId: id,
+          itemName: lead.name,
+          message: `You have been assigned a new lead: ${lead.name}`,
+          link: `/dashboard/leads/${id}`
+        });
+      } catch (err) {
+        console.error("Notification trigger failed for lead:", err);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: `Lead ${id} assigned to executive ${assigned_executive}`
@@ -513,6 +530,27 @@ exports.bulkAssignExecutives = async (req, res) => {
         : assigned_executive;
 
     const result = await Lead.bulkUpdateAssignedExecutive(ids, assignee);
+
+    if (assignee && result.affectedCount > 0) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        const leads = await Lead.findByIds(ids);
+        if (Array.isArray(leads)) {
+          for (const lead of leads) {
+            await sendAssignmentNotification({
+              userId: assignee,
+              type: "lead_assign",
+              itemId: lead.id,
+              itemName: lead.name,
+              message: `You have been assigned a new lead: ${lead.name}`,
+              link: `/dashboard/leads/${lead.id}`
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Bulk notifications trigger failed for leads:", err);
+      }
+    }
 
     return res.status(200).json({
       success: true,

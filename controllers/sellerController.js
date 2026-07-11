@@ -120,6 +120,23 @@ const createSeller = async (req, res) => {
 
     await conn.commit();
     conn.release();
+
+    if (seller.assigned_to) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        await sendAssignmentNotification({
+          userId: seller.assigned_to,
+          type: "seller_assign",
+          itemId: sellerId,
+          itemName: seller.name,
+          message: `You have been assigned a new seller: ${seller.name}`,
+          link: `/dashboard/sellers`
+        });
+      } catch (err) {
+        console.error("Notification trigger failed for seller creation:", err);
+      }
+    }
+
     return res.status(201).json({ success: true, id: sellerId });
   } catch (err) {
     await conn.rollback();
@@ -563,6 +580,22 @@ const updateSeller = async (req, res) => {
     const fresh = await Seller.getByIdWithCoSellers(id);
     conn.release();
 
+    if (seller.assigned_to && fresh) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        await sendAssignmentNotification({
+          userId: seller.assigned_to,
+          type: "seller_assign",
+          itemId: id,
+          itemName: fresh.name,
+          message: `You have been assigned a new seller: ${fresh.name}`,
+          link: `/dashboard/sellers`
+        });
+      } catch (err) {
+        console.error("Notification trigger failed for seller update:", err);
+      }
+    }
+
     return res.json({
       success: true,
       message: 'Seller updated successfully',
@@ -680,6 +713,32 @@ const bulkAssignExecutive = async (req, res) => {
     }
     
     const result = await Seller.bulkAssignSameExecutive(sellerIds, executiveId, !!onlyEmpty);
+
+    if (executiveId && result.affected > 0) {
+      try {
+        const { sendAssignmentNotification } = require("../utils/notificationHelper");
+        const placeholders = sellerIds.map(() => "?").join(",");
+        const [sellers] = await pool.query(
+          `SELECT id, name FROM sellers WHERE id IN (${placeholders})`,
+          sellerIds
+        );
+        if (Array.isArray(sellers)) {
+          for (const seller of sellers) {
+            await sendAssignmentNotification({
+              userId: executiveId,
+              type: "seller_assign",
+              itemId: seller.id,
+              itemName: seller.name,
+              message: `You have been assigned a new seller: ${seller.name}`,
+              link: `/dashboard/sellers`
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Bulk notifications trigger failed for sellers:", err);
+      }
+    }
+
     res.json(result);
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });

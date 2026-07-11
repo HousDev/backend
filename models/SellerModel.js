@@ -327,7 +327,7 @@ async getById(id, conn = null) {
   ========================================= */
   async updateLeadField(sellerId, field, value) {
     if (!sellerId) throw new Error("Seller ID required");
-    const allowed = ["stage", "status", "priority", "is_active", "leadType"];
+    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
 
     const [res] = await pool.execute(
@@ -344,7 +344,7 @@ async getById(id, conn = null) {
     if (!Array.isArray(sellerIds) || sellerIds.length === 0)
       return { success: true, affected: 0 };
 
-    const allowed = ["stage", "status", "priority", "is_active", "leadType"];
+    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
 
     const placeholders = sellerIds.map(() => "?").join(",");

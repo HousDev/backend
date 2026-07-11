@@ -574,7 +574,7 @@ exports.getByDeptRole = async (req, res) => {
     }
 
     const rows = await User.getByDepartmentAndRole(department, role, {
-      is_active,
+      is_active: is_active !== undefined ? is_active : 1,
       limit: limit ? Number(limit) : 200,
       offset: offset ? Number(offset) : 0,
     });
@@ -592,7 +592,7 @@ exports.getSalesExecutives = async (req, res) => {
     const { is_active, limit, offset } = req.query;
 
     const rows = await User.getSalesExecutives({
-      is_active,
+      is_active: is_active !== undefined ? is_active : 1,
       limit: limit ? Number(limit) : 200,
       offset: offset ? Number(offset) : 0,
     });
