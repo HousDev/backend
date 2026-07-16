@@ -45,6 +45,14 @@ router.put(
 
 // (Optional) UPDATE (pure JSON)
 router.put("/:id/json", ctrl.updateJson);
+// TOGGLE ACTIVE (single)
+router.patch("/:id/toggle-active", ctrl.toggleActive);
+
+// BULK TOGGLE ACTIVE
+router.post("/bulk/toggle-active", ctrl.bulkToggleActive);
+
+// BULK DELETE
+router.post("/bulk/delete", ctrl.bulkRemove);
 
 // HARD DELETE
 router.delete("/:id", ctrl.remove);
