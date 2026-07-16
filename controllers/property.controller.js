@@ -259,7 +259,36 @@ const createProperty = async (req, res) => {
     }));
 
     // 🔥 MERGE: Existing (society) + New (manual) photos — now with label + source tagged
-    const allPhotoPaths = [...normalizedExisting, ...normalizedNew];
+     let allPhotoPaths;
+    try {
+      const rawOrder = req.body.photoOrder;
+      const photoOrder = rawOrder
+        ? (typeof rawOrder === 'string' ? JSON.parse(rawOrder) : rawOrder)
+        : [];
+
+      if (
+        Array.isArray(photoOrder) &&
+        photoOrder.length === normalizedExisting.length + normalizedNew.length
+      ) {
+        const existingByUrl = new Map(normalizedExisting.map((e) => [e.url, e]));
+        let newIdx = 0;
+        allPhotoPaths = photoOrder
+          .map((entry) => {
+            if (entry.kind === 'existing') {
+              return existingByUrl.get(entry.url) || null;
+            }
+            const item = normalizedNew[newIdx];
+            newIdx += 1;
+            return item || null;
+          })
+          .filter(Boolean);
+      } else {
+        allPhotoPaths = [...normalizedExisting, ...normalizedNew];
+      }
+    } catch (e) {
+      console.warn('Failed to apply photoOrder, falling back:', e);
+      allPhotoPaths = [...normalizedExisting, ...normalizedNew];
+    }
 
     console.log("📸 Society images:", existingPhotoUrls);
     console.log("📸 Manual images:", newPhotoPublicPaths);
@@ -407,17 +436,49 @@ const updateProperty = async (req, res) => {
     const normalizedExisting = existingFromBody.map((p) =>
       typeof p === 'string' ? { url: p, label: '', isSociety: true, type: 'image' } : { type: 'image', ...p }
     );
-    const normalizedNew = uploadedPhotoPublic.map((url, idx) => ({
+        const normalizedNew = uploadedPhotoPublic.map((url, idx) => ({
       url,
       label: photoLabels[idx] || '',
       isSociety: false,
       type: photoTypes[idx] === 'video' ? 'video' : 'image', // 🆕
     }));
 
-    // 🆕 MERGE: Existing (society, with own label/isSociety) + New (manual, tagged)
-    const finalPhotos = [...normalizedExisting, ...normalizedNew];
+    // 🆕 Rebuild in the EXACT visual order the user arranged in the UI,
+    // instead of always dumping new uploads at the end.
+    let finalPhotos;
+    try {
+      const rawOrder = req.body.photoOrder;
+      const photoOrder = rawOrder
+        ? (typeof rawOrder === 'string' ? JSON.parse(rawOrder) : rawOrder)
+        : [];
+
+      if (
+        Array.isArray(photoOrder) &&
+        photoOrder.length === normalizedExisting.length + normalizedNew.length
+      ) {
+        const existingByUrl = new Map(normalizedExisting.map((e) => [e.url, e]));
+        let newIdx = 0;
+        finalPhotos = photoOrder
+          .map((entry) => {
+            if (entry.kind === 'existing') {
+              return existingByUrl.get(entry.url) || null;
+            }
+            const item = normalizedNew[newIdx];
+            newIdx += 1;
+            return item || null;
+          })
+          .filter(Boolean);
+      } else {
+        // Fallback (old behavior) agar order manifest missing/mismatched ho
+        finalPhotos = [...normalizedExisting, ...normalizedNew];
+      }
+    } catch (e) {
+      console.warn('Failed to apply photoOrder, falling back:', e);
+      finalPhotos = [...normalizedExisting, ...normalizedNew];
+    }
 
     console.log("📸 Final photos after merge:", finalPhotos);
+
 
     // 6) Ownership document
     const uploadedDocPublic = req.files?.ownershipDoc?.[0]

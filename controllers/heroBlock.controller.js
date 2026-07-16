@@ -167,8 +167,53 @@ exports.updateJson = async (req, res) => {
 };
 
 // ------------ HARD DELETE ------------
-exports.remove = async (req, res) => {
+// ------------ TOGGLE ACTIVE (single) ------------
+exports.toggleActive = async (req, res) => {
   try {
+    const id = toId(req.params.id);
+    if (!id) return bad(res, "Invalid id");
+
+    const updated = await Model.toggleActive(id);
+    if (!updated) return bad(res, "Not found", 404);
+    return ok(res, updated);
+  } catch (e) {
+    console.error("hero.toggleActive", e);
+    return bad(res, "Failed to toggle status", 500);
+  }
+};
+
+// ------------ BULK TOGGLE ACTIVE ------------
+exports.bulkToggleActive = async (req, res) => {
+  try {
+    const { ids, is_active } = req.body || {};
+    const cleanIds = (Array.isArray(ids) ? ids : []).map(toId).filter(Boolean);
+    if (!cleanIds.length) return bad(res, "No valid ids provided");
+
+    const result = await Model.bulkToggleActive(cleanIds, !!is_active);
+    return ok(res, result);
+  } catch (e) {
+    console.error("hero.bulkToggleActive", e);
+    return bad(res, "Failed to bulk toggle status", 500);
+  }
+};
+
+// ------------ BULK DELETE ------------
+exports.bulkRemove = async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    const cleanIds = (Array.isArray(ids) ? ids : []).map(toId).filter(Boolean);
+    if (!cleanIds.length) return bad(res, "No valid ids provided");
+
+    const result = await Model.bulkRemove(cleanIds);
+    return ok(res, result);
+  } catch (e) {
+    console.error("hero.bulkRemove", e);
+    return bad(res, "Failed to bulk delete", 500);
+  }
+};
+
+// ------------ HARD DELETE ------------
+exports.remove = async (req, res) => {  try {
     const id = toId(req.params.id);
     if (!id) return bad(res, "Invalid id");
 
