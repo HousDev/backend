@@ -45,7 +45,10 @@ const {
 router.get("/:id/images", SocietyController.getImages);
 router.post(
   "/:id/images",
-  uploadSociety.array("images", 10),
+  uploadSociety.fields([
+    { name: "images", maxCount: 20 },
+    { name: "videos", maxCount: 5 },
+  ]),
   attachPublicUrls,
   handleUploadErrors,
   SocietyController.uploadImages,

@@ -32,7 +32,7 @@ router.post(
   "/create",
   upload.fields([
     { name: "ownershipDoc", maxCount: 1 },
-    { name: "photos", maxCount: 10 },
+    { name: "photos", maxCount: 20 },
   ]),
   handleUploadErrors,
   attachPublicUrls, // <<---- NEW
@@ -44,7 +44,7 @@ router.put(
   "/:id",
   upload.fields([
     { name: "ownershipDoc", maxCount: 1 },
-    { name: "photos", maxCount: 10 },
+    { name: "photos", maxCount: 20 },
   ]),
   handleUploadErrors,
   attachPublicUrls, // <<---- NEW

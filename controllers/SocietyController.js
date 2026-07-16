@@ -817,8 +817,12 @@ const SocietyController = {
       }
 
       // Delete associated images from disk
+     // Delete associated images from disk
+      // 🆕 image_urls may contain plain strings (legacy) or {url,label} objects (new) — normalize both
       const imageUrls = safeJsonParse(existingSociety.image_urls, []);
-      for (const imageUrl of imageUrls) {
+      for (const imageEntry of imageUrls) {
+        const imageUrl = typeof imageEntry === "string" ? imageEntry : imageEntry?.url;
+        if (!imageUrl) continue;
         const imagePath = path.join(process.cwd(), imageUrl);
         if (fs.existsSync(imagePath)) {
           fs.unlinkSync(imagePath);
@@ -1083,13 +1087,15 @@ const SocietyController = {
   // ============================================
 
   // 🖼️ Upload multiple images
-  uploadImages: async (req, res) => {
+uploadImages: async (req, res) => {
     try {
       const { id } = req.params;
-      const files = req.files || [];
+      const imageFiles = req.files?.images || [];
+      const videoFiles = req.files?.videos || [];
+      const allFiles = [...imageFiles, ...videoFiles];
 
-      if (!files.length) {
-        return res.status(400).json({ error: "No images uploaded" });
+      if (!allFiles.length) {
+        return res.status(400).json({ error: "No media uploaded" });
       }
 
       const society = await SocietyModel.getSocietyById(id);
@@ -1099,15 +1105,33 @@ const SocietyController = {
 
       let imageUrls = safeJsonParse(society.image_urls, []);
 
-      // Use publicUrl from middleware
-      const newImageUrls = files.map((file) => file.publicUrl);
+      // 🆕 Parse labels sent from frontend (aligned by index within each type)
+      let labels = [];
+      try {
+        labels = req.body.labels ? JSON.parse(req.body.labels) : [];
+      } catch {
+        labels = [];
+      }
+
+      // 🆕 Images get labels by index; videos get type:'video', label optional
+      const newImageEntries = imageFiles.map((file, idx) => ({
+        url: file.publicUrl,
+        label: labels[idx] || "",
+        type: "image",
+      }));
+      const newVideoEntries = videoFiles.map((file, idx) => ({
+        url: file.publicUrl,
+        label: labels[imageFiles.length + idx] || "",
+        type: "video",
+      }));
+      const newImageUrls = [...newImageEntries, ...newVideoEntries];
       imageUrls = [...imageUrls, ...newImageUrls];
 
       await SocietyModel.updateSocietyImages(id, imageUrls);
 
-      res.json({
+     res.json({
         success: true,
-        message: `${files.length} image(s) uploaded successfully`,
+        message: `${allFiles.length} media file(s) uploaded successfully`,
         data: {
           imageUrls: newImageUrls,
           allImages: imageUrls,
@@ -1199,10 +1223,16 @@ const SocietyController = {
       }
 
       // Delete file from disk
-      const imagePath = path.join(process.cwd(), imageUrls[index]);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-        console.log(`Deleted image: ${imagePath}`);
+     // Delete file from disk
+      // 🆕 handle both string and {url,label} entries
+      const targetEntry = imageUrls[index];
+      const targetUrl = typeof targetEntry === "string" ? targetEntry : targetEntry?.url;
+      if (targetUrl) {
+        const imagePath = path.join(process.cwd(), targetUrl);
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+          console.log(`Deleted image: ${imagePath}`);
+        }
       }
 
       // Remove from array
@@ -1230,10 +1260,13 @@ const SocietyController = {
         return res.status(404).json({ error: "Society not found" });
       }
 
-      const imageUrls = safeJsonParse(society.image_urls, []);
+     const imageUrls = safeJsonParse(society.image_urls, []);
 
       // Delete all files from disk
-      for (const imageUrl of imageUrls) {
+      // 🆕 handle both string and {url,label} entries
+      for (const imageEntry of imageUrls) {
+        const imageUrl = typeof imageEntry === "string" ? imageEntry : imageEntry?.url;
+        if (!imageUrl) continue;
         const imagePath = path.join(process.cwd(), imageUrl);
         if (fs.existsSync(imagePath)) {
           fs.unlinkSync(imagePath);
