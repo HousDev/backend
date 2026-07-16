@@ -198,9 +198,9 @@ async function processScheduledCampaigns() {
           try {
             // Prepare variables - FIXED VERSION
             const variables = [];
-            if (parsedTemplateVars && parsedTemplateVars.length) {
-              for (let i = 0; i < parsedTemplateVars.length; i++) {
-                let val = parsedTemplateVars[i];
+            if (templateVars && templateVars.length) {
+              for (let i = 0; i < templateVars.length; i++) {
+                let val = templateVars[i];
 
                 // ✅ CRITICAL FIX: Handle string values that might contain the placeholder
                 if (typeof val === "string") {

@@ -36,7 +36,7 @@ pool.pool.on("error", (err) => {
   if (err.code === "PROTOCOL_CONNECTION_LOST") {
     console.warn("⚠️  Lost DB connection, will reconnect automatically.");
   } else {
-    throw err;
+    console.warn(`⚠️  Database pool error (${err.code || 'unknown'}):`, err.message);
   }
 });
 
