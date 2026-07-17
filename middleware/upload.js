@@ -7,12 +7,14 @@ const path = require("path");
 const fs = require("fs");
 
 // ======= CONFIG =======
-//-----------------SERVER CONFIG-----------------
+// //-----------------SERVER CONFIG-----------------
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
 //-------LOCAL DEV CONFIG (overrides .env for easier testing)-------
-// const UPLOAD_ROOT = process.env.UPLOAD_ROOT || path.join(__dirname, '..', 'uploads');
+// const UPLOAD_ROOT = process.env.UPLOAD_ROOT
+//   ? path.resolve(process.env.UPLOAD_ROOT)
+//   : path.join(__dirname, '..', 'uploads');
 // const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 // Ensure a directory exists
 const ensureDir = (dir) => {
@@ -80,10 +82,10 @@ const propertyFileFilter = (req, file, cb) => {
     )
       cb(null, true);
     else cb(new Error("Only PDF, JPG, PNG allowed for ownershipDoc"));
-  } else if (file.fieldname === "photos") {
-    if (["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif"].includes(file.mimetype))
+ } else if (file.fieldname === "photos") {
+    if (["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif", "video/mp4", "video/quicktime", "video/webm", "video/x-matroska"].includes(file.mimetype))
       cb(null, true);
-    else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for photos"));
+    else cb(new Error("Only JPG/PNG/WEBP/GIF images or MP4/MOV/WEBM videos allowed for photos"));
   } else cb(null, true);
 };
 
@@ -122,7 +124,7 @@ const blogFileFilter = (req, file, cb) => {
 // ======= UPLOADERS =======
 const upload = multer({
   storage: makeStorage("properties"),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: propertyFileFilter,
 });
 
@@ -154,12 +156,15 @@ const uploadHero = multer({
   },
 });
 
+const allowedVideoMimes = ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"];
+const allowedSocietyMimes = [...allowedImageMimes, ...allowedVideoMimes];
+
 const uploadSociety = multer({
   storage: makeStorage("societies"),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB — videos ke liye badhaya
   fileFilter: (req, file, cb) => {
-    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Only JPG/PNG/WEBP/GIF allowed for society images"));
+    if (allowedSocietyMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPG/PNG/WEBP/GIF images or MP4/MOV/WEBM videos allowed"));
   },
 });
 // ======= ERROR HANDLER =======
