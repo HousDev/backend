@@ -107,15 +107,19 @@ const createSeller = async (req, res) => {
       );
     }
 
-    // 3) Assign existing properties to seller & agent (unchanged)
+    // 3) Assign existing properties to seller & agent
     if (selectedProps.length) {
-      const ids = selectedProps.map((p) => p.id);
-      await conn.query(
-        `UPDATE my_properties 
-         SET seller_id = ?, seller_name = ?, assigned_to = ?
-         WHERE id IN (${ids.map(() => "?").join(",")})`,
-        [sellerId, seller.name, seller.assigned_to, ...ids]
-      );
+      const ids = selectedProps
+        .map((p) => Number(p?.id ?? p?.property_id ?? p?._id ?? p))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (ids.length) {
+        await conn.query(
+          `UPDATE my_properties 
+           SET seller_id = ?, seller_name = ?, assigned_to = ?
+           WHERE id IN (${ids.map(() => "?").join(",")})`,
+          [sellerId, seller.name, seller.assigned_to, ...ids]
+        );
+      }
     }
 
     await conn.commit();
@@ -520,7 +524,7 @@ const updateSeller = async (req, res) => {
     }
 
     let { seller, cosellers, deleteIds } = normalizeIncoming(req.body);
-    const selectedProps = req.body.properties || [];
+    const selectedProps = req.body.properties || req.body.property_ids || [];
 
     // Validate required fields
     if (!seller.name || String(seller.name).trim() === '') {
@@ -563,7 +567,10 @@ const updateSeller = async (req, res) => {
 
     // Assign selected properties
     if (selectedProps.length > 0) {
-      const propertyIds = selectedProps.map(p => Number(p.id)).filter(Boolean);
+      const propertyIds = selectedProps
+        .map(p => Number(p?.id ?? p?.property_id ?? p?._id ?? p))
+        .filter(n => Number.isFinite(n) && n > 0);
+
       if (propertyIds.length > 0) {
         await conn.query(
           `UPDATE my_properties 

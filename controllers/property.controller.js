@@ -300,6 +300,22 @@ const createProperty = async (req, res) => {
       allPhotoPaths // ✅ Send merged array
     );
 
+    // If seller_id is missing but seller_name is present, lookup seller from sellers table
+    if (!propertyData.seller_id && propertyData.seller_name) {
+      try {
+        const cleanName = propertyData.seller_name.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Miss\.?|Dr\.?)\s+/i, '').trim();
+        const [foundSellers] = await db.query(
+          `SELECT id, name FROM sellers WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [propertyData.seller_name, `%${cleanName}%`]
+        );
+        if (foundSellers && foundSellers.length > 0) {
+          propertyData.seller_id = foundSellers[0].id;
+        }
+      } catch (err) {
+        console.warn("Could not lookup seller_id by seller_name:", err);
+      }
+    }
+
     // Insert record (returns insertId)
     const propertyId = await Property.create(propertyData);
 

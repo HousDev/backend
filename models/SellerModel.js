@@ -296,11 +296,17 @@ async getById(id, conn = null) {
       [id]
     );
 
+    const [propRows] = await runQuery(conn,
+      `SELECT * FROM my_properties WHERE seller_id=? ORDER BY id DESC`,
+      [id]
+    );
+
     return {
       ...seller,
       coSellers: coRows,
       cosellers: coRows,
       seller_cosellers: coRows,
+      properties: propRows || [],
     };
   },
 
