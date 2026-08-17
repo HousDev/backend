@@ -153,12 +153,19 @@ async function renderPdfBuffer(finalHtml, pdfOptions = {}) {
       await Promise.all(
         imgs.map(async (img) => {
           if ('decode' in img) {
-            try { await img.decode(); return; } catch {}
+            try {
+              await Promise.race([
+                img.decode(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+              ]);
+              return;
+            } catch {}
           }
           if (img.complete && img.naturalWidth) return;
           await new Promise((res) => {
-            img.addEventListener('load', res, { once: true });
-            img.addEventListener('error', res, { once: true });
+            const timer = setTimeout(res, 3000);
+            img.addEventListener('load', () => { clearTimeout(timer); res(); }, { once: true });
+            img.addEventListener('error', () => { clearTimeout(timer); res(); }, { once: true });
           });
         })
       );
