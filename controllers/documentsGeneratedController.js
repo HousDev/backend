@@ -28,6 +28,41 @@ function interpolate(html, vars = {}) {
 const trimOrNull = (v) => (v == null ? null : String(v).trim() || null);
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
+const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
+
+function toLocalFilePath(urlPath) {
+  if (!urlPath) return '';
+  if (typeof urlPath !== 'string') return '';
+  if (urlPath.startsWith('data:')) return urlPath;
+  
+  if (urlPath.startsWith('/uploads/') || urlPath.startsWith('uploads/')) {
+    const relative = urlPath.startsWith('/') ? urlPath.substring(9) : urlPath.substring(8);
+    const absolutePath = path.resolve(UPLOAD_ROOT, relative);
+    
+    try {
+      if (fs.existsSync(absolutePath)) {
+        const fileBuffer = fs.readFileSync(absolutePath);
+        const ext = path.extname(absolutePath).toLowerCase();
+        const mimeTypes = {
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp'
+        };
+        const mime = mimeTypes[ext] || 'image/png';
+        return `data:${mime};base64,${fileBuffer.toString('base64')}`;
+      } else {
+        console.warn(`File not found at absolute path: ${absolutePath}`);
+      }
+    } catch (err) {
+      console.warn(`Failed to convert file to base64: ${absolutePath}`, err);
+    }
+  }
+  return urlPath;
+}
+
 function uniq(arr) { return [...new Set(arr.filter(Boolean))]; }
 function chunk(arr, size) {
   const out = [];
@@ -443,6 +478,14 @@ async function buildVarsForDoc(row) {
   const current_date = now.toLocaleDateString('en-IN');
   const current_datetime = now.toLocaleString('en-IN');
 
+  let settings;
+  try {
+    const SystemSettings = require('../models/SystemSettings');
+    settings = await SystemSettings.getSettings();
+  } catch (err) {
+    console.warn('Failed to load system settings for template variables:', err);
+  }
+
   return {
     ...base,
     ...esignVars,
@@ -451,7 +494,9 @@ async function buildVarsForDoc(row) {
     // sensible fallbacks
     document_id: base?.document_id ?? row?.id ?? '',
     document_date: base?.document_date ?? (now.toISOString().slice(0,10)),
-    company_name: base?.company_name ?? base?.company?.name ?? '',
+    company_name: base?.company_name ?? base?.company?.name ?? settings?.company_name ?? '',
+    company_logo: toLocalFilePath(base?.company_logo || settings?.company_logo),
+    footer_logo: toLocalFilePath(base?.footer_logo || settings?.footer_logo),
   };
 }
 
@@ -1103,6 +1148,15 @@ async previewPdfInline(req, res) {
       // 2) vars (ONLY timestamps/status; NO OTP codes)
       const base = safeParseVariables(row.variables);
       const esignVars = await loadEsignVars(row.id, pool);
+
+      let settings;
+      try {
+        const SystemSettings = require('../models/SystemSettings');
+        settings = await SystemSettings.getSettings();
+      } catch (err) {
+        console.warn('Failed to load system settings for final PDF variables:', err);
+      }
+
       const now = new Date();
       const vars = {
         ...base,
@@ -1111,7 +1165,9 @@ async previewPdfInline(req, res) {
         current_datetime: now.toLocaleString('en-IN'),
         document_id: base?.document_id ?? row?.id ?? '',
         document_date: base?.document_date ?? (now.toISOString().slice(0,10)),
-        company_name: base?.company_name ?? base?.company?.name ?? '',
+        company_name: base?.company_name ?? base?.company?.name ?? settings?.company_name ?? '',
+        company_logo: toLocalFilePath(base?.company_logo || settings?.company_logo),
+        footer_logo: toLocalFilePath(base?.footer_logo || settings?.footer_logo),
       };
 
       // 3) build 1-page AUDIT PDF
