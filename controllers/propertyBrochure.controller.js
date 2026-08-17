@@ -15,6 +15,26 @@ function guessMime(p) {
   return "application/octet-stream";
 }
 
+const getPuppeteerLaunchOptions = () => {
+  const fallbackPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+  let executablePath;
+  for (const p of fallbackPaths) {
+    if (fs.existsSync(p)) {
+      executablePath = p;
+      break;
+    }
+  }
+  return executablePath ? { executablePath } : {};
+};
+
 exports.generateBrochuresBulkSinglePDF = async (req, res) => {
   try {
     /* --------------------------- INPUT & DEBUG --------------------------- */
@@ -794,6 +814,7 @@ exports.generateBrochuresBulkSinglePDF = async (req, res) => {
     try {
       browser = await puppeteer.launch({
         headless: "new",
+        ...getPuppeteerLaunchOptions(),
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
       });
       const page = await browser.newPage();
@@ -1525,6 +1546,7 @@ exports.generateBrochurePDF = async (req, res) => {
     try {
       browser = await puppeteer.launch({
         headless: "new",
+        ...getPuppeteerLaunchOptions(),
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
       });
       const page = await browser.newPage();

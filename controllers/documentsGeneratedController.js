@@ -99,31 +99,46 @@ const slugify = (s = '') =>
   String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'document';
 
 /* ------------------- puppeteer/pdf ------------------- */
+function getPuppeteerLaunchOptions() {
+  const fallbackPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+  let executablePath;
+  for (const p of fallbackPaths) {
+    if (fs.existsSync(p)) {
+      executablePath = p;
+      break;
+    }
+  }
+  return executablePath ? { executablePath } : {};
+}
+
 async function renderPdfBuffer(finalHtml, pdfOptions = {}) {
   let browser;
   try {
+    const launchOptions = {
+      headless: 'new',
+      ...getPuppeteerLaunchOptions(),
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--force-color-profile=srgb',
+        '--disable-low-end-device-mode',
+        '--font-render-hinting=medium',
+      ],
+    };
     try {
-      browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--force-color-profile=srgb',
-          '--disable-low-end-device-mode',
-          '--font-render-hinting=medium',
-        ],
-      });
-    } catch {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--force-color-profile=srgb',
-          '--disable-low-end-device-mode',
-          '--font-render-hinting=medium',
-        ],
-      });
+      browser = await puppeteer.launch(launchOptions);
+    } catch (e1) {
+      console.warn("Failed to launch puppeteer with 'new' headless mode, trying fallback...", e1.message);
+      launchOptions.headless = true;
+      browser = await puppeteer.launch(launchOptions);
     }
 
     const page = await browser.newPage();
