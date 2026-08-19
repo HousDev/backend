@@ -336,9 +336,23 @@
 
 // controllers/bulkOperations.controller.js
 const Property = require("../models/Property");
+const RentalProperty = require("../models/RentalProperty");
 const StatusUpdate = require("../models/PropertyStatusHistory");
 const path = require("path");
 const fs = require("fs");
+
+/* ---------------------------
+   Helper: resolve model from request
+---------------------------- */
+const resolveModel = (req) => {
+  const isRental =
+    req.body?.isRental === true ||
+    req.body?.isRental === 'true' ||
+    req.query?.isRental === 'true' ||
+    req.query?.isRental === true ||
+    (req.body?.data && (req.body.data.isRental === true || req.body.data.isRental === 'true'));
+  return isRental ? RentalProperty : Property;
+};
 
 /* ---------------------------
    small helpers
@@ -378,14 +392,15 @@ const bulkUpdateStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Status is required" });
     }
 
+    const PropertyModel = resolveModel(req);
     const bulkOperation = await createBulkOperationRecord("status_update", propertyIds, updatedBy);
 
     // fetch current states once (to capture previous_status)
-    const beforeRows = await Property.getMany(propertyIds);
+    const beforeRows = typeof PropertyModel.getMany === 'function' ? await PropertyModel.getMany(propertyIds) : [];
     const prevById = new Map(beforeRows.map(r => [Number(r.id), r.status || null]));
 
     // single SQL update (prevents null-ing other fields)
-    const { affected } = await Property.bulkUpdateStatus(propertyIds, status);
+    const { affected } = await PropertyModel.bulkUpdateStatus(propertyIds, status);
 
     // write history (optional)
     for (const id of propertyIds) {
@@ -428,10 +443,11 @@ const bulkMarkPublic = async (req, res) => {
       return res.status(400).json({ success: false, message: "Property IDs array is required" });
     }
 
+    const PropertyModel = resolveModel(req);
     const bulkOperation = await createBulkOperationRecord("mark_public", propertyIds, updatedBy);
 
     // single SQL that also sets publication_date/updated_at inside DB
-    const { affected } = await Property.bulkMarkPublic(propertyIds, true);
+    const { affected } = await PropertyModel.bulkMarkPublic(propertyIds, true);
 
     return res.json({
       success: true,
@@ -458,10 +474,11 @@ const bulkMarkPrivate = async (req, res) => {
       return res.status(400).json({ success: false, message: "Property IDs array is required" });
     }
 
+    const PropertyModel = resolveModel(req);
     const bulkOperation = await createBulkOperationRecord("mark_private", propertyIds, updatedBy);
 
     // set is_public = 0 and clear publication_date
-    const { affected } = await Property.bulkMarkPublic(propertyIds, false);
+    const { affected } = await PropertyModel.bulkMarkPublic(propertyIds, false);
 
     return res.json({
       success: true,
@@ -492,9 +509,10 @@ const bulkSetVisibility = async (req, res) => {
       return res.status(400).json({ success: false, message: "isPublic (boolean) is required" });
     }
 
+    const PropertyModel = resolveModel(req);
     const opName = isPublic ? "mark_public" : "mark_private";
     const bulkOperation = await createBulkOperationRecord(opName, propertyIds, updatedBy);
-    const { affected } = await Property.bulkMarkPublic(propertyIds, isPublic);
+    const { affected } = await PropertyModel.bulkMarkPublic(propertyIds, isPublic);
 
     return res.json({
       success: true,
@@ -524,10 +542,11 @@ const bulkDelete = async (req, res) => {
       return res.status(400).json({ success: false, message: "Property IDs array is required" });
     }
 
+    const PropertyModel = resolveModel(req);
     const bulkOperation = await createBulkOperationRecord("delete", propertyIds, updatedBy);
 
     // fetch all once to clean up files
-    const rows = await Property.getMany(propertyIds);
+    const rows = typeof PropertyModel.getMany === 'function' ? await PropertyModel.getMany(propertyIds) : [];
 
     for (const p of rows) {
       try {
@@ -551,7 +570,7 @@ const bulkDelete = async (req, res) => {
     }
 
     // delete all rows in one go
-    const { affected } = await Property.bulkDelete(propertyIds);
+    const { affected } = await PropertyModel.bulkDelete(propertyIds);
 
     return res.json({
       success: true,
@@ -581,48 +600,72 @@ const bulkExport = async (req, res) => {
       return res.status(400).json({ success: false, message: "Property IDs array is required" });
     }
 
+    const PropertyModel = resolveModel(req);
+    const isRentalExport = PropertyModel === RentalProperty;
     const bulkOperation = await createBulkOperationRecord("export", propertyIds, updatedBy);
 
     // fetch all once
-    const rows = await Property.getMany(propertyIds);
+    const rows = typeof PropertyModel.getMany === 'function' ? await PropertyModel.getMany(propertyIds) : [];
 
-    const exportData = rows.map((property) => ({
-      id: property.id,
-      propertyId: property.property_id || `PROP${property.id}`,
-      sellerName: property.seller_name,
-      propertyType: property.property_type_name,
-      propertySubtype: property.property_subtype_name,
-      unitType: property.unit_type,
-      wing: property.wing,
-      unitNo: property.unit_no,
-      furnishing: property.furnishing,
-      parkingType: property.parking_type,
-      parkingQty: property.parking_qty,
-      city: property.city_name,
-      location: property.location_name,
-      society: property.society_name,
-      floor: property.floor,
-      totalFloors: property.total_floors,
-      carpetArea: property.carpet_area,
-      builtupArea: property.builtup_area,
-      budget: property.budget,
-      address: property.address,
-      status: property.status,
-      leadSource: property.lead_source,
-      possessionMonth: property.possession_month,
-      possessionYear: property.possession_year,
-      purchaseMonth: property.purchase_month,
-      purchaseYear: property.purchase_year,
-      sellingRights: property.selling_rights,
-      description: property.description,
-      isPublic: !!property.is_public,
-      publicationDate: property.publication_date,
-      createdAt: property.created_at,
-      updatedAt: property.updated_at,
-      amenities: Array.isArray(property.amenities) ? property.amenities.join(", ") : property.amenities,
-      furnishingItems: Array.isArray(property.furnishing_items) ? property.furnishing_items.join(", ") : property.furnishing_items,
-      photoCount: Array.isArray(property.photos) ? property.photos.length : 0,
-    }));
+    const exportData = rows.map((property) => {
+      const base = {
+        id: property.id,
+        propertyId: property.property_id || `PROP${property.id}`,
+        sellerName: property.seller_name,
+        propertyType: property.property_type_name,
+        propertySubtype: property.property_subtype_name,
+        unitType: property.unit_type,
+        wing: property.wing,
+        unitNo: property.unit_no,
+        furnishing: property.furnishing,
+        parkingType: property.parking_type,
+        parkingQty: property.parking_qty,
+        city: property.city_name,
+        location: property.location_name,
+        society: property.society_name,
+        floor: property.floor,
+        totalFloors: property.total_floors,
+        carpetArea: property.carpet_area,
+        builtupArea: property.builtup_area,
+        address: property.address,
+        status: property.status,
+        leadSource: property.lead_source,
+        description: property.description,
+        isPublic: !!property.is_public,
+        publicationDate: property.publication_date,
+        createdAt: property.created_at,
+        updatedAt: property.updated_at,
+        amenities: Array.isArray(property.amenities) ? property.amenities.join(", ") : property.amenities,
+        furnishingItems: Array.isArray(property.furnishing_items) ? property.furnishing_items.join(", ") : property.furnishing_items,
+        photoCount: Array.isArray(property.photos) ? property.photos.length : 0,
+      };
+
+      if (isRentalExport) {
+        // Rental-specific fields
+        return {
+          ...base,
+          monthlyRent: property.monthly_rent,
+          securityDeposit: property.security_deposit,
+          maintenanceExtra: !!property.maintenance_extra,
+          maintenanceCharge: property.maintenance_charge,
+          preferredTenants: property.preferred_tenants,
+          lockInPeriod: property.lock_in_period,
+          agreementDuration: property.agreement_duration,
+          availableFrom: property.available_from,
+        };
+      }
+
+      // Sale-specific fields
+      return {
+        ...base,
+        budget: property.budget,
+        possessionMonth: property.possession_month,
+        possessionYear: property.possession_year,
+        purchaseMonth: property.purchase_month,
+        purchaseYear: property.purchase_year,
+        sellingRights: property.selling_rights,
+      };
+    });
 
     if (format === "json") {
       return res.json({
@@ -671,17 +714,18 @@ const bulkExport = async (req, res) => {
 const markPublic = async (req, res) => {
   try {
     const id = req.params.id;
-    const prop = await Property.getById(id);
+    const PropertyModel = resolveModel(req);
+    const prop = await PropertyModel.getById(id);
     if (!prop) {
       return res.status(404).json({ success: false, message: "Property not found" });
     }
 
     // prefer toggle helper if present
-    if (typeof Property.togglePublic === "function") {
-      await Property.togglePublic(id, true);
+    if (typeof PropertyModel.togglePublic === "function") {
+      await PropertyModel.togglePublic(id, true);
     } else {
-      await Property.updatePartial?.(id, { is_public: 1, publication_date: new Date() }) ||
-      await Property.update(id, { is_public: 1, publication_date: new Date() });
+      await PropertyModel.updatePartial?.(id, { is_public: 1, publication_date: new Date() }) ||
+      await PropertyModel.update(id, { is_public: 1, publication_date: new Date() });
     }
 
     return res.json({
@@ -702,17 +746,18 @@ const markPublic = async (req, res) => {
 const markPrivate = async (req, res) => {
   try {
     const id = req.params.id;
-    const prop = await Property.getById(id);
+    const PropertyModel = resolveModel(req);
+    const prop = await PropertyModel.getById(id);
     if (!prop) {
       return res.status(404).json({ success: false, message: "Property not found" });
     }
 
-    if (typeof Property.togglePublic === "function") {
-      await Property.togglePublic(id, false);
+    if (typeof PropertyModel.togglePublic === "function") {
+      await PropertyModel.togglePublic(id, false);
     } else {
       // clear publication_date when private
-      await Property.updatePartial?.(id, { is_public: 0, publication_date: null }) ||
-      await Property.update(id, { is_public: 0, publication_date: null });
+      await PropertyModel.updatePartial?.(id, { is_public: 0, publication_date: null }) ||
+      await PropertyModel.update(id, { is_public: 0, publication_date: null });
     }
 
     return res.json({
@@ -739,18 +784,19 @@ const setVisibility = async (req, res) => {
       return res.status(400).json({ success: false, message: "isPublic (boolean) is required" });
     }
 
-    const prop = await Property.getById(id);
+    const PropertyModel = resolveModel(req);
+    const prop = await PropertyModel.getById(id);
     if (!prop) {
       return res.status(404).json({ success: false, message: "Property not found" });
     }
 
-    if (typeof Property.togglePublic === "function") {
-      await Property.togglePublic(id, isPublic);
+    if (typeof PropertyModel.togglePublic === "function") {
+      await PropertyModel.togglePublic(id, isPublic);
     } else {
-      await Property.updatePartial?.(id, {
+      await PropertyModel.updatePartial?.(id, {
         is_public: isPublic ? 1 : 0,
         publication_date: isPublic ? new Date() : null,
-      }) || await Property.update(id, {
+      }) || await PropertyModel.update(id, {
         is_public: isPublic ? 1 : 0,
         publication_date: isPublic ? new Date() : null,
       });

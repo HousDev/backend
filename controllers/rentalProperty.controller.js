@@ -1,6 +1,5 @@
-
-// controllers/property.controller.js
-const Property = require("../models/Property");
+// controllers/rentalProperty.controller.js
+const RentalProperty = require("../models/RentalProperty");
 const MasterData = require("../models/masterModel");
 const path = require("path");
 const fs = require("fs");
@@ -9,7 +8,6 @@ const db = require("../config/database");
 const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
 const Views = require("../models/views.model");
 const { getOrCreateSessionId } = require('../utils/sessionUtils');
-const cookieParser = require('cookie-parser');
 
 // ---------------------
 // Helper Functions
@@ -46,7 +44,7 @@ const parseNearbyPlaces = (req) => {
   }
   return [];
 };
-// --- Money parsers: "50L", "1.25Cr", "50,00,000", "5000000" -> number (rupees)
+
 const LAKH = 100_000;
 const CRORE = 10_000_000;
 
@@ -57,25 +55,23 @@ function parseMoneyToRupees(value) {
   const cleaned = raw.replace(/₹/g, "").replace(/\s+/g, "");
   const onlyDigits = cleaned.replace(/,/g, "");
 
-  // Cr → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?c(r)?$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/c(r)?/g, ""));
     return Math.trunc(n * CRORE);
   }
 
-  // L → Rupees (NO ROUNDING)
   if (/^\d+(\.\d+)?l$/.test(cleaned)) {
     const n = parseFloat(cleaned.replace(/l/g, ""));
     return Math.trunc(n * LAKH);
   }
 
-  // Plain rupees
   if (/^\d+(\.\d+)?$/.test(onlyDigits)) {
     return Math.trunc(parseFloat(onlyDigits));
   }
 
   return null;
 }
+
 const parsePhotoLabels = (req) => {
   if (!req.body.photoLabels) return [];
   try {
@@ -99,21 +95,18 @@ const parsePhotoTypes = (req) => {
     return [];
   }
 };
+
 const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
-  // seller_name: req.body.seller || null,
-  seller_name: req.body.seller_name || req.body.seller || null,
-  seller_id: req.body.seller_id || null,
+  owner_name: req.body.owner_name || req.body.owner || req.body.seller_name || req.body.seller || null,
+  owner_id: req.body.owner_id || req.body.seller_id || null,
   assigned_to: req.body.assigned_to || null,
-  property_type_name:
-    req.body.propertyType || req.body.property_type_name || null,
-  property_subtype_name:
-    req.body.propertySubtype || req.body.property_subtype_name || null,
+  property_type_name: req.body.propertyType || req.body.property_type_name || null,
+  property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
   unit_type: req.body.unitType || req.body.unit_type || null,
   wing: req.body.wing || null,
   unit_no: req.body.unitNo || null,
   furnishing: req.body.furnishing || null,
 
-  // NEW
   bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
   bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
   balcony: req.body.balcony || null ? Number(req.body.balcony) : null,
@@ -128,66 +121,52 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   total_floors: req.body.totalFloors || null,
   carpet_area: req.body.carpetArea || null,
   builtup_area: req.body.builtupArea || null,
-  budget: req.body.budget || null,
-
-  // NEW
-  price_type: req.body.priceType === "Negotiable" ? "Negotiable" : "Fixed",
-  final_price: parseMoneyToRupees(req.body.finalPrice),
 
   address: req.body.address || null,
   status: req.body.status || null,
-  lead_source: req.body.leadSource || req.body.lead_source || "website",
+  lead_source: req.body.leadSource || req.body.lead_source || null,
   source_url: req.body.source_url || req.body.sourceUrl || null,
-  possession_year: req.body.possessionYear || null,
-  purchase_month: req.body.purchaseMonth || null,
-  purchase_year: req.body.purchaseYear || null,
-  selling_rights: req.body.sellingRights || null,
-  ownership_doc_path: ownershipDocPath,
   photos: photoPaths,
   amenities: parseArrayField(req.body.amenities),
-  furnishing_items: parseArrayField(
-    req.body.furnishingItems || req.body.furnishing_items,
-  ),
+  furnishing_items: parseArrayField(req.body.furnishingItems || req.body.furnishing_items),
   nearby_places: parseNearbyPlaces(req),
   description: req.body.description || null,
+
+  // Rent Fields
+  listing_type: req.body.listing_type || 'rent',
+  monthly_rent: req.body.monthly_rent || null,
+  security_deposit: req.body.security_deposit || null,
+  maintenance_extra: req.body.maintenance_extra === 'true' || req.body.maintenance_extra === true || req.body.maintenance_extra === 1 || req.body.maintenance_extra === '1' ? 1 : 0,
+  maintenance_charge: req.body.maintenance_charge || null,
+  preferred_tenants: (() => {
+    const val = req.body.preferred_tenants;
+    if (!val) return null;
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed.join(', ');
+      } catch (e) {}
+      return val;
+    }
+    if (Array.isArray(val)) return val.join(', ');
+    return String(val);
+  })(),
+  lock_in_period: req.body.lock_in_period ? Number(req.body.lock_in_period) : null,
+  agreement_duration: req.body.agreement_duration ? Number(req.body.agreement_duration) : null,
+  available_from: req.body.available_from || null,
 });
 
-// ---------------------
-// Small utils
-// ---------------------
-const safeJson = (s) => {
-  if (!s || typeof s !== "string") return undefined;
-  try {
-    return JSON.parse(s);
-  } catch {
-    return undefined;
-  }
-};
-
-// ✅ Always store PUBLIC path like createProperty
 const toPublic = (f) =>
   "/uploads/properties/" +
   (f.filename || path.basename(f.path)).replace(/\\/g, "/");
 
-// ---------------------
-// Filter token extractor (robust)
-// ---------------------
-/**
- * Returns { token: string|null, key: string|null }
- * Looks through query and body for common keys (filterToken, fltcnt, filter_token)
- * Falls back to the first UUID-shaped value or long-ish token if present.
- */
 function extractFilterTokenFromReq(req) {
   const q = req.query || {};
-  if (q.filterToken)
-    return { token: String(q.filterToken), key: "filterToken" };
+  if (q.filterToken) return { token: String(q.filterToken), key: "filterToken" };
   if (q.fltcnt) return { token: String(q.fltcnt), key: "fltcnt" };
-  if (q.filter_token)
-    return { token: String(q.filter_token), key: "filter_token" };
+  if (q.filter_token) return { token: String(q.filter_token), key: "filter_token" };
 
-  // heuristic search in query values for UUID-like or long token
-  const uuidRegex =
-    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
   for (const k of Object.keys(q)) {
     const v = q[k];
     if (!v) continue;
@@ -195,13 +174,10 @@ function extractFilterTokenFromReq(req) {
     if (typeof v === "string" && v.length >= 20) return { token: v, key: k };
   }
 
-  // check body as fallback
   const b = req.body || {};
-  if (b.filterToken)
-    return { token: String(b.filterToken), key: "filterToken" };
+  if (b.filterToken) return { token: String(b.filterToken), key: "filterToken" };
   if (b.fltcnt) return { token: String(b.fltcnt), key: "fltcnt" };
-  if (b.filter_token)
-    return { token: String(b.filter_token), key: "filter_token" };
+  if (b.filter_token) return { token: String(b.filter_token), key: "filter_token" };
 
   return { token: null, key: null };
 }
@@ -209,18 +185,8 @@ function extractFilterTokenFromReq(req) {
 // ---------------------
 // Controller Functions
 
-// 🔥 UPDATED: Create property with society images support
 const createProperty = async (req, res) => {
-  // Check if upload directory exists
-  const uploadDir = path.join(process.cwd(), "uploads", "properties");
-  if (req.files) {
-    Object.keys(req.files).forEach((key) => {
-      req.files[key].forEach((file) => {});
-    });
-  }
-
   try {
-    // 🆕 Parse existing photo URLs from frontend (society images)
     let existingPhotoUrls = [];
     if (req.body.existingPhotoUrls) {
       try {
@@ -229,25 +195,20 @@ const createProperty = async (req, res) => {
         } else if (Array.isArray(req.body.existingPhotoUrls)) {
           existingPhotoUrls = req.body.existingPhotoUrls;
         }
-        console.log("📸 Existing photo URLs (society images):", existingPhotoUrls);
       } catch (e) {
-        console.warn("Failed to parse existingPhotoUrls:", e);
         existingPhotoUrls = [];
       }
     }
 
-    // Convert multer file objects to PUBLIC paths
     const ownershipDocPublic = req.files?.ownershipDoc?.[0]
       ? req.files.ownershipDoc[0].publicUrl || toPublic(req.files.ownershipDoc[0])
       : null;
 
-    // New uploaded photos (manual uploads)
-    // NEW
     const newPhotoPublicPaths = (req.files?.photos || []).map(
       (f) => f.publicUrl || toPublic(f)
     );
-   const photoLabels = parsePhotoLabels(req);
-    const photoTypes = parsePhotoTypes(req); // 🆕
+    const photoLabels = parsePhotoLabels(req);
+    const photoTypes = parsePhotoTypes(req);
 
     const normalizedExisting = existingPhotoUrls.map((p) =>
       typeof p === 'string' ? { url: p, label: '', isSociety: true, type: 'image' } : { type: 'image', ...p }
@@ -256,11 +217,10 @@ const createProperty = async (req, res) => {
       url,
       label: photoLabels[idx] || '',
       isSociety: false,
-      type: photoTypes[idx] === 'video' ? 'video' : 'image', // 🆕
+      type: photoTypes[idx] === 'video' ? 'video' : 'image',
     }));
 
-    // 🔥 MERGE: Existing (society) + New (manual) photos — now with label + source tagged
-     let allPhotoPaths;
+    let allPhotoPaths;
     try {
       const rawOrder = req.body.photoOrder;
       const photoOrder = rawOrder
@@ -287,47 +247,34 @@ const createProperty = async (req, res) => {
         allPhotoPaths = [...normalizedExisting, ...normalizedNew];
       }
     } catch (e) {
-      console.warn('Failed to apply photoOrder, falling back:', e);
       allPhotoPaths = [...normalizedExisting, ...normalizedNew];
     }
 
-    console.log("📸 Society images:", existingPhotoUrls);
-    console.log("📸 Manual images:", newPhotoPublicPaths);
-    console.log("📸 All photos being saved:", allPhotoPaths);
+    const propertyData = buildPropertyData(req, ownershipDocPublic, allPhotoPaths);
 
-    const propertyData = buildPropertyData(
-      req,
-      ownershipDocPublic,
-      allPhotoPaths // ✅ Send merged array
-    );
-
-    // If seller_id is missing but seller_name is present, lookup seller from sellers table
-    if (!propertyData.seller_id && propertyData.seller_name) {
+    if (!propertyData.owner_id && propertyData.owner_name) {
       try {
-        const cleanName = propertyData.seller_name.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Miss\.?|Dr\.?)\s+/i, '').trim();
-        const [foundSellers] = await db.query(
-          `SELECT id, name FROM sellers WHERE name = ? OR name LIKE ? LIMIT 1`,
-          [propertyData.seller_name, `%${cleanName}%`]
+        const cleanName = propertyData.owner_name.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Miss\.?|Dr\.?)\s+/i, '').trim();
+        const [foundOwners] = await db.query(
+          `SELECT id, name FROM owners WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [propertyData.owner_name, `%${cleanName}%`]
         );
-        if (foundSellers && foundSellers.length > 0) {
-          propertyData.seller_id = foundSellers[0].id;
+        if (foundOwners && foundOwners.length > 0) {
+          propertyData.owner_id = foundOwners[0].id;
         }
       } catch (err) {
-        console.warn("Could not lookup seller_id by seller_name:", err);
+        console.warn("Could not lookup owner_id by owner_name:", err);
       }
     }
 
-    // Insert record (returns insertId)
-    const propertyId = await Property.create(propertyData);
+    const propertyId = await RentalProperty.create(propertyData);
 
-    // normalize values (avoid undefined)
     const propertyType = propertyData.property_type_name || "";
     const unitType = propertyData.unit_type || "";
     const propertySubtype = propertyData.property_subtype_name || "";
     const locationName = propertyData.location_name || "";
     const cityName = propertyData.city_name || "";
 
-    // Generate slug
     const titlePart = slugifyTextParts(
       propertyId,
       propertyType,
@@ -339,25 +286,20 @@ const createProperty = async (req, res) => {
 
     const slug = titlePart;
 
-    // Update slug column
     try {
-      await Property.updateSlug(propertyId, slug);
+      await RentalProperty.updateSlug(propertyId, slug);
     } catch (slugErr) {
-      console.warn(
-        "Failed to update slug for property:",
-        propertyId,
-        slugErr && slugErr.message
-      );
+      console.warn("Failed to update slug:", slugErr.message);
     }
 
     res.status(201).json({
       success: true,
-      message: "Property created successfully",
+      message: "Rental property created successfully",
       data: {
         id: propertyId,
         slug,
         url: `/properties/${slug}`,
-        photos: allPhotoPaths, // ✅ Return all photos
+        photos: allPhotoPaths,
         uploadedFiles: {
           ownershipDoc: ownershipDocPublic ? 1 : 0,
           photos: newPhotoPublicPaths.length,
@@ -369,64 +311,54 @@ const createProperty = async (req, res) => {
     console.error("Create failed:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to create property",
+      message: "Failed to create rental property",
       error: error.message,
     });
   }
 };
 
-// READ (all)
 const getAllProperties = async (req, res) => {
   try {
-    const properties = await Property.getAll();
+    const properties = await RentalProperty.getAll();
     res.json({ success: true, data: properties });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch properties",
+      message: "Failed to fetch rental properties",
       error: error.message,
     });
   }
 };
 
-// READ (single by id)
 const getProperty = async (req, res) => {
   try {
-    const property = await Property.getById(req.params.id);
+    const property = await RentalProperty.getById(req.params.id);
     if (!property)
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found" });
+      return res.status(404).json({ success: false, message: "Rental property not found" });
 
-        if (typeof property.photos === 'string') {
-  try {
-    property.photos = JSON.parse(property.photos);
-  } catch { property.photos = []; }
-}
+    if (typeof property.photos === 'string') {
+      try {
+        property.photos = JSON.parse(property.photos);
+      } catch { property.photos = []; }
+    }
     res.json({ success: true, data: property });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch property",
+      message: "Failed to fetch rental property",
       error: error.message,
     });
   }
 };
 
-// 🔥 UPDATED: Update property with society images support
 const updateProperty = async (req, res) => {
   try {
     const id = req.params.id;
-
-    // 1) Current record for fallbacks
-    const current = await Property.getById(id);
+    const current = await RentalProperty.getById(id);
     if (!current) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found" });
+      return res.status(404).json({ success: false, message: "Rental property not found" });
     }
 
-    // 🆕 Parse existing photos from body (society images + existing photos)
     let existingFromBody = [];
     if (req.body.existingPhotoUrls) {
       try {
@@ -435,33 +367,27 @@ const updateProperty = async (req, res) => {
         } else if (Array.isArray(req.body.existingPhotoUrls)) {
           existingFromBody = req.body.existingPhotoUrls;
         }
-        console.log("📸 Existing photos from body:", existingFromBody);
       } catch (e) {
-        console.warn("Failed to parse existingPhotoUrls:", e);
         existingFromBody = [];
       }
     }
 
-    // 3) New uploads -> public paths
-   // NEW
     const uploadedPhotoPublic = (req.files?.photos || []).map(
       (f) => f.publicUrl || toPublic(f)
     );
     const photoLabels = parsePhotoLabels(req);
-    const photoTypes = parsePhotoTypes(req); // 🆕
+    const photoTypes = parsePhotoTypes(req);
 
     const normalizedExisting = existingFromBody.map((p) =>
       typeof p === 'string' ? { url: p, label: '', isSociety: true, type: 'image' } : { type: 'image', ...p }
     );
-        const normalizedNew = uploadedPhotoPublic.map((url, idx) => ({
+    const normalizedNew = uploadedPhotoPublic.map((url, idx) => ({
       url,
       label: photoLabels[idx] || '',
       isSociety: false,
-      type: photoTypes[idx] === 'video' ? 'video' : 'image', // 🆕
+      type: photoTypes[idx] === 'video' ? 'video' : 'image',
     }));
 
-    // 🆕 Rebuild in the EXACT visual order the user arranged in the UI,
-    // instead of always dumping new uploads at the end.
     let finalPhotos;
     try {
       const rawOrder = req.body.photoOrder;
@@ -486,39 +412,28 @@ const updateProperty = async (req, res) => {
           })
           .filter(Boolean);
       } else {
-        // Fallback (old behavior) agar order manifest missing/mismatched ho
         finalPhotos = [...normalizedExisting, ...normalizedNew];
       }
     } catch (e) {
-      console.warn('Failed to apply photoOrder, falling back:', e);
       finalPhotos = [...normalizedExisting, ...normalizedNew];
     }
 
-    console.log("📸 Final photos after merge:", finalPhotos);
-
-
-    // 6) Ownership document
     const uploadedDocPublic = req.files?.ownershipDoc?.[0]
       ? req.files.ownershipDoc[0].publicUrl || toPublic(req.files.ownershipDoc[0])
       : null;
 
-    const existingDocFromBody =
-      req.body.existingOwnershipDocUrl || req.body.existingOwnershipDoc || null;
-
-    const finalOwnershipDoc =
-      uploadedDocPublic !== null
+    const existingDocFromBody = req.body.existingOwnershipDocUrl || req.body.existingOwnershipDoc || null;
+    const finalOwnershipDoc = uploadedDocPublic !== null
         ? uploadedDocPublic
         : existingDocFromBody !== null
         ? existingDocFromBody
         : current.ownership_doc_path || null;
 
-    // 7) Build payload (normalize)
     const propertyData = {
-      seller_name: req.body.seller_name || req.body.seller || null,
-      property_type_name:
-        req.body.propertyType || req.body.property_type_name || null,
-      property_subtype_name:
-        req.body.propertySubtype || req.body.property_subtype_name || null,
+      owner_name: req.body.owner_name || req.body.owner || req.body.seller_name || req.body.seller || null,
+      owner_id: req.body.owner_id || req.body.seller_id || null,
+      property_type_name: req.body.propertyType || req.body.property_type_name || null,
+      property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
       unit_type: req.body.unitType || req.body.unit_type || null,
       wing: req.body.wing || null,
       unit_no: req.body.unitNo || null,
@@ -543,30 +458,43 @@ const updateProperty = async (req, res) => {
       budget: req.body.budget || null,
       address: req.body.address || null,
       status: req.body.status || null,
-      lead_source:
-        req.body.leadSource === "seller_portal"
-          ? "seller_portal"
-          : req.body.leadSource || req.body.lead_source || "website",
+      lead_source: req.body.leadSource || req.body.lead_source || "website",
       source_url: req.body.source_url || req.body.sourceUrl || null,
-      possession_year: req.body.possessionYear || null,
-      purchase_month: req.body.purchaseMonth || null,
-      purchase_year: req.body.purchaseYear || null,
-      selling_rights: req.body.sellingRights || null,
 
       ownership_doc_path: finalOwnershipDoc,
-      photos: finalPhotos, // ✅ Updated with society images
+      photos: finalPhotos,
 
       amenities: parseArrayField(req.body.amenities),
-      furnishing_items: parseArrayField(
-        req.body.furnishingItems || req.body.furnishing_items,
-      ),
+      furnishing_items: parseArrayField(req.body.furnishingItems || req.body.furnishing_items),
       nearby_places: parseNearbyPlaces(req),
       description: req.body.description || null,
+
+      // Rent Fields
+      listing_type: req.body.listing_type || 'rent',
+      monthly_rent: req.body.monthly_rent || null,
+      security_deposit: req.body.security_deposit || null,
+      maintenance_extra: req.body.maintenance_extra === 'true' || req.body.maintenance_extra === true || req.body.maintenance_extra === 1 || req.body.maintenance_extra === '1' ? 1 : 0,
+      maintenance_charge: req.body.maintenance_charge || null,
+      preferred_tenants: (() => {
+        const val = req.body.preferred_tenants;
+        if (!val) return null;
+        if (typeof val === 'string') {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) return parsed.join(', ');
+          } catch (e) {}
+          return val;
+        }
+        if (Array.isArray(val)) return val.join(', ');
+        return String(val);
+      })(),
+      lock_in_period: req.body.lock_in_period ? Number(req.body.lock_in_period) : null,
+      agreement_duration: req.body.agreement_duration ? Number(req.body.agreement_duration) : null,
+      available_from: req.body.available_from || null,
     };
 
-    await Property.update(id, propertyData);
+    await RentalProperty.update(id, propertyData);
 
-    // Recompute slug if any title/location fields present in request
     const hasAnyTitleField =
       req.body.propertyType || req.body.property_type_name ||
       req.body.unitType || req.body.unit_type ||
@@ -592,22 +520,19 @@ const updateProperty = async (req, res) => {
         );
 
         if (newSlug && newSlug !== current.slug) {
-          await Property.updateSlug(id, newSlug);
+          await RentalProperty.updateSlug(id, newSlug);
         }
       } catch (slugErr) {
-        console.warn(
-          "Failed to update slug after property update:",
-          slugErr && slugErr.message
-        );
+        console.warn("Failed to update slug:", slugErr.message);
       }
     }
 
     return res.json({
       success: true,
-      message: "Property updated successfully",
+      message: "Rental property updated successfully",
       data: {
         id,
-        photos: finalPhotos, // ✅ Return all photos
+        photos: finalPhotos,
         updatedFiles: {
           ownershipDoc: uploadedDocPublic ? 1 : 0,
           photos: uploadedPhotoPublic.length,
@@ -618,27 +543,25 @@ const updateProperty = async (req, res) => {
     console.error("Update failed:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to update property",
+      message: "Failed to update rental property",
       error: error.message,
     });
   }
 };
 
-// DELETE
 const deleteProperty = async (req, res) => {
   try {
-    await Property.delete(req.params.id);
-    res.json({ success: true, message: "Property deleted successfully" });
+    await RentalProperty.delete(req.params.id);
+    res.json({ success: true, message: "Rental property deleted successfully" });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to delete property",
+      message: "Failed to delete rental property",
       error: error.message,
     });
   }
 };
 
-// ADD MORE PHOTOS TO EXISTING PROPERTY (public URLs)
 const addPhotosToProperty = async (req, res) => {
   try {
     const photoPublicPaths = (req.files?.photos || []).map(toPublic);
@@ -650,17 +573,14 @@ const addPhotosToProperty = async (req, res) => {
       });
     }
 
-    await Property.addPhotos(req.params.id, photoPublicPaths);
+    await RentalProperty.addPhotos(req.params.id, photoPublicPaths);
 
     res.json({
       success: true,
       message: `${photoPublicPaths.length} photos added successfully`,
-      data: {
-        addedPhotos: photoPublicPaths.length,
-      },
+      data: { addedPhotos: photoPublicPaths.length },
     });
   } catch (error) {
-    console.error("Add photos failed:", error);
     res.status(500).json({
       success: false,
       message: "Failed to add photos",
@@ -669,11 +589,9 @@ const addPhotosToProperty = async (req, res) => {
   }
 };
 
-// DELETE PHOTOS FROM PROPERTY
 const deletePhotosFromProperty = async (req, res) => {
   try {
-    const { photoUrls } = req.body; // Array of photo URLs to delete
-
+    const { photoUrls } = req.body;
     if (!photoUrls || !Array.isArray(photoUrls)) {
       return res.status(400).json({
         success: false,
@@ -681,17 +599,13 @@ const deletePhotosFromProperty = async (req, res) => {
       });
     }
 
-    await Property.deleteSpecificPhotos(req.params.id, photoUrls);
-
+    await RentalProperty.deleteSpecificPhotos(req.params.id, photoUrls);
     res.json({
       success: true,
       message: `Photos deleted successfully`,
-      data: {
-        deletedCount: photoUrls.length,
-      },
+      data: { deletedCount: photoUrls.length },
     });
   } catch (error) {
-    console.error("Delete photos failed:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete photos",
@@ -700,7 +614,6 @@ const deletePhotosFromProperty = async (req, res) => {
   }
 };
 
-// MASTER DATA
 const getMasterData = async (req, res) => {
   try {
     const masterData = await MasterData.getAll();
@@ -714,10 +627,9 @@ const getMasterData = async (req, res) => {
   }
 };
 
-// MIGRATE
 const migratePropertyData = async (req, res) => {
   try {
-    const result = await Property.migrateData();
+    const result = await RentalProperty.migrateData();
     res.json({ success: true, message: "Migration complete", data: result });
   } catch (error) {
     res.status(500).json({
@@ -755,7 +667,7 @@ const searchProperties = (req, res) => {
       publicOnly,
     } = req.query;
 
-    const PRICE_COL = 'budget';
+    const PRICE_COL = 'monthly_rent';
 
     const toNumOrNull = (v) => {
       if (v === undefined || v === null || v === '') return null;
@@ -778,13 +690,11 @@ const searchProperties = (req, res) => {
     const filters = [];
     const values = [];
 
-    // city_name (partial, case-insensitive)
     if (city) {
       filters.push('LOWER(city_name) LIKE ?');
       values.push(`%${String(city).toLowerCase()}%`);
     }
 
-    // location_name (CSV/array; OR of LIKEs)
     const locInput = (location !== undefined ? location : locations);
     if (locInput) {
       let locArr = [];
@@ -803,11 +713,9 @@ const searchProperties = (req, res) => {
       }
     }
 
-    // budget range
     if (minP !== null) { filters.push(`${PRICE_COL} >= ?`); values.push(minP); }
     if (maxP !== null) { filters.push(`${PRICE_COL} <= ?`); values.push(maxP); }
 
-    // property_type_name
     if (propertyType) {
       const arr = String(propertyType)
         .split(',')
@@ -818,14 +726,12 @@ const searchProperties = (req, res) => {
       else if (arr.length > 1) { filters.push(`LOWER(property_type_name) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
     }
 
-    // property_subtype_name
     if (propertySubtype) {
       const arr = String(propertySubtype).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
       if (arr.length === 1) { filters.push('LOWER(property_subtype_name) = ?'); values.push(arr[0]); }
       else if (arr.length > 1) { filters.push(`LOWER(property_subtype_name) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
     }
 
-    // unit_type (supports unitType or unitTypes)
     const unitInput = unitType || unitTypes;
     if (unitInput) {
       const arr = String(unitInput).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -833,13 +739,11 @@ const searchProperties = (req, res) => {
       else if (arr.length > 1) { filters.push(`LOWER(unit_type) IN (${arr.map(() => '?').join(',')})`); values.push(...arr); }
     }
 
-    // furnishing
     if (furnishing) {
       filters.push('LOWER(furnishing) = ?');
       values.push(String(furnishing).toLowerCase());
     }
 
-    // verified
     if (verified !== undefined) {
       filters.push('is_verified = ?');
       values.push(String(verified) === '1' || verified === true ? 1 : 0);
@@ -866,6 +770,7 @@ const searchProperties = (req, res) => {
           filters.push('is_sold = 0');
           break;
         case 'sold':
+        case 'leased':
           filters.push('is_sold = 1');
           break;
         case 'new':
@@ -923,24 +828,22 @@ const searchProperties = (req, res) => {
 
     const SELECT_COLUMNS = `
       id,
-      seller_name, seller_id, lead_id, assigned_to,
+      owner_name, owner_id, lead_id, assigned_to,
       property_type_name, property_subtype_name, unit_type, wing, unit_no,
       furnishing, bedrooms, bathrooms, facing, parking_type, parking_qty,
       city_name, location_name, society_name, floor, total_floors,
-      carpet_area, builtup_area,
-      budget, price_type, final_price,
-      address, status, lead_source,
-      possession_month, possession_year, purchase_month, purchase_year,
-      selling_rights, ownership_doc_path,
+      carpet_area, builtup_area, budget, price_type, final_price,
+      address, status, lead_source, ownership_doc_path,
       photos, amenities, furnishing_items, nearby_places, description,
       created_at, updated_at,
       is_public, is_private, is_sold, is_available, is_new_listing, is_premium, is_verified, is_featured,
       publication_date, created_by, updated_by,
-      public_views, public_inquiries,
-      slug
+      public_views, public_inquiries, slug,
+      listing_type, monthly_rent, security_deposit, maintenance_extra, maintenance_charge,
+      preferred_tenants, lock_in_period, agreement_duration, available_from
     `.replace(/\s+/g, ' ').trim();
 
-    let sql = `SELECT ${SELECT_COLUMNS} FROM my_properties${whereClause}`;
+    let sql = `SELECT ${SELECT_COLUMNS} FROM rental_properties${whereClause}`;
     let finalValues = [...values];
 
     if (sort) {
@@ -951,25 +854,6 @@ const searchProperties = (req, res) => {
         case 'high_to_low':
           sql += ` ORDER BY ${PRICE_COL} DESC`;
           break;
-        case 'medium': {
-          if (whereClause) {
-            sql = `
-              SELECT ${SELECT_COLUMNS} FROM my_properties
-              ${whereClause}
-              ORDER BY ABS(${PRICE_COL} - (
-                SELECT AVG(${PRICE_COL}) FROM my_properties ${whereClause}
-              )) ASC
-            `;
-            finalValues = [...values, ...values];
-          } else {
-            sql = `
-              SELECT ${SELECT_COLUMNS} FROM my_properties
-              ORDER BY ABS(${PRICE_COL} - (SELECT AVG(${PRICE_COL}) FROM my_properties)) ASC
-            `;
-            finalValues = [];
-          }
-          break;
-        }
         case 'newest':
           sql += ' ORDER BY created_at DESC';
           break;
@@ -980,43 +864,31 @@ const searchProperties = (req, res) => {
       sql += ` ORDER BY ${PRICE_COL} ASC`;
     }
 
-    console.log('SQL Query:', sql);
-    console.log('Values:', finalValues);
-
     db.query(sql, finalValues, (err, results) => {
       if (err) {
-        console.error('DB error:', err, { sql, finalValues });
         return res.status(500).json({ success: false, error: 'Database error' });
       }
       res.json({ success: true, data: results, count: results.length });
     });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
-// GET by slug
 const getPropertyBySlug = async (req, res) => {
   try {
     const slug = req.params.slug;
     const m = String(slug).match(/^(\d+)(?:-|$)/);
     if (!m)
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid slug format" });
+      return res.status(400).json({ success: false, message: "Invalid slug format" });
     
     const id = Number(m[1]);
-    const property = await Property.getById(id);
+    const property = await RentalProperty.getById(id);
     if (!property)
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found" });
+      return res.status(404).json({ success: false, message: "Rental property not found" });
 
     if (property.slug && property.slug !== slug) {
-      const qs = req.url.includes("?")
-        ? req.url.slice(req.url.indexOf("?"))
-        : "";
+      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
       return res.redirect(301, `/properties/${property.slug}${qs}`);
     }
 
@@ -1026,8 +898,7 @@ const getPropertyBySlug = async (req, res) => {
     const referrer = req.get("Referrer") || req.get("Referer") || null;
     
     const sessionId = getOrCreateSessionId(req, res);
-    const { token: extractedFilterToken, key: filterParamKey } =
-      extractFilterTokenFromReq(req);
+    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
 
     try {
       const safePayload = {
@@ -1036,7 +907,7 @@ const getPropertyBySlug = async (req, res) => {
         filterParamKey: filterParamKey,
       };
 
-      const _evtResult = await Property.recordEvent({
+      await RentalProperty.recordEvent({
         property_id: id,
         slug: property.slug || slug,
         event_type: "view",
@@ -1052,46 +923,35 @@ const getPropertyBySlug = async (req, res) => {
         minutes_window: 1440,
       });
     } catch (e) {
-      console.warn("analytics error:", e && e.message);
+      console.warn("analytics error:", e.message);
     }
 
     res.json({ success: true, data: property });
   } catch (error) {
-    console.error(error);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
 
 async function recordEventHandler(req, res) {
   try {
     const idRaw = req.params.id;
-    const propertyId = idRaw
-      ? Number(String(idRaw).replace(/[^0-9]/g, ""))
-      : null;
+    const propertyId = idRaw ? Number(String(idRaw).replace(/[^0-9]/g, "")) : null;
     if (!propertyId || Number.isNaN(propertyId)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Missing or invalid property id" });
+      return res.status(400).json({ success: false, message: "Missing or invalid property id" });
     }
 
     const {
       source = req.body.source ?? "client",
-      path = req.body.path ?? (typeof req !== "undefined" && req.path) ?? null,
+      path = req.body.path ?? null,
       referrer = req.body.referrer ?? (req.get ? req.get("Referer") : null),
       slug = req.query.slug ?? req.body.slug ?? null,
-      dedupe_key = req.body.dedupe_key ?? req.body.dedupeKey ?? null,
-      session_id = req.body.session_id ?? req.body.sessionId ?? null,
-      minutes_window = Number(
-        req.body.minutes_window ?? req.body.windowMinutes ?? 1
-      ),
+      dedupe_key = req.body.dedupe_key ?? null,
+      session_id = req.body.session_id ?? null,
+      minutes_window = Number(req.body.minutes_window ?? 1),
     } = req.body || {};
 
     const ip = req.ip || req.headers["x-forwarded-for"] || null;
-    const userAgent = req.get
-      ? req.get("User-Agent") || null
-      : (req.headers && req.headers["user-agent"]) || null;
+    const userAgent = req.get ? req.get("User-Agent") || null : null;
 
     const payload = {
       property_id: propertyId,
@@ -1108,16 +968,7 @@ async function recordEventHandler(req, res) {
     };
 
     if (!Views || typeof Views.recordView !== "function") {
-      console.error(
-        "[recordEventHandler] Views.recordView not available",
-        Object.keys(Views || {})
-      );
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Server misconfiguration (views model)",
-        });
+      return res.status(500).json({ success: false, message: "Server misconfiguration" });
     }
 
     const result = await Views.recordView(payload);
@@ -1127,44 +978,19 @@ async function recordEventHandler(req, res) {
       meta: result.meta || {},
     });
   } catch (err) {
-    console.error(
-      "recordEventHandler failed:",
-      err && err.stack ? err.stack : err
-    );
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
 
-// ---------------------
-// FILTER CONTEXT Handlers
-// ---------------------
-
 const saveFilterContextHandler = async (req, res) => {
   try {
     const { filters, user_id = null } = req.body;
-    if (
-      !filters ||
-      (typeof filters !== "object" && typeof filters !== "string")
-    ) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "filters (object or JSON-string) required",
-        });
+    if (!filters) {
+      return res.status(400).json({ success: false, message: "filters required" });
     }
-    const result = await Property.saveFilterContext(filters, user_id);
-    if (!result || !result.success)
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Failed to save filter context",
-          error: result?.error,
-        });
+    const result = await RentalProperty.saveFilterContext(filters, user_id);
     return res.json({ success: true, id: result.id });
   } catch (err) {
-    console.error("saveFilterContextHandler error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -1172,14 +998,11 @@ const saveFilterContextHandler = async (req, res) => {
 const getFilterContextHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id)
-      return res.status(400).json({ success: false, message: "id required" });
-    const ctx = await Property.getFilterContextById(id);
-    if (!ctx)
-      return res.status(404).json({ success: false, message: "Not found" });
+    if (!id) return res.status(400).json({ success: false, message: "id required" });
+    const ctx = await RentalProperty.getFilterContextById(id);
+    if (!ctx) return res.status(404).json({ success: false, message: "Not found" });
     return res.json({ success: true, context: ctx });
   } catch (err) {
-    console.error("getFilterContextHandler error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -1187,16 +1010,11 @@ const getFilterContextHandler = async (req, res) => {
 const searchCityLocationsStrict = async (req, res) => {
   try {
     const cityInput = (req.query.city || req.query.city_name || "").toString().trim();
-    
     if (!cityInput) {
-      return res.status(400).json({
-        success: false,
-        message: "City parameter is required"
-      });
+      return res.status(400).json({ success: false, message: "City parameter is required" });
     }
     
     let locationsInput = req.query.locations || req.query.location_name || "";
-    
     let locArr = [];
     if (locationsInput) {
       if (typeof locationsInput === "string") {
@@ -1204,13 +1022,11 @@ const searchCityLocationsStrict = async (req, res) => {
       } else if (Array.isArray(locationsInput)) {
         locArr = locationsInput.map(s => String(s).trim()).filter(Boolean);
       }
-      
       locArr = Array.from(new Set(locArr.map(s => s.toLowerCase()))).slice(0, 5);
     }
     
     const propertyType = (req.query.propertyType || req.query.property_type || "").toString().trim();
     const status = (req.query.status || "").toString().trim();
-    
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const offset = Number(req.query.offset) || 0;
     
@@ -1233,22 +1049,17 @@ const searchCityLocationsStrict = async (req, res) => {
     
     if (status) {
       const statusLower = status.toLowerCase();
-      
       switch(statusLower) {
         case 'available':
-        case 'active':
-        case 'for sale':
           filters.push("(status = 'Available' OR status = 'Active' OR status IS NULL)");
           filters.push("is_public = 1");
           filters.push("(is_sold = 0 OR is_sold IS NULL)");
           break;
+        case 'leased':
         case 'sold':
-        case 'sold out':
-        case 'inactive':
-          filters.push("(status = 'Sold' OR is_sold = 1)");
+          filters.push("(status = 'Sold' OR status = 'Leased' OR is_sold = 1)");
           break;
         case 'new':
-        case 'new listing':
           filters.push("is_new_listing = 1");
           filters.push("is_public = 1");
           break;
@@ -1264,19 +1075,14 @@ const searchCityLocationsStrict = async (req, res) => {
     }
     
     const whereClause = filters.length > 0 ? " WHERE " + filters.join(" AND ") : "";
-    
-    const countSql = `SELECT COUNT(*) AS total FROM my_properties${whereClause}`;
+    const countSql = `SELECT COUNT(*) AS total FROM rental_properties${whereClause}`;
     const [countRows] = await db.query(countSql, values);
     const total = countRows?.[0]?.total || 0;
     
     const dataSql = `
-      SELECT * FROM my_properties
+      SELECT * FROM rental_properties
       ${whereClause}
-      ORDER BY 
-        is_featured DESC,
-        is_premium DESC, 
-        updated_at DESC, 
-        created_at DESC
+      ORDER BY is_featured DESC, is_premium DESC, updated_at DESC, created_at DESC
       LIMIT ? OFFSET ?
     `;
     const dataValues = [...values, limit, offset];
@@ -1294,35 +1100,21 @@ const searchCityLocationsStrict = async (req, res) => {
       offset: offset,
       data: dataRows
     });
-    
   } catch (error) {
-    console.error("❌ Search properties error:", error);
-    console.error("Stack trace:", error.stack);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message
-    });
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
 
-// Public property without docs
 const PublicgetAllProperties = async (req, res) => {
   try {
-    const properties = await Property.getAll();
-
+    const properties = await RentalProperty.getAll();
     const sanitized = properties.map((p) => {
-      const { ownership_doc_path, ownership_doc_name, ...safe } = p;
+      const { ownership_doc_path, ...safe } = p;
       return safe;
     });
-
     res.json({ success: true, data: sanitized });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch properties",
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: "Failed to fetch properties", error: error.message });
   }
 };
 
@@ -1330,33 +1122,24 @@ const PublicgetPropertyBySlug = async (req, res) => {
   try {
     const slug = req.params.slug;
     const m = String(slug).match(/^(\d+)(?:-|$)/);
-    if (!m)
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid slug format" });
+    if (!m) return res.status(400).json({ success: false, message: "Invalid slug format" });
 
     const id = Number(m[1]);
-    const property = await Property.getById(id);
-    if (!property)
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found" });
+    const property = await RentalProperty.getById(id);
+    if (!property) return res.status(404).json({ success: false, message: "Rental property not found" });
 
     if (property.slug && property.slug !== slug) {
-      const qs = req.url.includes("?")
-        ? req.url.slice(req.url.indexOf("?"))
-        : "";
+      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
       return res.redirect(301, `/properties/${property.slug}${qs}`);
     }
 
     const xff = req.headers["x-forwarded-for"];
     const ip = xff ? String(xff).split(",")[0].trim() : req.ip || null;
     const userAgent = req.get("User-Agent") || null;
-    const referrer = req.get("Referrer") || req.get("Referer") || null;
+    const referrer = req.get("Referrer") || null;
 
     const sessionId = getOrCreateSessionId(req, res);
-    const { token: extractedFilterToken, key: filterParamKey } =
-      extractFilterTokenFromReq(req);
+    const { token: extractedFilterToken, key: filterParamKey } = extractFilterTokenFromReq(req);
 
     try {
       const safePayload = {
@@ -1365,7 +1148,7 @@ const PublicgetPropertyBySlug = async (req, res) => {
         filterParamKey: filterParamKey,
       };
 
-      await Property.recordEvent({
+      await RentalProperty.recordEvent({
         property_id: id,
         slug: property.slug || slug,
         event_type: "view",
@@ -1381,52 +1164,28 @@ const PublicgetPropertyBySlug = async (req, res) => {
         minutes_window: 1440,
       });
     } catch (e) {
-      console.warn("analytics error:", e && e.message);
+      console.warn("analytics error:", e.message);
     }
 
-    const { ownership_doc_path, ownership_doc_name, ...safeProperty } =
-      property;
-
+    const { ownership_doc_path, ...safeProperty } = property;
     res.json({ success: true, data: safeProperty });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
 
 const PublicgetProperty = async (req, res) => {
   try {
-    const property = await Property.getById(req.params.id);
-    if (!property) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found" });
-    }
+    const property = await RentalProperty.getById(req.params.id);
+    if (!property) return res.status(404).json({ success: false, message: "Rental property not found" });
 
-    const SENSITIVE_KEYS = [
-      "ownership_doc_path",
-      "ownershipDoc",
-      "ownership_document",
-      "internal_notes",
-      "created_by",
-      "updated_by"
-    ];
-
+    const SENSITIVE_KEYS = ["ownership_doc_path", "ownershipDoc", "internal_notes", "created_by", "updated_by"];
     const copy = { ...property };
     SENSITIVE_KEYS.forEach((key) => delete copy[key]);
 
     return res.json({ success: true, data: copy });
   } catch (error) {
-    console.error("getProperty error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch property",
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: "Failed to fetch property", error: error.message });
   }
 };
 
@@ -1435,7 +1194,7 @@ const importBulk = async (req, res) => {
   const results = [];
   for (const row of rows) {
     try {
-      await Property.create(row);
+      await RentalProperty.create(row);
       results.push({ success: true });
     } catch (err) {
       results.push({ success: false, error: err.message });
@@ -1455,21 +1214,16 @@ const updateAssignedTo = async (req, res) => {
 
     const assigned_to = (req.body && "assigned_to" in req.body) ? req.body.assigned_to : undefined;
     if (assigned_to === undefined) {
-      return res.status(400).json({ success: false, message: "assigned_to required (number|null)" });
+      return res.status(400).json({ success: false, message: "assigned_to required" });
     }
 
     const assigned_by = req.user?.id ?? null;
-    const result = await Property.updateAssignedTo(id, assigned_to, assigned_by);
-
-    if (!result.success) {
-      return res.status(400).json({ success: false, message: result.message || "Failed" });
-    }
+    const result = await RentalProperty.updateAssignedTo(id, assigned_to, assigned_by);
 
     if (assigned_to) {
       try {
-        const db = require("../config/database");
         const [propRows] = await db.query(
-          "SELECT title FROM my_properties WHERE id = ?",
+          "SELECT title FROM rental_properties WHERE id = ?",
           [id]
         );
         if (propRows && propRows.length > 0) {
@@ -1480,8 +1234,8 @@ const updateAssignedTo = async (req, res) => {
             type: "property_assign",
             itemId: id,
             itemName: propTitle,
-            message: `You have been assigned a new property: ${propTitle}`,
-            link: `/dashboard/properties`
+            message: `You have been assigned a new rental property: ${propTitle}`,
+            link: `/dashboard/rental-properties`
           });
         }
       } catch (err) {
@@ -1495,115 +1249,65 @@ const updateAssignedTo = async (req, res) => {
       message: result.affected ? "assigned_to updated" : "No rows updated",
     });
   } catch (err) {
-    console.error("updateAssignedTo error:", err);
     return res.status(500).json({ success: false, message: err?.message || "Server error" });
   }
 };
 
-/* =========================
-   SIMILAR PROPERTIES
-   ========================= */
 const getSimilarProperties = async (req, res) => {
   try {
     const q = req.query || {};
-
-    const normStr = (v) => (v == null ? undefined : String(v).trim());
     const toInt = (v) => {
       const n = Number(v);
       return Number.isFinite(n) ? n : undefined;
     };
-    const toBool = (v) => {
-      if (typeof v === "boolean") return v;
-      if (v == null) return undefined;
-      const s = String(v).trim().toLowerCase();
-      if (["1", "true", "yes", "y"].includes(s)) return true;
-      if (["0", "false", "no", "n"].includes(s)) return false;
-      return undefined;
-    };
-    const normLocation = (v) =>
-      v == null ? undefined : String(v).replace(/\+/g, " ").trim();
 
-    const property_id     = toInt(q.property_id);
-    const type            = normStr(q.type);
-    const typeLegacy      = normStr(q.property_type);
-    const subtype         = normStr(q.subtype) || normStr(q.property_subtype);
-    const unit_type       = normStr(q.unit_type) || normStr(q.unitType);
-    const location        = normLocation(q.location);
-    const city            = normStr(q.city);
-    const bedrooms        = toInt(q.bedrooms);
-    const furnishing      = normStr(q.furnishing);
-    const limit           = toInt(q.limit) ?? 6;
-    const exclude_current = toBool(q.exclude_current);
+    const property_id = toInt(q.property_id);
+    const city = q.city;
+    const location = q.location;
+    const bedrooms = toInt(q.bedrooms);
+    const limit = toInt(q.limit) ?? 6;
 
     if (!property_id && !city && !location) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one of property_id, city, or location is required",
-      });
+      return res.status(400).json({ success: false, message: "property_id, city, or location required" });
     }
 
     const filters = {
-      propertyId: property_id,
-      type: type || typeLegacy,
-      subtype,
-      unitType: unit_type,
+      exclude_id: property_id,
       city,
       location,
       bedrooms,
-      furnishing,
-      limit: Math.max(1, limit),
-      excludeCurrent: exclude_current !== undefined ? exclude_current : true,
+      limit,
     };
 
     if (property_id) {
       try {
-        const current = await Property.getById(property_id);
+        const current = await RentalProperty.getById(property_id);
         if (current) {
-          filters.city       = filters.city       || current.city_name;
-          filters.location   = filters.location   || current.location_name;
-          filters.type       = filters.type       || current.property_type_name;
-          filters.subtype    = filters.subtype    || current.property_subtype_name;
-          filters.unitType   = filters.unitType   || current.unit_type;
-          filters.bedrooms   = filters.bedrooms   ?? current.bedrooms;
-          filters.furnishing = filters.furnishing || current.furnishing;
+          filters.city = filters.city || current.city_name;
+          filters.location = filters.location || current.location_name;
+          filters.bedrooms = filters.bedrooms ?? current.bedrooms;
         }
       } catch (e) {}
     }
 
-    const similarProperties = await Property.getSimilarProperties(filters);
-
+    const similarProperties = await RentalProperty.getSimilarProperties(filters);
     return res.json({
       success: true,
       data: similarProperties,
-      count: Array.isArray(similarProperties) ? similarProperties.length : 0,
+      count: similarProperties.length,
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch similar properties",
-    });
+    return res.status(500).json({ success: false, message: "Failed to fetch similar properties" });
   }
 };
 
-/* =========================
-   POPULAR LOCATIONS
-   ========================= */
 const getPopularLocations = async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 5;
-    const popularLocations = await Property.getPopularLocations(limit);
-
-    return res.json({
-      success: true,
-      data: popularLocations,
-    });
+    const popularLocations = await RentalProperty.getPopularLocations(limit);
+    return res.json({ success: true, data: popularLocations });
   } catch (error) {
-    console.error("getPopularLocations error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch popular locations",
-      data: [],
-    });
+    return res.status(500).json({ success: false, message: "Failed to fetch popular locations" });
   }
 };
 
