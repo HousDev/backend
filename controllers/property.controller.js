@@ -10,6 +10,7 @@ const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
 const Views = require("../models/views.model");
 const { getOrCreateSessionId } = require('../utils/sessionUtils');
 const cookieParser = require('cookie-parser');
+const { syncSocietyPhotoLabels } = require("../utils/societySync");
 
 // ---------------------
 // Helper Functions
@@ -320,6 +321,13 @@ const createProperty = async (req, res) => {
     // Insert record (returns insertId)
     const propertyId = await Property.create(propertyData);
 
+    // Sync society photo labels back to the master society record
+    if (req.body.society) {
+      await syncSocietyPhotoLabels(req.body.society, allPhotoPaths);
+    } else if (req.body.society_name) {
+      await syncSocietyPhotoLabels(req.body.society_name, allPhotoPaths);
+    }
+
     // normalize values (avoid undefined)
     const propertyType = propertyData.property_type_name || "";
     const unitType = propertyData.unit_type || "";
@@ -565,6 +573,13 @@ const updateProperty = async (req, res) => {
     };
 
     await Property.update(id, propertyData);
+
+    // Sync society photo labels back to the master society record
+    if (req.body.society) {
+      await syncSocietyPhotoLabels(req.body.society, finalPhotos);
+    } else if (req.body.society_name) {
+      await syncSocietyPhotoLabels(req.body.society_name, finalPhotos);
+    }
 
     // Recompute slug if any title/location fields present in request
     const hasAnyTitleField =
@@ -1607,6 +1622,67 @@ const getPopularLocations = async (req, res) => {
   }
 };
 
+/* =========================
+   PATCH PROPERTY SELLER (link / unlink)
+   ========================= */
+const patchPropertySeller = async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const propertyId = Number(req.params.id);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      conn.release();
+      return res.status(400).json({ success: false, message: 'Invalid property id.' });
+    }
+
+    const { action, seller_id } = req.body; // action: 'link' | 'unlink'
+
+    await conn.beginTransaction();
+
+    if (action === 'unlink') {
+      // Clear seller from this property only
+      await conn.query(
+        'UPDATE my_properties SET seller_id = NULL, seller_name = NULL WHERE id = ?',
+        [propertyId]
+      );
+    } else if (action === 'link' && seller_id) {
+      const sid = Number(seller_id);
+      if (!Number.isFinite(sid) || sid <= 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json({ success: false, message: 'Invalid seller_id.' });
+      }
+      // Fetch seller info
+      const [[sellerRow]] = await conn.query(
+        'SELECT id, name, assigned_to FROM sellers WHERE id = ? LIMIT 1',
+        [sid]
+      );
+      if (!sellerRow) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json({ success: false, message: 'Seller not found.' });
+      }
+      // Link: set seller_id, seller_name, assigned_to on this property
+      await conn.query(
+        'UPDATE my_properties SET seller_id = ?, seller_name = ?, assigned_to = ? WHERE id = ?',
+        [sellerRow.id, sellerRow.name, sellerRow.assigned_to || null, propertyId]
+      );
+    } else {
+      await conn.rollback();
+      conn.release();
+      return res.status(400).json({ success: false, message: 'action must be "link" or "unlink".' });
+    }
+
+    await conn.commit();
+    conn.release();
+    return res.json({ success: true, message: 'Property seller updated successfully.' });
+  } catch (err) {
+    try { await conn.rollback(); } catch (_) {}
+    conn.release();
+    console.error('patchPropertySeller error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to update property seller.' });
+  }
+};
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -1629,5 +1705,6 @@ module.exports = {
   PublicgetProperty,
   updateAssignedTo,
   getSimilarProperties,
-  getPopularLocations
+  getPopularLocations,
+  patchPropertySeller
 };

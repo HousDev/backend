@@ -65,7 +65,7 @@ const createOwner = async (req, res) => {
 
     const [rs] = await conn.query(
       `INSERT INTO owners 
-       (salutation, name, phone, whatsapp, email, state, city, location, stage, leadType, priority, status, notes, owner_dob, countryCode, assigned_to, assigned_to_name, source)
+       (salutation, name, phone, whatsapp, email, state, city, location, stage, lead_type, priority, status, notes, owner_dob, countryCode, assigned_to, assigned_to_name, source)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         owner.salutation, owner.name, owner.phone, owner.whatsapp, owner.email,

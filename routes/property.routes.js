@@ -65,6 +65,8 @@ router.post('/:id/brochure', brochureCtrl.generateBrochurePDF);
 router.post('/:id/BrochuresBulkSinglePDF', brochureCtrl.generateBrochuresBulkSinglePDF);
 
 router.patch("/:id/assigned-to", propertyController.updateAssignedTo);
+// Link or unlink a seller from a property (sets seller_id + seller_name directly)
+router.patch("/:id/link-seller", propertyController.patchPropertySeller);
 // Add this route to your property routes
 router.get('/similar', propertyController.getSimilarProperties);
 router.get('/popular-locations', propertyController.getPopularLocations); // ✅ NEW

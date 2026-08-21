@@ -842,6 +842,38 @@ const getOperationStatus = async (req, res) => {
   }
 };
 
+// Bulk assign/unassign executive for rental or sale properties
+const bulkAssignExecutive = async (req, res) => {
+  try {
+    const { propertyIds, executiveId, isRental } = req.body;
+    if (!propertyIds || !Array.isArray(propertyIds) || propertyIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No property IDs provided' });
+    }
+    const table = isRental ? 'rental_properties' : 'properties';
+    const placeholders = propertyIds.map(() => '?').join(',');
+    const db = require('../config/database');
+    if (executiveId !== null && executiveId !== undefined) {
+      await db.query(
+        `UPDATE ${table} SET assigned_to = ? WHERE id IN (${placeholders})`,
+        [executiveId, ...propertyIds]
+      );
+    } else {
+      await db.query(
+        `UPDATE ${table} SET assigned_to = NULL WHERE id IN (${placeholders})`,
+        [...propertyIds]
+      );
+    }
+    return res.json({
+      success: true,
+      message: `Executive ${executiveId ? 'assigned' : 'unassigned'} for ${propertyIds.length} properties`,
+      data: { affected: propertyIds.length }
+    });
+  } catch (err) {
+    console.error('bulkAssignExecutive error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to assign executive' });
+  }
+};
+
 module.exports = {
   // bulk
   bulkUpdateStatus,
@@ -850,6 +882,7 @@ module.exports = {
   bulkSetVisibility,
   bulkDelete,
   bulkExport,
+  bulkAssignExecutive,
 
   // single
   markPublic,

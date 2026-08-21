@@ -8,6 +8,7 @@ const db = require("../config/database");
 const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
 const Views = require("../models/views.model");
 const { getOrCreateSessionId } = require('../utils/sessionUtils');
+const { syncSocietyPhotoLabels } = require("../utils/societySync");
 
 // ---------------------
 // Helper Functions
@@ -269,6 +270,13 @@ const createProperty = async (req, res) => {
 
     const propertyId = await RentalProperty.create(propertyData);
 
+    // Sync society photo labels back to the master society record
+    if (req.body.society) {
+      await syncSocietyPhotoLabels(req.body.society, allPhotoPaths);
+    } else if (req.body.society_name) {
+      await syncSocietyPhotoLabels(req.body.society_name, allPhotoPaths);
+    }
+
     const propertyType = propertyData.property_type_name || "";
     const unitType = propertyData.unit_type || "";
     const propertySubtype = propertyData.property_subtype_name || "";
@@ -494,6 +502,13 @@ const updateProperty = async (req, res) => {
     };
 
     await RentalProperty.update(id, propertyData);
+
+    // Sync society photo labels back to the master society record
+    if (req.body.society) {
+      await syncSocietyPhotoLabels(req.body.society, finalPhotos);
+    } else if (req.body.society_name) {
+      await syncSocietyPhotoLabels(req.body.society_name, finalPhotos);
+    }
 
     const hasAnyTitleField =
       req.body.propertyType || req.body.property_type_name ||
@@ -1311,6 +1326,64 @@ const getPopularLocations = async (req, res) => {
   }
 };
 
+const patchPropertyOwner = async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const propertyId = Number(req.params.id);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      conn.release();
+      return res.status(400).json({ success: false, message: 'Invalid property id.' });
+    }
+
+    const { action, owner_id } = req.body; // action: 'link' | 'unlink'
+
+    await conn.beginTransaction();
+
+    if (action === 'unlink') {
+      // Clear owner from this property only
+      await conn.query(
+        'UPDATE rental_properties SET owner_id = NULL, owner_name = NULL WHERE id = ?',
+        [propertyId]
+      );
+    } else if (action === 'link' && owner_id) {
+      const oid = Number(owner_id);
+      if (!Number.isFinite(oid) || oid <= 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json({ success: false, message: 'Invalid owner_id.' });
+      }
+      // Fetch owner info
+      const [[ownerRow]] = await conn.query(
+        'SELECT id, name, assigned_to FROM owners WHERE id = ? LIMIT 1',
+        [oid]
+      );
+      if (!ownerRow) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json({ success: false, message: 'Owner not found.' });
+      }
+      // Link: set owner_id, owner_name, assigned_to on this property
+      await conn.query(
+        'UPDATE rental_properties SET owner_id = ?, owner_name = ?, assigned_to = ? WHERE id = ?',
+        [ownerRow.id, ownerRow.name, ownerRow.assigned_to || null, propertyId]
+      );
+    } else {
+      await conn.rollback();
+      conn.release();
+      return res.status(400).json({ success: false, message: 'action must be "link" or "unlink".' });
+    }
+
+    await conn.commit();
+    conn.release();
+    return res.json({ success: true, message: 'Property owner updated successfully.' });
+  } catch (err) {
+    try { await conn.rollback(); } catch (_) {}
+    conn.release();
+    console.error('patchPropertyOwner error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to update property owner.' });
+  }
+};
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -1333,5 +1406,6 @@ module.exports = {
   PublicgetProperty,
   updateAssignedTo,
   getSimilarProperties,
-  getPopularLocations
+  getPopularLocations,
+  patchPropertyOwner
 };

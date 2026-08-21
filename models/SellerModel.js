@@ -66,8 +66,8 @@ const normalizePhoneDigits = (v) => {
 
 
 const SellerModel = {
- async getAll(conn = null) {
-  const sql = `
+  async getAll(conn = null) {
+    const sql = `
     SELECT 
       s.*,
       CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
@@ -88,12 +88,12 @@ const SellerModel = {
       LEFT JOIN users a ON s.assigned_to = a.id
     ORDER BY s.id DESC
   `;
-  const [rows] = await runQuery(conn, sql);
-  return rows;
-},
+    const [rows] = await runQuery(conn, sql);
+    return rows;
+  },
 
-async getById(id, conn = null) {
-  const sql = `
+  async getById(id, conn = null) {
+    const sql = `
     SELECT 
       s.*,
       CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
@@ -115,9 +115,9 @@ async getById(id, conn = null) {
     WHERE s.id = ?
     LIMIT 1
   `;
-  const [rows] = await runQuery(conn, sql, [id]);
-  return rows && rows[0] ? rows[0] : null;
-},
+    const [rows] = await runQuery(conn, sql, [id]);
+    return rows && rows[0] ? rows[0] : null;
+  },
 
   async create(data = {}, conn = null) {
     const payload = {
@@ -133,7 +133,7 @@ async getById(id, conn = null) {
       leadType: data.leadType ?? data.lead_type ?? null,
       priority: data.priority ?? null,
       status: data.status ?? null,
-      notes: data.notes ??  null,
+      notes: data.notes ?? null,
       seller_dob: toDateOnly(data.seller_dob),
       countryCode: data.countryCode ?? null,
       assigned_to: data.assigned_to ?? data.assigned_executive ?? null,
@@ -215,7 +215,7 @@ async getById(id, conn = null) {
       `;
       const params = [
         data.salutation, data.name, data.phone, data.whatsapp, data.email,
-        data.state, data.city, data.location, data.stage, data.leadType,
+        data.state, data.city, data.location, data.stage, data.leadType ?? data.lead_type,
         data.priority, data.status, data.notes, data.seller_dob,
         data.countryCode, data.assigned_to, data.assigned_to_name,
         data.lead_score, data.deal_value, data.expected_close, data.source,
@@ -314,7 +314,7 @@ async getById(id, conn = null) {
     const [result] = await runQuery(conn, "DELETE FROM sellers WHERE id = ?", [id]);
     return result.affectedRows;
   },
-   async bulkAssignSameExecutive(sellerIds = [], executiveId, onlyEmpty = false) {
+  async bulkAssignSameExecutive(sellerIds = [], executiveId, onlyEmpty = false) {
     if (!Array.isArray(sellerIds) || sellerIds.length === 0)
       return { success: true, affected: 0 };
 
@@ -333,8 +333,9 @@ async getById(id, conn = null) {
   ========================================= */
   async updateLeadField(sellerId, field, value) {
     if (!sellerId) throw new Error("Seller ID required");
-    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
+    const allowed = ["stage", "status", "priority", "is_active", "lead_type", "leadType", "assigned_to"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
+    if (field === "lead_type") field = "leadType";
 
     const [res] = await pool.execute(
       `UPDATE sellers SET \`${field}\`=?, updated_at=NOW() WHERE id=?`,
@@ -350,8 +351,9 @@ async getById(id, conn = null) {
     if (!Array.isArray(sellerIds) || sellerIds.length === 0)
       return { success: true, affected: 0 };
 
-    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
+    const allowed = ["stage", "status", "priority", "is_active", "lead_type", "leadType", "assigned_to", "source"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
+    if (field === "lead_type") field = "leadType";
 
     const placeholders = sellerIds.map(() => "?").join(",");
     const params = [value, ...sellerIds];
@@ -532,58 +534,58 @@ async getById(id, conn = null) {
       insertedRows,
     };
   },
-// ADD THIS to SellerModel
-// models/Seller.js (inside SellerModel)
-async bulkHardDelete(sellerIds = [], conn = null) {
-  if (!Array.isArray(sellerIds) || sellerIds.length === 0) {
-    return { success: true, deleted: 0 };
+  // ADD THIS to SellerModel
+  // models/Seller.js (inside SellerModel)
+  async bulkHardDelete(sellerIds = [], conn = null) {
+    if (!Array.isArray(sellerIds) || sellerIds.length === 0) {
+      return { success: true, deleted: 0 };
+    }
+
+    const ids = sellerIds
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (ids.length === 0) {
+      return { success: false, error: "Valid numeric ids required", deleted: 0 };
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const connection = conn || await pool.getConnection();
+    let createdLocally = false;
+
+    try {
+      if (!conn) {
+        await connection.beginTransaction();
+        createdLocally = true;
+      }
+
+      const [res] = await connection.query(
+        `DELETE FROM sellers WHERE id IN (${placeholders})`,
+        ids
+      );
+
+      if (createdLocally) {
+        await connection.commit();
+        connection.release();
+      }
+
+      return { success: true, deleted: res.affectedRows || 0, ids };
+    } catch (err) {
+      if (createdLocally && connection) {
+        try { await connection.rollback(); } catch { }
+        try { connection.release(); } catch { }
+      }
+      // FK violation => 1451
+      if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.errno === 1451) {
+        return {
+          success: false,
+          error: "Cannot delete: dependent records exist (FK 1451). Either delete child rows or set ON DELETE CASCADE.",
+          code: 1451,
+        };
+      }
+      throw err;
+    }
   }
-
-  const ids = sellerIds
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n) && n > 0);
-
-  if (ids.length === 0) {
-    return { success: false, error: "Valid numeric ids required", deleted: 0 };
-  }
-
-  const placeholders = ids.map(() => "?").join(",");
-  const connection = conn || await pool.getConnection();
-  let createdLocally = false;
-
-  try {
-    if (!conn) {
-      await connection.beginTransaction();
-      createdLocally = true;
-    }
-
-    const [res] = await connection.query(
-      `DELETE FROM sellers WHERE id IN (${placeholders})`,
-      ids
-    );
-
-    if (createdLocally) {
-      await connection.commit();
-      connection.release();
-    }
-
-    return { success: true, deleted: res.affectedRows || 0, ids };
-  } catch (err) {
-    if (createdLocally && connection) {
-      try { await connection.rollback(); } catch {}
-      try { connection.release(); } catch {}
-    }
-    // FK violation => 1451
-    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.errno === 1451) {
-      return {
-        success: false,
-        error: "Cannot delete: dependent records exist (FK 1451). Either delete child rows or set ON DELETE CASCADE.",
-        code: 1451,
-      };
-    }
-    throw err;
-  }
-}
 
 
 };

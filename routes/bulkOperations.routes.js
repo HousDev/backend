@@ -61,4 +61,7 @@ router.patch("/:id/visibility", bulkOperationsController.setVisibility);
 // Get bulk operation status/history (mock)
 router.get("/operations/:operationId", bulkOperationsController.getOperationStatus);
 
+// Bulk assign/unassign executive for rental or sale properties
+router.post("/assign-executive", bulkOperationsController.bulkAssignExecutive);
+
 module.exports = router;

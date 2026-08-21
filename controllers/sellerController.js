@@ -551,7 +551,7 @@ const updateSeller = async (req, res) => {
     await conn.beginTransaction();
 
     // 1) Update main seller and co-sellers
-    const affected = await Seller.updateWithCoSellers(id, seller, cosellers, deleteIds);
+    const affected = await Seller.updateWithCoSellers(id, seller, cosellers, deleteIds, conn);
     if (!affected) {
       await conn.rollback();
       conn.release();
