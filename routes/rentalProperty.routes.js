@@ -56,6 +56,7 @@ router.post("/migrate", rentalPropertyController.migratePropertyData);
 router.get("/city-locations", rentalPropertyController.searchCityLocationsStrict);
 
 router.patch("/:id/assigned-to", rentalPropertyController.updateAssignedTo);
+router.patch("/:id/link-owner", rentalPropertyController.patchPropertyOwner);
 router.get('/similar', rentalPropertyController.getSimilarProperties);
 router.get('/popular-locations', rentalPropertyController.getPopularLocations);
 router.get("/search", rentalPropertyController.searchProperties);

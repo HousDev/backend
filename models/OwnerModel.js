@@ -124,7 +124,7 @@ const OwnerModel = {
       city: data.city ?? null,
       location: data.location ?? null,
       stage: data.stage ?? null,
-      leadType: data.leadType ?? data.lead_type ?? null,
+      lead_type: data.leadType ?? data.lead_type ?? null,
       priority: data.priority ?? null,
       status: data.status ?? null,
       notes: data.notes ?? null,
@@ -136,7 +136,6 @@ const OwnerModel = {
       deal_value: data.deal_value ?? null,
       expected_close: toDateOnly(data.expected_close),
       source: data.source ?? data.lead_source ?? null,
-      source_url: data.source_url ?? data.sourceUrl ?? null,
       visits: data.visits ?? 0,
       total_visits: data.total_visits ?? 0,
       last_activity: toDateOnly(data.last_activity),
@@ -182,9 +181,9 @@ const OwnerModel = {
     const sql = `
       UPDATE owners SET 
         salutation=?, name=?, phone=?, whatsapp=?, email=?, state=?, city=?, 
-        location=?, stage=?, leadType=?, priority=?, status=?, notes=?, 
+        location=?, stage=?, lead_type=?, priority=?, status=?, notes=?, 
         owner_dob=?, countryCode=?, assigned_to=?, assigned_to_name=?,
-        lead_score=?, deal_value=?, expected_close=?, source=?, source_url=?, visits=?, 
+        lead_score=?, deal_value=?, expected_close=?, source=?, visits=?, 
         total_visits=?, last_activity=?, notifications=?, current_stage=?, 
         stage_progress=?, deal_potential=?, response_rate=?, avg_response_time=?,
         updated_at=CURRENT_TIMESTAMP
@@ -192,10 +191,10 @@ const OwnerModel = {
     `;
     const params = [
       data.salutation, data.name, data.phone, data.whatsapp, data.email,
-      data.state, data.city, data.location, data.stage, data.leadType,
+      data.state, data.city, data.location, data.stage, data.leadType ?? data.lead_type,
       data.priority, data.status, data.notes, data.owner_dob,
       data.countryCode, data.assigned_to, data.assigned_to_name,
-      data.lead_score, data.deal_value, data.expected_close, data.source, data.source_url,
+      data.lead_score, data.deal_value, data.expected_close, data.source,
       data.visits, data.total_visits, data.last_activity, data.notifications,
       data.current_stage, data.stage_progress, data.deal_potential,
       data.response_rate, data.avg_response_time,
@@ -242,7 +241,7 @@ const OwnerModel = {
 
   async updateLeadField(ownerId, field, value) {
     if (!ownerId) throw new Error("Owner ID required");
-    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
+    const allowed = ["stage", "status", "priority", "is_active", "lead_type", "assigned_to"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
 
     const [res] = await pool.execute(
@@ -256,7 +255,7 @@ const OwnerModel = {
     if (!Array.isArray(ownerIds) || ownerIds.length === 0)
       return { success: true, affected: 0 };
 
-    const allowed = ["stage", "status", "priority", "is_active", "leadType", "assigned_to"];
+    const allowed = ["stage", "status", "priority", "is_active", "lead_type", "assigned_to", "source"];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
 
     const placeholders = ownerIds.map(() => "?").join(",");
@@ -352,7 +351,7 @@ const OwnerModel = {
       try {
         const payload = {
           salutation, name, phone, whatsapp, email, state, city, location,
-          stage, leadType, priority, status, notes, owner_dob, expected_close,
+          stage, lead_type: leadType, priority, status, notes, owner_dob, expected_close,
           source, deal_value, assigned_to, is_active, created_by: createdFinal,
           notifications, created_at: new Date().toISOString(), updated_at: new Date().toISOString()
         };
