@@ -20,7 +20,7 @@ const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-   
+
   }
 };
 
@@ -82,7 +82,7 @@ const propertyFileFilter = (req, file, cb) => {
     )
       cb(null, true);
     else cb(new Error("Only PDF, JPG, PNG allowed for ownershipDoc"));
- } else if (file.fieldname === "photos") {
+  } else if (file.fieldname === "photos") {
     if (["image/jpeg", "image/png", "image/jpg", "image/webp", "image/gif", "video/mp4", "video/quicktime", "video/webm", "video/x-matroska"].includes(file.mimetype))
       cb(null, true);
     else cb(new Error("Only JPG/PNG/WEBP/GIF images or MP4/MOV/WEBM videos allowed for photos"));
@@ -124,6 +124,12 @@ const blogFileFilter = (req, file, cb) => {
 // ======= UPLOADERS =======
 const upload = multer({
   storage: makeStorage("properties"),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: propertyFileFilter,
+});
+
+const uploadRental = multer({
+  storage: makeStorage("rental_properties"),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: propertyFileFilter,
 });
@@ -194,7 +200,7 @@ const ensureUploadDir = (...parts) => {
   const dir = path.join(UPLOAD_ROOT, ...parts);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-   
+
   }
   return dir;
 };
@@ -246,7 +252,7 @@ const uploadFile = multer({
       'application/csv',
       'text/x-csv'
     ];
-    
+
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -257,6 +263,7 @@ const uploadFile = multer({
 module.exports = {
   // storages
   upload, // properties
+  uploadRental, // rental_properties
   uploadSystem, // system settings (logo, favicon)
   uploadAvatar, // user avatars
   uploadBlog, // blog featured image

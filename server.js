@@ -13,7 +13,7 @@ const rateLimit = require("express-rate-limit");
 const fs = require("fs");
 //---SERVER CONFIG---
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
-const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads"; 
+const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
 //USE FOR LOCAL DEV (overrides .env for easier testing)
 // const UPLOAD_ROOT = process.env.UPLOAD_ROOT 
@@ -188,7 +188,7 @@ app.use(
           "blob:",
           "https://resaleexpert.in",
           "https://resaleexpert.in",
-           "http://localhost:3000",
+          "http://localhost:3000",
           "http://localhost:5173/",
         ],
         "style-src": ["'self'", "https:", "'unsafe-inline'"],
@@ -237,6 +237,7 @@ app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/owners", require("./routes/ownerRoutes"));
+app.use("/api/tenants", require("./routes/tenant.routes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));

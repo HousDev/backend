@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const rentalPropertyController = require("../controllers/rentalProperty.controller");
 const {
-  upload,
+  uploadRental,
   handleUploadErrors,
   attachPublicUrls,
 } = require("../middleware/upload");
@@ -19,12 +19,12 @@ router.get("/pro-page/:slug", rentalPropertyController.PublicgetPropertyBySlug);
 router.get("/get-one/:id", rentalPropertyController.PublicgetProperty);
 
 // Import
-router.post('/import-bulk', upload.none(), rentalPropertyController.importBulk);
+router.post('/import-bulk', uploadRental.none(), rentalPropertyController.importBulk);
 
 // Create
 router.post(
   "/create",
-  upload.fields([
+  uploadRental.fields([
     { name: "ownershipDoc", maxCount: 1 },
     { name: "photos", maxCount: 20 },
   ]),
@@ -36,7 +36,7 @@ router.post(
 // Update
 router.put(
   "/:id",
-  upload.fields([
+  uploadRental.fields([
     { name: "ownershipDoc", maxCount: 1 },
     { name: "photos", maxCount: 20 },
   ]),
