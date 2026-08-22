@@ -1,6 +1,19 @@
 const pool = require("../config/database");
 
 // helpers
+const pad = (n) => String(n).padStart(2, "0");
+const formatDateTime = (d) => {
+  if (!d) return null;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+const normalizeToMysqlDatetime = (val) => {
+  if (!val && val !== 0) return null;
+  if (typeof val === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(val)) return val;
+  const d = val instanceof Date ? val : new Date(val);
+  if (isNaN(d.getTime())) return null;
+  return formatDateTime(d);
+};
+
 const toDateOnly = (v) => {
   if (!v) return null;
   const d = new Date(v);
@@ -37,6 +50,7 @@ const emptyToNull = (v) => {
 };
 
 const intOrNull = (v) => {
+  if (v === null || v === undefined || String(v).trim() === "" || String(v).toLowerCase() === "null") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
@@ -145,8 +159,8 @@ const OwnerModel = {
       deal_potential: data.deal_potential ?? null,
       response_rate: data.response_rate ?? null,
       avg_response_time: data.avg_response_time ?? null,
-      created_at: data.created_at ?? new Date().toISOString(),
-      updated_at: data.updated_at ?? new Date().toISOString(),
+      created_at: normalizeToMysqlDatetime(data.created_at ?? new Date()),
+      updated_at: normalizeToMysqlDatetime(data.updated_at ?? new Date()),
       lead_id: data.lead_id ?? null,
       is_active: data.is_active != null ? (data.is_active ? 1 : 0) : 1,
       created_by: data.created_by ?? null,
@@ -353,7 +367,7 @@ const OwnerModel = {
           salutation, name, phone, whatsapp, email, state, city, location,
           stage, lead_type: leadType, priority, status, notes, owner_dob, expected_close,
           source, deal_value, assigned_to, is_active, created_by: createdFinal,
-          notifications, created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+          notifications, created_at: normalizeToMysqlDatetime(new Date()), updated_at: normalizeToMysqlDatetime(new Date())
         };
 
         const cols = Object.keys(payload);
