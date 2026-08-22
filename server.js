@@ -268,6 +268,7 @@ app.use("/api/ai-blogs", aiBlogRoutes);
 app.use("/api/home-hero", homeHeroRoutes);
 app.use("/api/property-tags", require("./routes/propertyTagsJson.routes"));
 app.use("/api/visits", visitRoutes);
+app.use("/api/reports", require("./routes/report.routes"));
 
 // Root
 app.get("/", (req, res) => {
