@@ -121,24 +121,44 @@ const Tenant = {
   },
 
   async update(id, data = {}, conn = null) {
-    const sql = `
-      UPDATE tenants SET 
-        name=?, email=?, phone=?, whatsapp=?, preferred_location=?, 
-        budget_min=?, budget_max=?, preferred_bhk=?, tenant_type=?, 
-        move_in_date=?, current_address=?, notes=?, status=?, 
-        rental_property_id=?, assigned_to=?, updated_at=CURRENT_TIMESTAMP
-      WHERE id=?
-    `;
-    const params = [
-      data.name, data.email || null, data.phone || null, data.whatsapp || null, data.preferred_location || null,
-      data.budget_min || null, data.budget_max || null, data.preferred_bhk || null, data.tenant_type || null,
-      toDateOnly(data.move_in_date), data.current_address || null, data.notes || null, data.status || 'Active Search',
-      intOrNull(data.rental_property_id || data.rentalPropertyId), intOrNull(data.assigned_to),
-      id
-    ];
+    const fieldMappings = {
+      name: (v) => v || null,
+      email: (v) => v || null,
+      phone: (v) => v || null,
+      whatsapp: (v) => v || null,
+      preferred_location: (v) => v || null,
+      budget_min: (v) => v || null,
+      budget_max: (v) => v || null,
+      preferred_bhk: (v) => v || null,
+      tenant_type: (v) => v || null,
+      move_in_date: (v) => toDateOnly(v),
+      current_address: (v) => v || null,
+      notes: (v) => v || null,
+      status: (v) => v || 'Active Search',
+      rental_property_id: (v) => intOrNull(v),
+      rentalPropertyId: (v) => intOrNull(v),
+      assigned_to: (v) => intOrNull(v),
+    };
 
+    const fields = [];
+    const params = [];
+
+    Object.keys(data).forEach((key) => {
+      if (data[key] !== undefined && fieldMappings[key]) {
+        const dbCol = key === 'rentalPropertyId' ? 'rental_property_id' : key;
+        fields.push(`${dbCol} = ?`);
+        params.push(fieldMappings[key](data[key]));
+      }
+    });
+
+    if (fields.length === 0) return 0;
+
+    fields.push("updated_at = CURRENT_TIMESTAMP");
+    params.push(id);
+
+    const sql = `UPDATE tenants SET ${fields.join(", ")} WHERE id = ?`;
     const [result] = await runQuery(conn, sql, params);
-    return result.affectedRows;
+    return result ? result.affectedRows : 0;
   },
 
   async delete(id, conn = null) {
