@@ -41,11 +41,35 @@ const createTenant = async (req, res) => {
 const updateTenant = async (req, res) => {
   try {
     const body = req.body || {};
+    
+    // Check if property linking/unlinking is happening
+    const isLinking = body.rental_property_id !== undefined;
+    const oldTenant = isLinking ? await Tenant.getById(req.params.id) : null;
+
     const affected = await Tenant.update(req.params.id, body);
     if (affected === 0) {
       return res.status(404).json({ success: false, message: "Tenant not found or no changes made" });
     }
     const updated = await Tenant.getById(req.params.id);
+
+    // If linking changed, log it in tenant activities
+    if (isLinking && oldTenant && String(oldTenant.rental_property_id) !== String(updated.rental_property_id)) {
+      const tenantActivityModel = require("../models/tenantActivityModel");
+      if (updated.rental_property_id) {
+        await tenantActivityModel.create({
+          tenant_id: req.params.id,
+          activity_type: "Property Linked",
+          notes: `Linked rental property RENT-${updated.rental_property_id} (${updated.property_title || ''})`,
+        });
+      } else {
+        await tenantActivityModel.create({
+          tenant_id: req.params.id,
+          activity_type: "Property Unlinked",
+          notes: `Unlinked rental property RENT-${oldTenant.rental_property_id} (${oldTenant.property_title || ''})`,
+        });
+      }
+    }
+
     return res.status(200).json({ success: true, data: updated });
   } catch (err) {
     console.error("Update tenant error:", err);
