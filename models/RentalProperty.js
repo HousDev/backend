@@ -34,8 +34,8 @@ class RentalProperty {
         photos, amenities, furnishing_items, nearby_places,
         description, is_public, publication_date,
         listing_type, monthly_rent, security_deposit, maintenance_extra, maintenance_charge,
-        preferred_tenants, lock_in_period, agreement_duration, available_from)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        preferred_tenants, lock_in_period, agreement_duration, available_from, latitude, longitude)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 
       [
         data.owner_name || null,
@@ -79,7 +79,9 @@ class RentalProperty {
         data.preferred_tenants || null,
         data.lock_in_period || null,
         data.agreement_duration || null,
-        data.available_from || null
+        data.available_from || null,
+        data.latitude || null,
+        data.longitude || null,
       ],
     );
     return result.insertId;
@@ -203,6 +205,7 @@ class RentalProperty {
         listing_type = ?, monthly_rent = ?, security_deposit = ?,
         maintenance_extra = ?, maintenance_charge = ?, preferred_tenants = ?,
         lock_in_period = ?, agreement_duration = ?, available_from = ?,
+        latitude = ?, longitude = ?,
         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
@@ -247,6 +250,8 @@ class RentalProperty {
         data.lock_in_period || null,
         data.agreement_duration || null,
         data.available_from || null,
+        data.latitude || null,
+        data.longitude || null,
         id,
       ],
     );

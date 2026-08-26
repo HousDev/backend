@@ -102,6 +102,8 @@ class Buyer {
     const requirements = safeStringify(data.requirements ?? {}, {});
     const financials   = safeStringify(data.financials   ?? {}, {});
 
+    const preferred_locations_coords = data.preferred_locations_coords ?? null;
+
    const [result] = await db.execute(
   `INSERT INTO buyers (
     \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
@@ -109,11 +111,13 @@ class Buyer {
     \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
     \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
     \`assigned_executive\`,          -- 🔥 ADD THIS
+    \`preferred_locations_coords\`,
     \`created_at\`, \`updated_at\`
   ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
     CAST(? AS JSON), CAST(? AS JSON),
     ?,                              -- 🔥 VALUE FOR assigned_executive
+    CAST(? AS JSON),
     NOW(), NOW()
   )`,
   [
@@ -123,6 +127,7 @@ class Buyer {
     budget_min, budget_max,
     requirements, financials,
     intOrNull(data.assigned_executive),   // 🔥 THIS FIXES NULL ISSUE
+    preferred_locations_coords
   ]
 );
 
@@ -187,6 +192,7 @@ class Buyer {
       budget_max:           decOrZero(data.budget_max ?? (current.budget?.max ?? current.budget_max ?? 0)),
       requirements:         safeStringify(mergedRequirements, {}),
       financials:           safeStringify(mergedFinancials, {}),
+      preferred_locations_coords: data.preferred_locations_coords !== undefined ? data.preferred_locations_coords : (current.preferred_locations_coords ? JSON.stringify(current.preferred_locations_coords) : null)
     };
 
     await db.execute(
@@ -194,7 +200,8 @@ class Buyer {
         \`salutation\`=?, \`name\`=?, \`dob\`=?, \`phone\`=?, \`whatsapp_number\`=?, \`email\`=?,
         \`state\`=?, \`city\`=?, \`location\`=?,
         \`buyer_lead_priority\`=?, \`buyer_lead_source\`=?, \`buyer_lead_stage\`=?, \`buyer_lead_status\`=?,
-        \`budget_min\`=?, \`budget_max\`=?, \`requirements\`=CAST(? AS JSON), \`financials\`=CAST(? AS JSON), \`updated_at\`=NOW()
+        \`budget_min\`=?, \`budget_max\`=?, \`requirements\`=CAST(? AS JSON), \`financials\`=CAST(? AS JSON), 
+        \`preferred_locations_coords\`=CAST(? AS JSON), \`updated_at\`=NOW()
        WHERE \`id\`=?`,
       [
         merged.salutation, merged.name, merged.dob, merged.phone, merged.whatsapp_number, merged.email,
@@ -202,6 +209,7 @@ class Buyer {
         merged.buyer_lead_priority, merged.buyer_lead_source, merged.buyer_lead_stage, merged.buyer_lead_status,
         merged.budget_min, merged.budget_max,
         merged.requirements, merged.financials,
+        merged.preferred_locations_coords,
         id,
       ]
     );

@@ -530,6 +530,7 @@ const { v4: uuidv4 } = require("uuid");
 const XLSX = require("xlsx");
 const path = require("path");
 const fs = require("fs");
+const { geocodeAddress } = require("../utils/geocoder");
 
 const parseArrayField = (field) => {
   if (!field) return [];
@@ -615,6 +616,12 @@ const SocietyController = {
         });
       }
 
+      // Fetch coordinates automatically via geocoding
+      const addressString = `${societyName}, ${locality}, ${city}, Maharashtra, ${pincode}`;
+      const coords = await geocodeAddress(addressString);
+      const latitude = coords ? coords.latitude : null;
+      const longitude = coords ? coords.longitude : null;
+
       const id = await SocietyModel.createSociety({
         societyName,
         locality,
@@ -623,6 +630,8 @@ const SocietyController = {
         amenities: parseArrayField(amenities),
         imageUrls: parseArrayField(imageUrls),
         status: status || "Active",
+        latitude,
+        longitude,
       });
 
       res.status(201).json({
@@ -783,6 +792,24 @@ const SocietyController = {
         });
       }
 
+      let latitude = existingSociety.latitude;
+      let longitude = existingSociety.longitude;
+      
+      const addressChanged = 
+        existingSociety.society_name !== societyName ||
+        existingSociety.locality !== locality ||
+        existingSociety.city !== city ||
+        existingSociety.pincode !== pincode;
+
+      if (!latitude || !longitude || addressChanged) {
+        const addressString = `${societyName || existingSociety.society_name}, ${locality || existingSociety.locality}, ${city || existingSociety.city}, Maharashtra, ${pincode || existingSociety.pincode}`;
+        const coords = await geocodeAddress(addressString);
+        if (coords) {
+          latitude = coords.latitude;
+          longitude = coords.longitude;
+        }
+      }
+
       const updated = await SocietyModel.updateSociety(req.params.id, {
         societyName,
         locality,
@@ -791,6 +818,8 @@ const SocietyController = {
         amenities: parseArrayField(amenities),
         imageUrls: parseArrayField(imageUrls),
         status,
+        latitude,
+        longitude,
       });
 
       if (updated === 0) {
