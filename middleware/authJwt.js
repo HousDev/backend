@@ -439,6 +439,7 @@ const verifyToken = (req, res, next) => {
       // Attach comprehensive user info to request
       req.user = user;
       req.userId = user.id;
+      req.sessionId = decoded.session_id;
       req.userRole = String(user.role || "")
         .toLowerCase()
         .trim();

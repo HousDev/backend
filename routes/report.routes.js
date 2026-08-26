@@ -24,6 +24,7 @@ router.get("/transactions", verifyToken, reportController.getTransactionReport);
 router.get("/activities", verifyToken, reportController.getActivityReport);
 router.get("/communication", verifyToken, reportController.getCommunicationReport);
 router.get("/campaigns", verifyToken, reportController.getCampaignReport);
+router.get("/login-logs", verifyToken, reportController.getLoginLogReport);
 router.get("/documents", verifyToken, reportController.getDocumentReport);
 router.get("/automation", verifyToken, reportController.getAutomationReport);
 

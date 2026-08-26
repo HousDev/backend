@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const LoginLog = require('../models/LoginLog');
+const { reverseGeocodeNonBlocking } = require('../utils/geocoder');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../config/auth.config');
@@ -87,11 +89,18 @@ exports.signup = async (req, res) => {
 // User Login
 exports.signin = async (req, res) => {
   try {
-
     if (!req.body.username || !req.body.password) {
       return res.status(400).send({
         success: false,
         message: 'Username and password are required!'
+      });
+    }
+
+    // Mandatory Location Access Check
+    if (req.body.latitude === undefined || req.body.longitude === undefined || req.body.latitude === null || req.body.longitude === null) {
+      return res.status(400).send({
+        success: false,
+        message: 'Location access is required to log in. Please enable location permissions in your browser and try again.'
       });
     }
 
@@ -101,26 +110,27 @@ exports.signin = async (req, res) => {
     if (!user) {
       return res.status(401).send({
         success: false,
-message: 'User not found!'
+        message: 'User not found!'
       });
     }
 
     // Check if user is active
     if (!user.is_active) {
-      
       return res.status(401).send({
         success: false,
         message: 'Your account has been deactivated. Please contact administrator.'
       });
     }
-    const passwordIsValid = bcrypt.compareSync(req.body.password, user.password);
 
+    const passwordIsValid = bcrypt.compareSync(req.body.password, user.password);
     if (!passwordIsValid) {
       return res.status(401).send({
         success: false,
-message: 'Incorrect password!'
+        message: 'Incorrect password!'
       });
     }
+
+    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // Generate JWT token
     const token = jwt.sign(
@@ -128,15 +138,56 @@ message: 'Incorrect password!'
         id: user.id,
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        session_id: sessionId
       },
       config.secret,
       { expiresIn: config.jwtExpiration }
     );
 
-
     // Update last login
     await User.updateLastLogin(user.id);
+
+    // Log login session details into login_logs
+    try {
+      // Close any previously unclosed sessions for this user/email
+      await LoginLog.closePreviousSessions(user.id, user.email);
+
+      const rawIp = req.headers['cf-connecting-ip'] || 
+                    req.headers['x-real-ip'] || 
+                    req.headers['x-forwarded-for'] || 
+                    req.socket?.remoteAddress || 
+                    req.ip || 
+                    '127.0.0.1';
+      let ip = String(rawIp).split(',')[0].trim();
+      if (ip === '::1') {
+        ip = '127.0.0.1 (IPv6 ::1)';
+      } else if (ip.startsWith('::ffff:')) {
+        ip = ip.replace('::ffff:', '');
+      }
+
+      const logId = await LoginLog.createLog({
+        user_id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role || 'agent',
+        session_id: sessionId,
+        ip_address: ip,
+        device_id: req.body.device_id || 'dev_browser',
+        source: req.body.source || 'Web Browser',
+        latitude: req.body.latitude,
+        longitude: req.body.longitude,
+      });
+
+      // Trigger non-blocking reverse geocoding
+      reverseGeocodeNonBlocking({
+        logId,
+        latitude: req.body.latitude,
+        longitude: req.body.longitude,
+      });
+    } catch (logErr) {
+      console.error('Error logging user signin session:', logErr);
+    }
 
     // Remove password from response
     delete user.password;
@@ -146,7 +197,8 @@ message: 'Incorrect password!'
       message: 'Login successful!',
       data: {
         user: user,
-        accessToken: token
+        accessToken: token,
+        session_id: sessionId
       }
     });
   } catch (err) {
@@ -300,17 +352,25 @@ exports.resetPassword = async (req, res) => {
 // Logout (client-side token removal, but we can log the action)
 exports.logout = async (req, res) => {
   try {
-    // In a stateless JWT setup, logout is typically handled client-side
-    // But we can log this action or implement token blacklisting if needed
-    
+    const sessionId = req.sessionId || req.body?.session_id || req.query?.session_id;
+    const userId = req.userId;
+
+    if (sessionId) {
+      await LoginLog.updateLogout(sessionId);
+    }
+    if (userId) {
+      await LoginLog.updateLogoutByUser(userId);
+    }
+
     res.send({
       success: true,
-      message: 'Logged out successfully!'
+      message: "Logged out successfully!",
     });
   } catch (err) {
+    console.error("Error during logout:", err);
     res.status(500).send({
       success: false,
-      message: err.message || 'Error occurred during logout.'
+      message: err.message || "Error occurred during logout.",
     });
   }
 };
