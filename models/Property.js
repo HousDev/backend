@@ -35,8 +35,8 @@ class Property {
         purchase_month, purchase_year,
         selling_rights, ownership_doc_path,
         photos, amenities, furnishing_items, nearby_places,
-        description, is_public, publication_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        description, is_public, publication_date, latitude, longitude)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 
       [
         data.seller_name || null,
@@ -81,6 +81,8 @@ class Property {
         data.description || null,
         typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : 0,
         data.publication_date || null,
+        data.latitude || null,
+        data.longitude || null,
       ],
     );
     return result.insertId;
@@ -218,6 +220,7 @@ class Property {
         photos = ?, amenities = ?, furnishing_items = ?, nearby_places = ?,
         description = ?, is_public = COALESCE(?, is_public),
         publication_date = COALESCE(?, publication_date),
+        latitude = ?, longitude = ?,
         updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
@@ -261,6 +264,8 @@ class Property {
         data.description || null,
         typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : null,
         data.publication_date || null,
+        data.latitude || null,
+        data.longitude || null,
         id,
       ],
     );

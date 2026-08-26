@@ -9,6 +9,7 @@ const { publicFileUrl, fileRelPathFromUpload } = require("../utils/url");
 const Views = require("../models/views.model");
 const { getOrCreateSessionId } = require('../utils/sessionUtils');
 const { syncSocietyPhotoLabels } = require("../utils/societySync");
+const { geocodeAddress } = require("../utils/geocoder");
 
 // ---------------------
 // Helper Functions
@@ -268,6 +269,35 @@ const createProperty = async (req, res) => {
       }
     }
 
+    // Auto-resolve latitude and longitude coordinates
+    let latitude = null;
+    let longitude = null;
+    const socId = propertyData.society_id || req.body.society_id || req.body.society;
+    if (socId) {
+      try {
+        const [socRows] = await db.query(
+          "SELECT latitude, longitude FROM societies WHERE id = ? OR society_name = ? LIMIT 1",
+          [socId, socId]
+        );
+        if (socRows[0] && socRows[0].latitude && socRows[0].longitude) {
+          latitude = parseFloat(socRows[0].latitude);
+          longitude = parseFloat(socRows[0].longitude);
+        }
+      } catch (err) {
+        console.warn("Could not inherit coordinates from society:", err);
+      }
+    }
+    if ((!latitude || !longitude) && (propertyData.location_name || propertyData.address)) {
+      const addr = `${propertyData.location_name || propertyData.address || ""}, ${propertyData.city_name || "Pune"}, Maharashtra`;
+      const coords = await geocodeAddress(addr);
+      if (coords) {
+        latitude = coords.latitude;
+        longitude = coords.longitude;
+      }
+    }
+    propertyData.latitude = latitude;
+    propertyData.longitude = longitude;
+
     const propertyId = await RentalProperty.create(propertyData);
 
     // Sync society photo labels back to the master society record
@@ -500,6 +530,48 @@ const updateProperty = async (req, res) => {
       agreement_duration: req.body.agreement_duration ? Number(req.body.agreement_duration) : null,
       available_from: req.body.available_from || null,
     };
+
+    // Auto-resolve latitude and longitude coordinates
+    let latitude = null;
+    let longitude = null;
+    const socId = propertyData.society_id || req.body.society_id || req.body.society;
+    
+    // Check if society_id changed or if coordinates are not set in database
+    const existing = await RentalProperty.getById(id);
+    if (existing) {
+      latitude = existing.latitude;
+      longitude = existing.longitude;
+    }
+
+    const societyChanged = existing && (existing.society_id !== socId || existing.society_name !== propertyData.society_name);
+    const addressChanged = existing && (existing.location_name !== propertyData.location_name || existing.address !== propertyData.address || existing.city_name !== propertyData.city_name);
+
+    if (!latitude || !longitude || societyChanged || addressChanged) {
+      if (socId) {
+        try {
+          const [socRows] = await db.query(
+            "SELECT latitude, longitude FROM societies WHERE id = ? OR society_name = ? LIMIT 1",
+            [socId, socId]
+          );
+          if (socRows[0] && socRows[0].latitude && socRows[0].longitude) {
+            latitude = parseFloat(socRows[0].latitude);
+            longitude = parseFloat(socRows[0].longitude);
+          }
+        } catch (err) {
+          console.warn("Could not inherit coordinates from society:", err);
+        }
+      }
+      if ((!latitude || !longitude) && (propertyData.location_name || propertyData.address)) {
+        const addr = `${propertyData.location_name || propertyData.address || ""}, ${propertyData.city_name || "Pune"}, Maharashtra`;
+        const coords = await geocodeAddress(addr);
+        if (coords) {
+          latitude = coords.latitude;
+          longitude = coords.longitude;
+        }
+      }
+    }
+    propertyData.latitude = latitude;
+    propertyData.longitude = longitude;
 
     await RentalProperty.update(id, propertyData);
 

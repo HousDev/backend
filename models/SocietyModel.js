@@ -131,13 +131,13 @@ const pool = require("../config/database");
 const { v4: uuidv4 } = require("uuid");
 
 const SocietyModel = {
-  // 🔥 UPDATED: Create society with image_urls
+  // 🔥 UPDATED: Create society with image_urls and coordinates
   createSociety: async (data) => {
     const id = uuidv4();
     const [result] = await pool.query(
       `INSERT INTO societies 
-        (id, society_name, locality, city, pincode, amenities, image_urls, status, created_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        (id, society_name, locality, city, pincode, amenities, image_urls, status, latitude, longitude, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         id,
         data.societyName,
@@ -147,6 +147,8 @@ const SocietyModel = {
         JSON.stringify(data.amenities || []),
         JSON.stringify(data.imageUrls || []),
         data.status || "Active",
+        data.latitude || null,
+        data.longitude || null,
       ],
     );
     return id;
@@ -191,7 +193,7 @@ const SocietyModel = {
     return rows[0];
   },
 
-  // 🔥 UPDATED: Update society with image_urls
+  // 🔥 UPDATED: Update society with image_urls and coordinates
   updateSociety: async (id, data) => {
     const [result] = await pool.query(
       `UPDATE societies SET 
@@ -201,7 +203,9 @@ const SocietyModel = {
         pincode = ?, 
         amenities = ?, 
         image_urls = ?,
-        status = ?
+        status = ?,
+        latitude = ?,
+        longitude = ?
       WHERE id = ?`,
       [
         data.societyName,
@@ -211,6 +215,8 @@ const SocietyModel = {
         JSON.stringify(data.amenities || []),
         JSON.stringify(data.imageUrls || []),
         data.status || "Active",
+        data.latitude || null,
+        data.longitude || null,
         id,
       ],
     );

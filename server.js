@@ -155,6 +155,7 @@ app.use("/api/chatbot", require("./routes/chatbot.routes"));
 app.use("/api/webhook", require("./routes/webhook"));
 
 app.use("/api/societies", societyRoutes);
+app.use("/api/location", require("./routes/locationRoutes"));
 
 app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
 app.use("/api/rules", require("./routes/rules.routes"));

@@ -1,5 +1,43 @@
 const Buyer = require("../models/Buyer");
 const db = require("../config/database");
+const { geocodeAddress } = require("../utils/geocoder");
+
+async function resolveBuyerLocationsCoords(locationStrOrArray) {
+  if (!locationStrOrArray) return [];
+  let locs = [];
+  if (Array.isArray(locationStrOrArray)) {
+    locs = locationStrOrArray;
+  } else if (typeof locationStrOrArray === 'string') {
+    locs = locationStrOrArray.split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+  }
+  const coordsArray = [];
+  for (const loc of locs) {
+    const q = `${loc}, Pune, Maharashtra`;
+    const coords = await geocodeAddress(q);
+    if (coords) {
+      coordsArray.push({ name: loc, lat: coords.latitude, lng: coords.longitude });
+    }
+  }
+  return coordsArray;
+}
+
+function extractLocations(buyerData) {
+  let locStr = buyerData.preferred_location || buyerData.location || buyerData.locations || "";
+  let reqs = buyerData.requirements;
+  if (typeof reqs === 'string') {
+    try { reqs = JSON.parse(reqs); } catch { reqs = null; }
+  }
+  if (reqs && typeof reqs === 'object') {
+    const pLoc = reqs.preferredLocations || reqs.preferred_locations || reqs.location || "";
+    if (Array.isArray(pLoc)) {
+      return pLoc.join(', ');
+    } else if (typeof pLoc === 'string') {
+      locStr = locStr ? `${locStr}, ${pLoc}` : pLoc;
+    }
+  }
+  return locStr;
+}
+
 exports.createBuyer = async (req, res) => {
   try {
     const buyerData = req.body;
@@ -24,6 +62,12 @@ exports.createBuyer = async (req, res) => {
 
     buyerData.budget_min = buyerData.budget_min || null;
     buyerData.budget_max = buyerData.budget_max || null;
+
+    const locStr = extractLocations(buyerData);
+    if (locStr) {
+      const coords = await resolveBuyerLocationsCoords(locStr);
+      buyerData.preferred_locations_coords = JSON.stringify(coords);
+    }
 
     const buyer = await Buyer.create(buyerData);
     res.status(201).json(buyer);
@@ -254,6 +298,18 @@ exports.updateBuyer = async (req, res) => {
     }
     if (payload.budget_max !== undefined) {
       payload.budget_max = Number(payload.budget_max) || 0;
+    }
+
+    const locStr = extractLocations(payload);
+    if (locStr !== undefined) {
+      const current = await Buyer.findById(id);
+      if (current) {
+        const currentLocStr = extractLocations(current);
+        if (currentLocStr !== locStr || !current.preferred_locations_coords) {
+          const coords = await resolveBuyerLocationsCoords(locStr);
+          payload.preferred_locations_coords = JSON.stringify(coords);
+        }
+      }
     }
 
     const updated = await Buyer.update(id, payload);
