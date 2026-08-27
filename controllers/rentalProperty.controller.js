@@ -154,6 +154,7 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
     return String(val);
   })(),
   lock_in_period: req.body.lock_in_period ? Number(req.body.lock_in_period) : null,
+  notice_period: req.body.notice_period || null,
   agreement_duration: req.body.agreement_duration ? Number(req.body.agreement_duration) : null,
   available_from: req.body.available_from || null,
 });
@@ -527,6 +528,7 @@ const updateProperty = async (req, res) => {
         return String(val);
       })(),
       lock_in_period: req.body.lock_in_period ? Number(req.body.lock_in_period) : null,
+      notice_period: req.body.notice_period || null,
       agreement_duration: req.body.agreement_duration ? Number(req.body.agreement_duration) : null,
       available_from: req.body.available_from || null,
     };
@@ -927,7 +929,7 @@ const searchProperties = (req, res) => {
       publication_date, created_by, updated_by,
       public_views, public_inquiries, slug,
       listing_type, monthly_rent, security_deposit, maintenance_extra, maintenance_charge,
-      preferred_tenants, lock_in_period, agreement_duration, available_from
+      preferred_tenants, lock_in_period, notice_period, agreement_duration, available_from
     `.replace(/\s+/g, ' ').trim();
 
     let sql = `SELECT ${SELECT_COLUMNS} FROM rental_properties${whereClause}`;

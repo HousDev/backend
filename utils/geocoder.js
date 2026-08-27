@@ -1,6 +1,41 @@
 // backend/utils/geocoder.js
 const https = require('https');
+const axios = require('axios');
 const LoginLog = require('../models/LoginLog');
+
+/**
+ * Resolves a text address to latitude and longitude using OpenStreetMap Nominatim.
+ * @param {string} addressString - Full address (e.g., "Society name, Locality, City, State, Pincode")
+ * @returns {Promise<{latitude: number, longitude: number} | null>}
+ */
+async function geocodeAddress(addressString) {
+  if (!addressString || !addressString.trim()) return null;
+
+  try {
+    const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+      params: {
+        q: addressString,
+        format: 'json',
+        limit: 1
+      },
+      headers: {
+        'User-Agent': 'ResaleExpert-App/1.0 (contact@resaleexpert.com)'
+      }
+    });
+
+    if (response.data && response.data.length > 0) {
+      const first = response.data[0];
+      return {
+        latitude: parseFloat(first.lat),
+        longitude: parseFloat(first.lon)
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Geocoding failed for address:", addressString, error.message);
+    return null;
+  }
+}
 
 /**
  * Non-blocking reverse geocoding using OpenStreetMap Nominatim API
@@ -57,4 +92,5 @@ function reverseGeocodeNonBlocking({ logId, latitude, longitude }) {
 
 module.exports = {
   reverseGeocodeNonBlocking,
+  geocodeAddress,
 };

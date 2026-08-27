@@ -1,4 +1,23 @@
 const Tenant = require("../models/Tenant");
+const { geocodeAddress } = require("../utils/geocoder");
+
+async function geocodeTenantLocations(locStr) {
+  if (!locStr) return null;
+  const locations = String(locStr).split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+  if (locations.length === 0) return null;
+  const coords = [];
+  for (const loc of locations) {
+    try {
+      const geo = await geocodeAddress(`${loc}, Pune, Maharashtra`);
+      if (geo && geo.latitude && geo.longitude) {
+        coords.push({ name: loc, lat: geo.latitude, lng: geo.longitude });
+      }
+    } catch (e) {
+      console.error(`Geocoding error for tenant location ${loc}:`, e);
+    }
+  }
+  return coords.length > 0 ? JSON.stringify(coords) : null;
+}
 
 const getTenants = async (req, res) => {
   try {
@@ -30,17 +49,39 @@ const createTenant = async (req, res) => {
       return res.status(400).json({ success: false, message: "Name and Phone are required." });
     }
 
+    // Save tenant immediately without waiting for geocoding
     const tenant = await Tenant.create(body);
+    if (!tenant) {
+      return res.status(500).json({ success: false, message: "Failed to create tenant" });
+    }
+
+    // Fire-and-forget geocoding in background after response
+    if (body.preferred_location) {
+      setImmediate(async () => {
+        try {
+          const coords = await geocodeTenantLocations(body.preferred_location);
+          if (coords) {
+            await Tenant.update(tenant.id, { preferred_locations_coords: coords });
+          }
+        } catch (e) {
+          console.error('Background geocoding failed for tenant:', tenant.id, e.message);
+        }
+      });
+    }
+
     return res.status(201).json({ success: true, data: tenant });
   } catch (err) {
     console.error("Create tenant error:", err);
-    return res.status(500).json({ success: false, message: "Failed to create tenant" });
+    return res.status(500).json({ success: false, message: "Failed to create tenant: " + (err.message || '') });
   }
 };
 
 const updateTenant = async (req, res) => {
   try {
     const body = req.body || {};
+
+    // Check if location changed — geocode in background after save
+    const locationChanged = !!body.preferred_location && !body.preferred_locations_coords;
     
     // Check if property linking/unlinking is happening
     const isLinking = body.rental_property_id !== undefined;
@@ -68,6 +109,20 @@ const updateTenant = async (req, res) => {
           notes: `Unlinked rental property RENT-${oldTenant.rental_property_id} (${oldTenant.property_title || ''})`,
         });
       }
+    }
+
+    // Fire-and-forget geocoding in background
+    if (locationChanged) {
+      setImmediate(async () => {
+        try {
+          const coords = await geocodeTenantLocations(body.preferred_location);
+          if (coords) {
+            await Tenant.update(req.params.id, { preferred_locations_coords: coords });
+          }
+        } catch (e) {
+          console.error('Background geocoding failed for tenant update:', req.params.id, e.message);
+        }
+      });
     }
 
     return res.status(200).json({ success: true, data: updated });
