@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { fetchNearbyPlaces, calculateHaversineDistance } = require('../utils/places');
+const { geocodeAddress } = require('../utils/geocoder');
 
 // 1. Get Nearby Places (Cache-First Overpass API)
 exports.getNearbyPlaces = async (req, res) => {
@@ -57,23 +58,56 @@ exports.getMatchingBuyers = async (req, res) => {
 
     // Fetch resale OR rental property details
     let [propRows] = await db.query("SELECT * FROM my_properties WHERE id = ? LIMIT 1", [id]);
+    let isRental = false;
     if (!propRows[0]) {
       [propRows] = await db.query("SELECT * FROM rental_properties WHERE id = ? LIMIT 1", [id]);
+      isRental = true;
     }
     if (!propRows[0]) return res.status(404).json({ error: "Property not found" });
     const property = propRows[0];
 
-    const propLat = parseFloat(property.latitude);
-    const propLng = parseFloat(property.longitude);
+    // Lazy geocoding: resolve coordinates on-demand if null/missing
+    let propLat = parseFloat(property.latitude);
+    let propLng = parseFloat(property.longitude);
+    if (isNaN(propLat) || isNaN(propLng) || propLat === 0 || propLng === 0) {
+      const addr = `${property.society_name || property.location_name || property.address || ""}, ${property.city_name || "Pune"}, Maharashtra`;
+      const coords = await geocodeAddress(addr);
+      if (coords) {
+        propLat = coords.latitude;
+        propLng = coords.longitude;
+        const tableName = isRental ? "rental_properties" : "my_properties";
+        await db.query(`UPDATE ${tableName} SET latitude = ?, longitude = ? WHERE id = ?`, [propLat, propLng, id]);
+      }
+    }
     const propPrice = parseFloat(property.budget || property.final_price || property.price || property.expected_price || 0);
-    const propBHK = parseInt(property.bedrooms || 0) || (property.title?.match(/(\d+)\s*bhk/i)?.[1] ? parseInt(property.title.match(/(\d+)\s*bhk/i)[1], 10) : 0);
-    const propUnitType = (property.unitType || property.property_type || property.property_type_name || property.title || '').toLowerCase().trim();
+    const propBHK = parseInt(property.bedrooms || 0) ||
+      (property.unit_type?.match(/(\d+)\s*bhk/i)?.[1] ? parseInt(property.unit_type.match(/(\d+)\s*bhk/i)[1], 10) : 0) ||
+      (property.unitType?.match(/(\d+)\s*bhk/i)?.[1] ? parseInt(property.unitType.match(/(\d+)\s*bhk/i)[1], 10) : 0) ||
+      (property.title?.match(/(\d+)\s*bhk/i)?.[1] ? parseInt(property.title.match(/(\d+)\s*bhk/i)[1], 10) : 0);
+    const propUnitType = (property.unit_type || property.unitType || property.property_type || property.property_type_name || property.title || '').toLowerCase().trim();
     const propArea = parseFloat(property.carpetArea || property.carpet_area || property.builtupArea || property.area || 0);
 
-    // Fetch all active buyers
-    const [buyers] = await db.query("SELECT * FROM buyers WHERE buyer_lead_status = 'Active' OR buyer_lead_status = 'Hot' OR buyer_lead_status = 'Warm'");
+    // Fetch all buyers & tenants for matching
+    const [buyers] = await db.query("SELECT * FROM buyers");
+    let allLeads = [...buyers];
+    if (isRental) {
+      try {
+        const [tenants] = await db.query("SELECT * FROM tenants");
+        if (Array.isArray(tenants) && tenants.length > 0) {
+          allLeads = [...allLeads, ...tenants];
+        }
+      } catch (e) {
+        console.error("Error fetching tenants for rental matching:", e);
+      }
+    }
 
-    const results = buyers.map(buyer => {
+    const results = allLeads.map(buyer => {
+      let reqs = buyer.requirements;
+      if (typeof reqs === 'string') {
+        try { reqs = JSON.parse(reqs); } catch { reqs = {}; }
+      }
+      if (!reqs) reqs = {};
+
       let locationScore = 0;
       let budgetScore = 0;
       let bhkScore = 0;
@@ -86,9 +120,67 @@ exports.getMatchingBuyers = async (req, res) => {
       }
       if (!Array.isArray(buyerCoords)) buyerCoords = [];
 
-      // 1. Location match using Haversine Distance (35% weight)
+      // 1. Location match (35% weight)
       if (buyerCoords.length === 0 || isNaN(propLat) || isNaN(propLng) || propLat === 0 || propLng === 0) {
-        locationScore = 15; // Unspecified gets neutral baseline
+        // Fallback to text-based matching if coordinates are missing
+        const propLoc = (property.location || property.location_name || property.society || property.society_name || property.address || '').toLowerCase().trim();
+        const propCity = (property.city || property.city_name || '').toLowerCase().trim();
+        
+        let buyerLocRaw = buyer.location || buyer.preferred_location || '';
+        if (reqs.preferredLocations && Array.isArray(reqs.preferredLocations)) {
+          buyerLocRaw = reqs.preferredLocations.join(', ');
+        }
+        
+        if (!buyerLocRaw) {
+          locationScore = 15;
+        } else {
+          const buyerLocs = buyerLocRaw.toLowerCase().split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+          const hasExactMatch = buyerLocs.some(loc =>
+            propLoc.includes(loc) ||
+            loc.includes(propLoc) ||
+            (propCity && loc.includes(propCity))
+          );
+
+          if (hasExactMatch) {
+            locationScore = 35;
+          } else {
+            const NEARBY_MAP = {
+              tathawade: ['wakad', 'punawale', 'ravet', 'hinjewadi', 'marunji', 'pimpri'],
+              wakad: ['tathawade', 'baner', 'balewadi', 'hinjewadi', 'thergaon', 'rahatani', 'pimple saudagar'],
+              baner: ['balewadi', 'wakad', 'aundh', 'pashan', 'pimple saudagar', 'model colony'],
+              balewadi: ['baner', 'wakad', 'aundh', 'pashan'],
+              kharadi: ['viman nagar', 'wagholi', 'hadapsar', 'kalyani nagar', 'mundhwa', 'chandan nagar'],
+              'viman nagar': ['kharadi', 'kalyani nagar', 'vishrantwadi', 'tingre nagar', 'yerwada'],
+              hinjewadi: ['wakad', 'tathawade', 'marunji', 'punawale', 'pimpri', 'bavdhan'],
+              kothrud: ['bavdhan', 'karve nagar', 'erandwane', 'deccan', 'warje'],
+              bavdhan: ['kothrud', 'pashan', 'baner', 'warje', 'hinjewadi'],
+              hadapsar: ['magarpatta', 'amanora', 'kharadi', 'fursungi', 'wanowrie', 'loni kalbhor'],
+              rahatani: ['pimple saudagar', 'pimple nilakh', 'wakad', 'kalewadi', 'chinchwad'],
+              'pimple saudagar': ['rahatani', 'pimple nilakh', 'wakad', 'baner', 'sangvi'],
+            };
+
+            let isNearby = false;
+            for (const loc of buyerLocs) {
+              for (const [keyLoc, adjList] of Object.entries(NEARBY_MAP)) {
+                if (propLoc.includes(keyLoc) || keyLoc.includes(propLoc)) {
+                  if (adjList.some(adj => loc.includes(adj) || adj.includes(loc))) {
+                    isNearby = true;
+                    break;
+                  }
+                }
+              }
+              if (isNearby) break;
+            }
+
+            if (isNearby) {
+              locationScore = 25;
+            } else {
+              const words = buyerLocs.flatMap(l => l.split(/\s+/));
+              const partial = words.some(word => word.length > 2 && propLoc.includes(word));
+              locationScore = partial ? 20 : (buyer.city && propCity && buyer.city.toLowerCase() === propCity ? 15 : 10);
+            }
+          }
+        }
       } else {
         buyerCoords.forEach(c => {
           if (c.lat && c.lng) {
@@ -113,9 +205,13 @@ exports.getMatchingBuyers = async (req, res) => {
         if (tMin > 0 && tMax > 0) {
           if (propPrice >= tMin && propPrice <= tMax) {
             budgetScore = 30;
+          } else if (propPrice < tMin) {
+            // Under-budget: buyer can easily afford it. Give a moderate score of 20/30
+            budgetScore = 20;
           } else {
-            const diff = Math.min(Math.abs(propPrice - tMin), Math.abs(propPrice - tMax));
-            const tolerance = (tMax || tMin) * 0.2;
+            // Over-budget: buyer cannot afford it.
+            const diff = propPrice - tMax;
+            const tolerance = tMax * 0.2;
             if (diff <= tolerance) {
               budgetScore = Math.max(5, Math.round(30 * (1 - (diff / tolerance))));
             } else {
@@ -130,11 +226,6 @@ exports.getMatchingBuyers = async (req, res) => {
       }
 
       // 3. BHK & Unit Type match (20% weight)
-      let reqs = buyer.requirements;
-      if (typeof reqs === 'string') {
-        try { reqs = JSON.parse(reqs); } catch { reqs = {}; }
-      }
-      if (!reqs) reqs = {};
 
       const preferredBhkStr = String(reqs.preferred_bhk || reqs.unitTypes || buyer.preferred_bhk || '').toLowerCase();
       
@@ -198,7 +289,7 @@ exports.getMatchingBuyers = async (req, res) => {
       };
     })
     .filter(res => res.matchScore >= 35)
-    .sort((a, b) => b.matchScore - a.matchScore || (a.distance || 999) - (b.distance || 999));
+    .sort((a, b) => b.matchScore - a.matchScore || b.locationScore - a.locationScore || (a.distance || 999) - (b.distance || 999));
 
     res.status(200).json(results);
   } catch (error) {
