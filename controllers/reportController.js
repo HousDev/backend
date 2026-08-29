@@ -172,7 +172,7 @@ exports.getDashboardSummary = async (req, res) => {
       SELECT 
         COUNT(*) AS total_leads,
         SUM(CASE WHEN ${dateFilterSql} THEN 1 ELSE 0 END) AS new_leads,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS qualified_leads,
+        SUM(CASE WHEN (LOWER(COALESCE(status, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS qualified_leads,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('closed', 'lost', 'rejected') THEN 1 ELSE 0 END) AS active_leads,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('closed', 'won', 'converted') THEN 1 ELSE 0 END) AS converted_leads,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('fresh', 'new', 'uncontacted') OR status IS NULL THEN 1 ELSE 0 END) AS fresh_leads,
@@ -452,23 +452,23 @@ exports.getDashboardFunnel = async (req, res) => {
     const sql = `
       SELECT
         COUNT(*) AS total_leads,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('new', 'fresh', 'uncontacted') OR status IS NULL THEN 1 ELSE 0 END) AS stage_new,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%contact%' OR LOWER(COALESCE(status, '')) LIKE '%follow%' THEN 1 ELSE 0 END) AS stage_contacted,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%qualif%' OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS stage_qualified,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%match%' OR LOWER(COALESCE(status, '')) LIKE '%shortlist%' THEN 1 ELSE 0 END) AS stage_matching,
+        SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('new', 'fresh', 'uncontacted', 'initial contact', 'initial_contact') OR status IS NULL THEN 1 ELSE 0 END) AS stage_new,
+        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%contact%' OR LOWER(COALESCE(status, '')) LIKE '%follow%' OR LOWER(COALESCE(status, '')) LIKE '%connected%' THEN 1 ELSE 0 END) AS stage_contacted,
+        SUM(CASE WHEN (LOWER(COALESCE(status, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS stage_qualified,
+        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%match%' OR LOWER(COALESCE(status, '')) LIKE '%shortlist%' OR LOWER(COALESCE(status, '')) LIKE '%property hunting%' THEN 1 ELSE 0 END) AS stage_matching,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%visit%' OR LOWER(COALESCE(status, '')) LIKE '%site%' THEN 1 ELSE 0 END) AS stage_visit,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%negotiat%' OR LOWER(COALESCE(status, '')) LIKE '%offer%' THEN 1 ELSE 0 END) AS stage_negotiation,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('closed', 'won', 'converted', 'sold') THEN 1 ELSE 0 END) AS stage_closed
+        SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('closed', 'won', 'converted', 'sold', 'deal closure') OR LOWER(COALESCE(status, '')) LIKE '%closed%' THEN 1 ELSE 0 END) AS stage_closed
       FROM (
-        SELECT status, created_at FROM client_leads
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM client_leads
         UNION ALL
-        SELECT buyer_lead_status AS status, created_at FROM buyers
+        SELECT CONVERT(COALESCE(buyer_lead_stage, buyer_lead_status) USING utf8mb4) AS status, created_at FROM buyers
         UNION ALL
-        SELECT status, created_at FROM sellers
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM sellers
         UNION ALL
-        SELECT status, created_at FROM owners
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM owners
         UNION ALL
-        SELECT status, created_at FROM tenants
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM tenants
       ) all_leads
       WHERE ${dateFilterSql}
     `;
@@ -520,18 +520,18 @@ exports.getDashboardTrends = async (req, res) => {
       SELECT 
         DATE_FORMAT(created_at, '%Y-%m-%d') AS date_label,
         COUNT(*) AS total_created,
-        SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%qualif%' OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS qualified_count,
+        SUM(CASE WHEN (LOWER(COALESCE(status, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS qualified_count,
         SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('closed', 'won', 'converted', 'sold') THEN 1 ELSE 0 END) AS closed_count
       FROM (
-        SELECT status, created_at FROM client_leads
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM client_leads
         UNION ALL
-        SELECT buyer_lead_status AS status, created_at FROM buyers
+        SELECT CONVERT(COALESCE(buyer_lead_stage, buyer_lead_status) USING utf8mb4) AS status, created_at FROM buyers
         UNION ALL
-        SELECT status, created_at FROM sellers
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM sellers
         UNION ALL
-        SELECT status, created_at FROM owners
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM owners
         UNION ALL
-        SELECT status, created_at FROM tenants
+        SELECT CONVERT(status USING utf8mb4) AS status, created_at FROM tenants
       ) all_prospects
       WHERE ${dateClause}
       GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
@@ -615,7 +615,7 @@ exports.getLeadReport = async (req, res) => {
       } else if (status === "contacted") {
         whereConditions.push("LOWER(l.status) LIKE '%contact%'");
       } else if (status === "qualified" || status === "interested") {
-        whereConditions.push("(LOWER(l.status) LIKE '%qualif%' OR LOWER(l.status) LIKE '%interest%' OR LOWER(l.status) = 'interested')");
+        whereConditions.push("((LOWER(l.status) LIKE '%qualif%' AND LOWER(l.status) NOT LIKE '%unqualif%') OR LOWER(l.status) LIKE '%interest%')");
       } else if (status === "unqualified" || status === "lost") {
         whereConditions.push("LOWER(l.status) IN ('unqualified', 'lost', 'rejected', 'junk')");
       } else if (status === "buyer_transferred") {
@@ -700,7 +700,7 @@ exports.getLeadReport = async (req, res) => {
         SUM(CASE WHEN LOWER(COALESCE(l.status, '')) IN ('new', 'fresh', 'uncontacted') OR LOWER(COALESCE(l.stage, '')) = 'new' THEN 1 ELSE 0 END) AS fresh_count,
         SUM(CASE WHEN l.assigned_executive IS NULL OR l.assigned_executive = '' OR l.assigned_executive = '0' THEN 1 ELSE 0 END) AS unassigned_count,
         SUM(CASE WHEN l.assigned_executive IS NOT NULL AND l.assigned_executive != '' AND l.assigned_executive != '0' THEN 1 ELSE 0 END) AS assigned_count,
-        SUM(CASE WHEN LOWER(COALESCE(l.status, '')) LIKE '%qualif%' OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' OR LOWER(COALESCE(l.status, '')) = 'interested' THEN 1 ELSE 0 END) AS interested_count,
+        SUM(CASE WHEN (LOWER(COALESCE(l.status, '')) LIKE '%qualif%' AND LOWER(COALESCE(l.status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_count,
         SUM(CASE WHEN l.transferred_to_buyer = 1 THEN 1 ELSE 0 END) AS buyer_transferred_count,
         SUM(CASE WHEN l.transferred_to_seller = 1 THEN 1 ELSE 0 END) AS seller_transferred_count,
         SUM(CASE WHEN l.transferred_to_buyer = 1 OR l.transferred_to_seller = 1 THEN 1 ELSE 0 END) AS unique_converted_count,
@@ -717,7 +717,7 @@ exports.getLeadReport = async (req, res) => {
         COALESCE(NULLIF(TRIM(l.lead_source), ''), 'Direct / Unknown') AS source_name,
         COUNT(*) AS total_leads,
         SUM(CASE WHEN l.assigned_executive IS NOT NULL AND l.assigned_executive != '' AND l.assigned_executive != '0' THEN 1 ELSE 0 END) AS assigned_count,
-        SUM(CASE WHEN LOWER(COALESCE(l.status, '')) LIKE '%qualif%' OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_count,
+        SUM(CASE WHEN (LOWER(COALESCE(l.status, '')) LIKE '%qualif%' AND LOWER(COALESCE(l.status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_count,
         SUM(CASE WHEN l.transferred_to_buyer = 1 THEN 1 ELSE 0 END) AS buyer_transfers,
         SUM(CASE WHEN l.transferred_to_seller = 1 THEN 1 ELSE 0 END) AS seller_transfers,
         SUM(CASE WHEN l.transferred_to_buyer = 1 OR l.transferred_to_seller = 1 THEN 1 ELSE 0 END) AS converted_count
@@ -735,7 +735,7 @@ exports.getLeadReport = async (req, res) => {
         u.email AS executive_email,
         COUNT(*) AS assigned_leads,
         SUM(CASE WHEN LOWER(COALESCE(l.status, '')) IN ('new', 'fresh', 'uncontacted') THEN 1 ELSE 0 END) AS fresh_count,
-        SUM(CASE WHEN LOWER(COALESCE(l.status, '')) LIKE '%qualif%' OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_count,
+        SUM(CASE WHEN (LOWER(COALESCE(l.status, '')) LIKE '%qualif%' AND LOWER(COALESCE(l.status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(l.status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_count,
         SUM(CASE WHEN l.transferred_to_buyer = 1 THEN 1 ELSE 0 END) AS buyer_transfers,
         SUM(CASE WHEN l.transferred_to_seller = 1 THEN 1 ELSE 0 END) AS seller_transfers,
         SUM(CASE WHEN LOWER(COALESCE(l.status, '')) IN ('closed', 'won', 'converted') THEN 1 ELSE 0 END) AS closed_count,
@@ -937,19 +937,36 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
     const {
       user = "",
       agentId = "",
+      assigned_executive = "",
+      created_by = "",
+      role = "",
       department = "",
       location = "",
       search = "",
-      datePreset = "",
+      active_status = "",
     } = req.query;
 
-    const selectedUserId = user || agentId;
+    const selectedUserId = user || agentId || assigned_executive || created_by;
 
     let userWhere = [
       "LOWER(COALESCE(u.role, '')) NOT IN ('buyer', 'seller', 'owner', 'tenant')",
-      "COALESCE(u.is_active, 1) = 1",
     ];
     let userParams = [];
+
+    if (active_status && active_status !== "all") {
+      if (active_status === "active") {
+        userWhere.push("COALESCE(u.is_active, 1) = 1");
+      } else if (active_status === "inactive") {
+        userWhere.push("u.is_active = 0");
+      }
+    } else {
+      userWhere.push("COALESCE(u.is_active, 1) = 1");
+    }
+
+    if (role && role !== "all") {
+      userWhere.push("LOWER(COALESCE(u.role, '')) = ?");
+      userParams.push(role.toLowerCase().trim());
+    }
 
     // Apply specific user filter if selected
     if (selectedUserId && selectedUserId !== "all") {
@@ -957,8 +974,8 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
       userParams.push(selectedUserId);
     }
     if (department && department !== "all") {
-      userWhere.push("LOWER(COALESCE(u.department, '')) = ?");
-      userParams.push(department.toLowerCase().trim());
+      userWhere.push("LOWER(COALESCE(u.department, '')) LIKE ?");
+      userParams.push(`%${department.toLowerCase().trim()}%`);
     }
     if (location && location !== "all") {
       userWhere.push("(LOWER(COALESCE(u.city, '')) LIKE ? OR LOWER(COALESCE(u.location, '')) LIKE ?)");
@@ -966,9 +983,9 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
       userParams.push(locStr, locStr);
     }
     if (search) {
-      userWhere.push("(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)");
+      userWhere.push("(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?)");
       const s = `%${search.trim()}%`;
-      userParams.push(s, s, s, s);
+      userParams.push(s, s, s, s, s);
     }
 
     const finalUserWhere = userWhere.join(" AND ");
@@ -1015,7 +1032,7 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
           assigned_executive AS user_id,
           COUNT(*) AS assigned_leads,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%contact%' THEN 1 ELSE 0 END) AS contacted_leads,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%qualif%' OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_leads,
+          SUM(CASE WHEN (LOWER(COALESCE(status, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested_leads,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('closed', 'won', 'converted') THEN 1 ELSE 0 END) AS closed_leads,
           SUM(CASE WHEN transferred_to_buyer = 1 THEN 1 ELSE 0 END) AS transferred_buyer,
           SUM(CASE WHEN transferred_to_seller = 1 THEN 1 ELSE 0 END) AS transferred_seller,
@@ -1034,7 +1051,7 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
           COUNT(*) AS buyers_assigned,
           SUM(CASE WHEN ${leadDateSql} THEN 1 ELSE 0 END) AS buyers_created,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) LIKE '%contact%' THEN 1 ELSE 0 END) AS buyers_contacted,
-          SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS buyers_qualified,
+          SUM(CASE WHEN (LOWER(COALESCE(buyer_lead_status, '')) LIKE '%qualif%' AND LOWER(COALESCE(buyer_lead_status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(buyer_lead_status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS buyers_qualified,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) IN ('closed', 'bought', 'won') THEN 1 ELSE 0 END) AS buyers_closed,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) IN ('lost', 'inactive') THEN 1 ELSE 0 END) AS buyers_lost
         FROM buyers
@@ -1051,7 +1068,7 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
           COUNT(*) AS sellers_assigned,
           SUM(CASE WHEN ${leadDateSql} THEN 1 ELSE 0 END) AS sellers_created,
           SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) LIKE '%contact%' THEN 1 ELSE 0 END) AS sellers_contacted,
-          SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS sellers_interested,
+          SUM(CASE WHEN (LOWER(COALESCE(status, stage, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, stage, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, stage, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS sellers_interested,
           SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) LIKE '%verif%' THEN 1 ELSE 0 END) AS sellers_verified,
           SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) IN ('sold', 'closed') THEN 1 ELSE 0 END) AS sellers_sold
         FROM sellers
@@ -1344,28 +1361,28 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
 
     // Smart Multi-Criteria Rankings for Top Performers Cards
     const rankings = {
-      topDeals: [...users].sort((a, b) => 
-        (b.dealsClosed || b.closedLeads || b.assignedLeads) - 
+      topDeals: [...users].sort((a, b) =>
+        (b.dealsClosed || b.closedLeads || b.assignedLeads) -
         (a.dealsClosed || a.closedLeads || a.assignedLeads)
       ).slice(0, 5),
 
-      topDealValue: [...users].sort((a, b) => 
-        (b.dealValue || (b.interestedLeads * 2500000) || (b.assignedLeads * 1000000)) - 
+      topDealValue: [...users].sort((a, b) =>
+        (b.dealValue || (b.interestedLeads * 2500000) || (b.assignedLeads * 1000000)) -
         (a.dealValue || (a.interestedLeads * 2500000) || (a.assignedLeads * 1000000))
       ).slice(0, 5),
 
-      topConversionRate: [...users].sort((a, b) => 
-        (b.conversionRate || b.interestRate || b.contactRate || 0) - 
+      topConversionRate: [...users].sort((a, b) =>
+        (b.conversionRate || b.interestRate || b.contactRate || 0) -
         (a.conversionRate || a.interestRate || a.contactRate || 0)
       ).slice(0, 5),
 
-      topLeadConversion: [...users].sort((a, b) => 
-        (b.leadConversionRate || b.interestRate || b.contactRate || 0) - 
+      topLeadConversion: [...users].sort((a, b) =>
+        (b.leadConversionRate || b.interestRate || b.contactRate || 0) -
         (a.leadConversionRate || a.interestRate || a.contactRate || 0)
       ).slice(0, 5),
 
-      topFollowupCompletion: [...users].sort((a, b) => 
-        (b.followupCompletionRate || b.visitCompletionRate || (b.followupsAssigned > 0 ? 85 : 0)) - 
+      topFollowupCompletion: [...users].sort((a, b) =>
+        (b.followupCompletionRate || b.visitCompletionRate || (b.followupsAssigned > 0 ? 85 : 0)) -
         (a.followupCompletionRate || a.visitCompletionRate || (a.followupsAssigned > 0 ? 85 : 0))
       ).slice(0, 5),
     };
@@ -1530,9 +1547,9 @@ exports.getBuyerReport = async (req, res) => {
       if (st === "active") {
         whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('active', 'new', 'in progress', 'requirement pitch', 'site visit', 'follow up') OR b.buyer_lead_status IS NULL)");
       } else if (st === "qualified") {
-        whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%qualif%' OR LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%high%')");
-      } else if (st === "converted" || st === "closed" || st === "won") {
-        whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'converted', 'won', 'deal closed') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won', 'closed/won'))");
+        whereConditions.push("((LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('interested', 'qualified') OR LOWER(COALESCE(b.buyer_lead_status, '')) IN ('qualified', 'connected')) AND LOWER(REPLACE(COALESCE(b.buyer_lead_stage, ''), '_', ' ')) NOT IN ('initial contact', 'initialcontact', 'new', 'contacted'))");
+      } else if (st === "converted" || st === "closed" || st === "won" || st === "deal closure") {
+        whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'converted', 'won', 'deal closed', 'deal closure') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won', 'closed/won', 'deal closure'))");
       } else if (st === "lost") {
         whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('lost', 'rejected', 'junk', 'drop') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('lost', 'rejected'))");
       } else {
@@ -1542,8 +1559,13 @@ exports.getBuyerReport = async (req, res) => {
     }
 
     if (stage && stage !== "all") {
-      whereConditions.push("LOWER(COALESCE(b.buyer_lead_stage, '')) = ?");
-      queryParams.push(stage.toLowerCase().trim());
+      const stg = stage.toLowerCase().trim().replace(/_/g, " ");
+      if (stg === "initial contact") {
+        whereConditions.push("LOWER(REPLACE(COALESCE(b.buyer_lead_stage, ''), '_', ' ')) IN ('initial contact', 'initialcontact')");
+      } else {
+        whereConditions.push("LOWER(REPLACE(COALESCE(b.buyer_lead_stage, ''), '_', ' ')) = ?");
+        queryParams.push(stg);
+      }
     }
 
     if (source && source !== "all") {
@@ -1632,8 +1654,8 @@ exports.getBuyerReport = async (req, res) => {
         whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) NOT IN ('closed', 'won', 'converted', 'lost', 'rejected') OR b.buyer_lead_status IS NULL)");
       } else if (oc === "negotiation") {
         whereConditions.push("(LOWER(COALESCE(b.buyer_lead_stage, '')) LIKE '%negotiat%' OR LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%negotiat%')");
-      } else if (oc === "closed" || oc === "won") {
-        whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won'))");
+      } else if (oc === "closed" || oc === "won" || oc === "deal closure") {
+        whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted', 'deal closed', 'deal closure') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won', 'deal closure'))");
       } else if (oc === "lost") {
         whereConditions.push("(LOWER(COALESCE(b.buyer_lead_status, '')) IN ('lost', 'rejected') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('lost', 'rejected'))");
       }
@@ -1647,19 +1669,30 @@ exports.getBuyerReport = async (req, res) => {
         COUNT(*) AS total_count,
         SUM(CASE WHEN (b.is_active = 1 OR b.is_active IS NULL) AND LOWER(COALESCE(b.buyer_lead_status, '')) NOT IN ('closed', 'won', 'converted', 'lost', 'rejected') THEN 1 ELSE 0 END) AS active_count,
         SUM(CASE WHEN b.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS new_count,
-        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%qualif%' OR LOWER(COALESCE(b.buyer_lead_stage, '')) LIKE '%qualif%' OR LOWER(COALESCE(b.buyer_lead_priority, '')) = 'high' THEN 1 ELSE 0 END) AS qualified_count,
+        SUM(CASE WHEN ((LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('interested', 'qualified') OR LOWER(COALESCE(b.buyer_lead_status, '')) IN ('qualified', 'connected')) AND LOWER(REPLACE(COALESCE(b.buyer_lead_stage, ''), '_', ' ')) NOT IN ('initial contact', 'initialcontact', 'new', 'contacted')) THEN 1 ELSE 0 END) AS qualified_count,
         SUM(CASE WHEN b.id IN (SELECT DISTINCT buyer_id FROM property_visits WHERE buyer_id IS NOT NULL) THEN 1 ELSE 0 END) AS visit_count,
         SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_stage, '')) LIKE '%negotiat%' OR LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%negotiat%' THEN 1 ELSE 0 END) AS negotiation_count,
-        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won', 'closed/won') THEN 1 ELSE 0 END) AS converted_count,
+        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted', 'deal closed', 'deal closure') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('closed', 'won', 'closed/won', 'deal closure') THEN 1 ELSE 0 END) AS converted_count,
         SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('lost', 'rejected') OR LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('lost', 'rejected') THEN 1 ELSE 0 END) AS lost_count
       FROM buyers b
       WHERE ${whereClause}
     `;
 
-    // 2. Lifecycle Funnel by Stages
+    // 2. Lifecycle Funnel by Stages (Normalized to prevent duplicate cards)
     const funnelSql = `
       SELECT 
-        COALESCE(NULLIF(TRIM(buyer_lead_stage), ''), 'New') AS stage,
+        CASE 
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('initial contact', 'initialcontact') THEN 'Initial Contact'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('contacted', 'connected') THEN 'Contacted'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('qualified', 'qualif') THEN 'Qualified'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('property hunting', 'propertyhunting', 'property shortlisted', 'shortlisted') THEN 'Property Hunting'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('site visit', 'site visit scheduled', 'sitevisit') THEN 'Site Visit'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('negotiation', 'in negotiation', 'proposal') THEN 'Negotiation'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('closed', 'won', 'closed/won', 'converted', 'deal closure', 'deal closed') THEN 'Deal Closure'
+          WHEN LOWER(REPLACE(TRIM(COALESCE(buyer_lead_stage, '')), '_', ' ')) IN ('lost', 'rejected', 'junk', 'drop') THEN 'Lost'
+          WHEN TRIM(COALESCE(buyer_lead_stage, '')) = '' THEN 'New'
+          ELSE CONCAT(UCASE(LEFT(REPLACE(TRIM(buyer_lead_stage), '_', ' '), 1)), LOWER(SUBSTRING(REPLACE(TRIM(buyer_lead_stage), '_', ' '), 2)))
+        END AS stage,
         COUNT(*) AS count
       FROM buyers b
       WHERE ${whereClause}
@@ -1684,7 +1717,7 @@ exports.getBuyerReport = async (req, res) => {
         MIN(NULLIF(b.budget_min, 0)) AS min_budget,
         MAX(NULLIF(b.budget_max, 0)) AS max_budget,
         SUM(CASE WHEN (SELECT COUNT(*) FROM property_visits pv WHERE pv.buyer_id = b.id) > 0 THEN 1 ELSE 0 END) AS site_visits,
-        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted') THEN 1 ELSE 0 END) AS closed_deals
+        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted', 'deal closed') THEN 1 ELSE 0 END) AS closed_deals
       FROM buyers b
       WHERE ${whereClause}
       GROUP BY location_name
@@ -1736,17 +1769,17 @@ exports.getBuyerReport = async (req, res) => {
       WHERE ${whereClause}
     `;
 
-    // 8. Executive Performance Table
+    // 8. Executive Performance Table (Only count truly Qualified buyers)
     const execSql = `
       SELECT 
         COALESCE(b.assigned_executive, 0) AS executive_id,
         COALESCE(CONCAT_WS(' ', u.first_name, u.last_name), 'Unassigned') AS executive_name,
         COUNT(*) AS total_buyers,
         SUM(CASE WHEN (b.is_active = 1 OR b.is_active IS NULL) AND LOWER(COALESCE(b.buyer_lead_status, '')) NOT IN ('closed', 'won', 'converted', 'lost', 'rejected') THEN 1 ELSE 0 END) AS active_buyers,
-        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS qualified_buyers,
+        SUM(CASE WHEN ((LOWER(COALESCE(b.buyer_lead_stage, '')) IN ('interested', 'qualified') OR LOWER(COALESCE(b.buyer_lead_status, '')) IN ('qualified', 'connected')) AND LOWER(REPLACE(COALESCE(b.buyer_lead_stage, ''), '_', ' ')) NOT IN ('initial contact', 'initialcontact', 'new', 'contacted')) THEN 1 ELSE 0 END) AS qualified_buyers,
         SUM(CASE WHEN (SELECT COUNT(*) FROM property_visits pv WHERE pv.buyer_id = b.id) > 0 THEN 1 ELSE 0 END) AS site_visits,
         SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_stage, '')) LIKE '%negotiat%' THEN 1 ELSE 0 END) AS negotiation_buyers,
-        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted') THEN 1 ELSE 0 END) AS closed_buyers,
+        SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('closed', 'won', 'converted', 'deal closed') THEN 1 ELSE 0 END) AS closed_buyers,
         SUM(CASE WHEN LOWER(COALESCE(b.buyer_lead_status, '')) IN ('lost', 'rejected') THEN 1 ELSE 0 END) AS lost_buyers
       FROM buyers b
       LEFT JOIN users u ON b.assigned_executive = u.id
@@ -1833,10 +1866,10 @@ exports.getBuyerReport = async (req, res) => {
       let finObj = {};
       try {
         reqObj = typeof row.requirements === "string" ? JSON.parse(row.requirements) : (row.requirements || {});
-      } catch (e) {}
+      } catch (e) { }
       try {
         finObj = typeof row.financials === "string" ? JSON.parse(row.financials) : (row.financials || {});
-      } catch (e) {}
+      } catch (e) { }
 
       // Property type
       const pt = reqObj.propertyType || reqObj.property_type || reqObj.type;
@@ -2001,10 +2034,10 @@ exports.getBuyerReport = async (req, res) => {
       let financials = {};
       try {
         requirements = typeof r.requirements === "string" ? JSON.parse(r.requirements) : (r.requirements || {});
-      } catch (e) {}
+      } catch (e) { }
       try {
         financials = typeof r.financials === "string" ? JSON.parse(r.financials) : (r.financials || {});
-      } catch (e) {}
+      } catch (e) { }
 
       // Hide full credit score / sensitive fields unless admin / authorized
       const isExecutive = String(req.userRole || "").toLowerCase().includes("executive");
@@ -4511,7 +4544,7 @@ exports.getActivityReport = async (req, res) => {
           COUNT(id) AS general_leads,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%contact%' OR LOWER(COALESCE(status, '')) LIKE '%follow%' THEN 1 ELSE 0 END) AS contacted,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('new', 'fresh', 'uncontacted') OR status IS NULL THEN 1 ELSE 0 END) AS pending,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%interest%' OR LOWER(COALESCE(status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS interested,
+          SUM(CASE WHEN (LOWER(COALESCE(status, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('not interested', 'lost', 'rejected', 'unqualified') THEN 1 ELSE 0 END) AS not_interested
         FROM client_leads
         WHERE assigned_executive IS NOT NULL
@@ -4524,7 +4557,7 @@ exports.getActivityReport = async (req, res) => {
           COUNT(id) AS buyer_leads,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) LIKE '%contact%' OR LOWER(COALESCE(buyer_lead_status, '')) LIKE '%follow%' THEN 1 ELSE 0 END) AS contacted,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) IN ('new', 'fresh', 'active') OR buyer_lead_status IS NULL THEN 1 ELSE 0 END) AS pending,
-          SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) LIKE '%interest%' OR LOWER(COALESCE(buyer_lead_status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS interested,
+          SUM(CASE WHEN (LOWER(COALESCE(buyer_lead_status, '')) LIKE '%qualif%' AND LOWER(COALESCE(buyer_lead_status, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(buyer_lead_status, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested,
           SUM(CASE WHEN LOWER(COALESCE(buyer_lead_status, '')) IN ('not interested', 'lost', 'rejected') THEN 1 ELSE 0 END) AS not_interested
         FROM buyers
         WHERE assigned_executive IS NOT NULL
@@ -4535,10 +4568,10 @@ exports.getActivityReport = async (req, res) => {
       LEFT JOIN (
         SELECT assigned_to,
           COUNT(id) AS seller_leads,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%contact%' OR LOWER(COALESCE(status, '')) LIKE '%follow%' THEN 1 ELSE 0 END) AS contacted,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('new', 'fresh', 'active') OR status IS NULL THEN 1 ELSE 0 END) AS pending,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) LIKE '%interest%' OR LOWER(COALESCE(status, '')) LIKE '%qualif%' THEN 1 ELSE 0 END) AS interested,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('not interested', 'lost', 'rejected') THEN 1 ELSE 0 END) AS not_interested
+          SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) LIKE '%contact%' OR LOWER(COALESCE(status, stage, '')) LIKE '%follow%' THEN 1 ELSE 0 END) AS contacted,
+          SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) IN ('new', 'fresh', 'active') OR status IS NULL THEN 1 ELSE 0 END) AS pending,
+          SUM(CASE WHEN (LOWER(COALESCE(status, stage, '')) LIKE '%qualif%' AND LOWER(COALESCE(status, stage, '')) NOT LIKE '%unqualif%') OR LOWER(COALESCE(status, stage, '')) LIKE '%interest%' THEN 1 ELSE 0 END) AS interested,
+          SUM(CASE WHEN LOWER(COALESCE(status, stage, '')) IN ('not interested', 'lost', 'rejected') THEN 1 ELSE 0 END) AS not_interested
         FROM sellers
         WHERE assigned_to IS NOT NULL
         GROUP BY assigned_to
@@ -5182,14 +5215,24 @@ exports.getLoginLogReport = async (req, res) => {
           session_duration = GREATEST(TIMESTAMPDIFF(SECOND, login_time, COALESCE(last_activity, login_time)), 10)
       WHERE logout_time IS NULL 
         AND (
-          COALESCE(last_activity, login_time) < DATE_SUB(NOW(), INTERVAL 1 HOUR)
+          COALESCE(last_activity, login_time) < DATE_SUB(NOW(), INTERVAL 3 HOUR)
           OR login_time < DATE_SUB(NOW(), INTERVAL 12 HOUR)
         )
     `);
 
-    const { role = "all", search = "", startDate, endDate, ignoreDate } = req.query;
+    const { role = "all", search = "", startDate, endDate, ignoreDate, user_id, assigned_executive, created_by, active_status } = req.query;
     const stats = await LoginLog.getStats();
-    const logs = await LoginLog.getAllLogs({ role, search, startDate, endDate, ignoreDate: ignoreDate === "true" || ignoreDate === true });
+    const logs = await LoginLog.getAllLogs({
+      role,
+      search,
+      startDate,
+      endDate,
+      user_id,
+      assigned_executive,
+      created_by,
+      active_status,
+      ignoreDate: ignoreDate === "true" || ignoreDate === true,
+    });
 
     res.status(200).json({
       success: true,
