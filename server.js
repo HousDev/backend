@@ -222,7 +222,7 @@ app.use(
 app.use(
   UPLOAD_PUBLIC_BASE,
   express.static(UPLOAD_ROOT, {
-    fallthrough: false,
+    fallthrough: true,
     etag: true,
     maxAge: "1y",
     immutable: true,
