@@ -1,5 +1,6 @@
 // controllers/rentalProperty.controller.js
 const RentalProperty = require("../models/RentalProperty");
+const Property = require("../models/Property");
 const MasterData = require("../models/masterModel");
 const path = require("path");
 const fs = require("fs");
@@ -1214,12 +1215,18 @@ const PublicgetPropertyBySlug = async (req, res) => {
     if (!m) return res.status(400).json({ success: false, message: "Invalid slug format" });
 
     const id = Number(m[1]);
-    const property = await RentalProperty.getById(id);
+    let property = await RentalProperty.getById(id);
+    let isResale = false;
+    if (!property) {
+      property = await Property.getById(id);
+      if (property) isResale = true;
+    }
     if (!property) return res.status(404).json({ success: false, message: "Rental property not found" });
 
     if (property.slug && property.slug !== slug) {
+      const targetRoute = isResale ? '/api/properties/pro-page/' : '/api/rental-properties/pro-page/';
       const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-      return res.redirect(301, `/properties/${property.slug}${qs}`);
+      return res.redirect(301, `${targetRoute}${property.slug}${qs}`);
     }
 
     const xff = req.headers["x-forwarded-for"];
@@ -1350,18 +1357,15 @@ const getSimilarProperties = async (req, res) => {
       return Number.isFinite(n) ? n : undefined;
     };
 
-    const property_id = toInt(q.property_id);
+    const property_id = toInt(q.property_id || q.propertyId || q.id);
     const city = q.city;
     const location = q.location;
     const bedrooms = toInt(q.bedrooms);
     const limit = toInt(q.limit) ?? 6;
 
-    if (!property_id && !city && !location) {
-      return res.status(400).json({ success: false, message: "property_id, city, or location required" });
-    }
-
     const filters = {
       exclude_id: property_id,
+      propertyId: property_id,
       city,
       location,
       bedrooms,

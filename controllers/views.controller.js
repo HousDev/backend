@@ -16,11 +16,11 @@ async function totalViewsHandler(req, res) {
       return res.status(500).json({ success: false, message: "Views module misconfigured (missing getTotalViews)" });
     }
 
-   
+
     const totals = await Views.getTotalViews();
     return res.json({ success: true, ...totals });
   } catch (err) {
- 
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -36,26 +36,27 @@ async function propertyViewsHandler(req, res) {
     // compatibility: unique=true returns only unique_views
     const unique = String(req.query.unique || "false").toLowerCase() === "true";
 
- 
+
 
     if (unique) {
       if (typeof Views.getPropertyUniqueViews !== "function") {
-        
+
         return res.status(500).json({ success: false, message: "Views module misconfigured (missing getPropertyUniqueViews)" });
       }
       const uniqueViews = await Views.getPropertyUniqueViews(propertyId);
       return res.json({ success: true, property_id: propertyId, unique_views: uniqueViews });
     } else {
       if (typeof Views.getPropertyViews !== "function") {
-       
+
         return res.status(500).json({ success: false, message: "Views module misconfigured (missing getPropertyViews)" });
       }
-      const totals = await Views.getPropertyViews(propertyId);
+      const slug = req.query.slug ? String(req.query.slug).trim() : null;
+      const totals = await Views.getPropertyViews(propertyId, slug);
       // totals has { total_views, unique_views }
       return res.json({ success: true, property_id: propertyId, ...totals });
     }
   } catch (err) {
-  
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -66,15 +67,15 @@ async function topViewsHandler(req, res) {
     const unique = String(req.query.unique || "false").toLowerCase() === "true";
 
     if (typeof Views.getTopViews !== "function") {
-      
+
       return res.status(500).json({ success: false, message: "Views module misconfigured (missing getTopViews)" });
     }
 
-  
+
     const rows = await Views.getTopViews({ limit, unique });
     return res.json({ success: true, rows });
   } catch (err) {
-   
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -85,15 +86,15 @@ async function bottomViewsHandler(req, res) {
     const unique = String(req.query.unique || "false").toLowerCase() === "true";
 
     if (typeof Views.getBottomViews !== "function") {
-      
+
       return res.status(500).json({ success: false, message: "Views module misconfigured (missing getBottomViews)" });
     }
 
-   
+
     const rows = await Views.getBottomViews({ limit, unique });
     return res.json({ success: true, rows });
   } catch (err) {
-  
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -169,7 +170,7 @@ async function recordViewHandler(req, res) {
     };
 
     if (!Views || typeof Views.recordView !== 'function') {
-    
+
       return res.status(500).json({ success: false, message: 'Server misconfiguration (views model missing)' });
     }
 
@@ -178,7 +179,7 @@ async function recordViewHandler(req, res) {
 
     return res.json({ success: true, recorded, meta: result?.meta ?? {}, deduped: result?.meta?.deduped ?? false });
   } catch (err) {
-   
+
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 }
@@ -210,5 +211,5 @@ module.exports = {
   bottomViewsHandler,
   recordViewHandler,
   recordPropertyViewHandler,
-   getAllViewsHandler
+  getAllViewsHandler
 };

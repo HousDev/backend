@@ -2,51 +2,115 @@ const db = require('../config/database');
 const { fetchNearbyPlaces, calculateHaversineDistance } = require('../utils/places');
 const { geocodeAddress } = require('../utils/geocoder');
 
-// 1. Get Nearby Places (Cache-First Overpass API)
+// 1. Get Nearby Places (Cache-First Overpass & Photon API with Lazy Geocoding)
 exports.getNearbyPlaces = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Fetch property coordinates (resale OR rental)
-    const [propRows] = await db.query(
-      "SELECT latitude, longitude FROM my_properties WHERE id = ? UNION SELECT latitude, longitude FROM rental_properties WHERE id = ? LIMIT 1",
-      [id, id]
+    // Fetch full property details (resale OR rental)
+    let [propRows] = await db.query(
+      "SELECT id, society_name, location_name, city_name, address, latitude, longitude FROM my_properties WHERE id = ? LIMIT 1",
+      [id]
     );
+    let isRental = false;
 
-    if (!propRows[0] || !propRows[0].latitude || !propRows[0].longitude) {
-      return res.status(200).json([]); // Return empty list gracefully if no coordinates exist
+    if (!propRows[0]) {
+      [propRows] = await db.query(
+        "SELECT id, society_name, location_name, city_name, address, latitude, longitude FROM rental_properties WHERE id = ? LIMIT 1",
+        [id]
+      );
+      isRental = true;
     }
 
-    const lat = parseFloat(propRows[0].latitude);
-    const lng = parseFloat(propRows[0].longitude);
-
-    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+    if (!propRows[0]) {
       return res.status(200).json([]);
     }
 
-    // Check Cache Table (within exact coordinate key)
-    const [cacheRows] = await db.query(
-      "SELECT places_json FROM nearby_places_cache WHERE latitude = ? AND longitude = ? LIMIT 1",
-      [lat, lng]
-    );
+    const prop = propRows[0];
+    let lat = parseFloat(prop.latitude);
+    let lng = parseFloat(prop.longitude);
 
-    if (cacheRows[0]) {
-      const parsed = typeof cacheRows[0].places_json === 'string' 
-        ? JSON.parse(cacheRows[0].places_json) 
-        : cacheRows[0].places_json;
-      return res.status(200).json(parsed || []);
+    const parts = [
+      prop.society_name,
+      prop.location_name,
+      prop.city_name,
+      prop.address
+    ].filter(p => p && typeof p === 'string' && p.trim() !== '' && !p.includes('[object'));
+
+    const locationName = parts.join(', ');
+
+    // Smart progressive geocoding if coordinates are missing or invalid
+    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+      let coords = null;
+      if (prop.location_name) {
+        coords = await geocodeAddress(`${prop.location_name}, ${prop.city_name || 'Pune'}, Maharashtra`);
+      }
+      if (!coords && (prop.society_name || prop.address)) {
+        const fullAddr = [prop.society_name, prop.location_name, prop.city_name || 'Pune', 'Maharashtra'].filter(Boolean).join(', ');
+        coords = await geocodeAddress(fullAddr);
+      }
+      if (coords && coords.latitude && coords.longitude) {
+        lat = parseFloat(coords.latitude);
+        lng = parseFloat(coords.longitude);
+        const tableName = isRental ? "rental_properties" : "my_properties";
+        await db.query(`UPDATE ${tableName} SET latitude = ?, longitude = ? WHERE id = ?`, [lat, lng, id]);
+      }
     }
 
-    // Fetch from Overpass API and save to Cache
-    const places = await fetchNearbyPlaces(lat, lng, 3000);
-    await db.query(
-      "INSERT INTO nearby_places_cache (latitude, longitude, place_type, places_json) VALUES (?, ?, 'all', ?) ON DUPLICATE KEY UPDATE places_json = VALUES(places_json)",
-      [lat, lng, JSON.stringify(places)]
-    );
+    if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+      // Check Cache Table
+      const [cacheRows] = await db.query(
+        "SELECT places_json FROM nearby_places_cache WHERE latitude = ? AND longitude = ? LIMIT 1",
+        [lat, lng]
+      );
 
-    res.status(200).json(places);
+      if (cacheRows[0]) {
+        const parsed = typeof cacheRows[0].places_json === 'string'
+          ? JSON.parse(cacheRows[0].places_json)
+          : cacheRows[0].places_json;
+
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return res.status(200).json(parsed);
+        }
+      }
+    }
+
+    // Fetch dynamic real nearby places
+    const places = await fetchNearbyPlaces(lat, lng, locationName, 3500);
+
+    if (places && places.length > 0 && !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+      await db.query(
+        "INSERT INTO nearby_places_cache (latitude, longitude, place_type, places_json) VALUES (?, ?, 'all', ?) ON DUPLICATE KEY UPDATE places_json = VALUES(places_json)",
+        [lat, lng, JSON.stringify(places)]
+      );
+    }
+
+    res.status(200).json(places || []);
   } catch (error) {
     console.error("Error fetching nearby places:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// 1b. Get Nearby Places by Coordinates or Address query
+exports.getNearbyPlacesByQuery = async (req, res) => {
+  try {
+    let lat = parseFloat(req.query.lat);
+    let lng = parseFloat(req.query.lng);
+    let locationName = req.query.address || req.query.location || req.query.locality || '';
+
+    if ((isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) && locationName) {
+      const coords = await geocodeAddress(`${locationName}, Maharashtra`);
+      if (coords && coords.latitude && coords.longitude) {
+        lat = parseFloat(coords.latitude);
+        lng = parseFloat(coords.longitude);
+      }
+    }
+
+    const places = await fetchNearbyPlaces(lat, lng, locationName, 3500);
+    res.status(200).json(places || []);
+  } catch (error) {
+    console.error("Error fetching nearby places by query:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -125,12 +189,12 @@ exports.getMatchingBuyers = async (req, res) => {
         // Fallback to text-based matching if coordinates are missing
         const propLoc = (property.location || property.location_name || property.society || property.society_name || property.address || '').toLowerCase().trim();
         const propCity = (property.city || property.city_name || '').toLowerCase().trim();
-        
+
         let buyerLocRaw = buyer.location || buyer.preferred_location || '';
         if (reqs.preferredLocations && Array.isArray(reqs.preferredLocations)) {
           buyerLocRaw = reqs.preferredLocations.join(', ');
         }
-        
+
         if (!buyerLocRaw) {
           locationScore = 15;
         } else {
@@ -228,7 +292,7 @@ exports.getMatchingBuyers = async (req, res) => {
       // 3. BHK & Unit Type match (20% weight)
 
       const preferredBhkStr = String(reqs.preferred_bhk || reqs.unitTypes || buyer.preferred_bhk || '').toLowerCase();
-      
+
       if (!preferredBhkStr) {
         bhkScore = 10;
       } else {
@@ -288,8 +352,8 @@ exports.getMatchingBuyers = async (req, res) => {
         areaScore
       };
     })
-    .filter(res => res.matchScore >= 35)
-    .sort((a, b) => b.matchScore - a.matchScore || b.locationScore - a.locationScore || (a.distance || 999) - (b.distance || 999));
+      .filter(res => res.matchScore >= 35)
+      .sort((a, b) => b.matchScore - a.matchScore || b.locationScore - a.locationScore || (a.distance || 999) - (b.distance || 999));
 
     res.status(200).json(results);
   } catch (error) {

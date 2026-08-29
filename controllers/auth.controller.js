@@ -374,3 +374,28 @@ exports.logout = async (req, res) => {
     });
   }
 };
+
+// Get current logged-in user details
+exports.me = async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).send({ success: false, message: 'Unauthorized' });
+    }
+    const user = req.user ? { ...req.user } : await User.findById(userId);
+    if (!user) {
+      return res.status(404).send({ success: false, message: 'User not found' });
+    }
+    delete user.password;
+    res.send({
+      success: true,
+      data: user,
+      user: user,
+    });
+  } catch (err) {
+    res.status(500).send({
+      success: false,
+      message: err.message || 'Error fetching user profile.',
+    });
+  }
+};

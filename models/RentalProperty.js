@@ -370,79 +370,82 @@ class RentalProperty {
   }
 
   static async getSimilarProperties(opts = {}) {
-    const { city, location, property_type, bedrooms, exclude_id, budget, limit = 5 } = opts;
-    let sql = `
-      SELECT p.*,
-             CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
-             u.email  AS executive_email,
-             u.phone  AS executive_phone,
-             IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
-             o.email  AS owner_email,
-             o.phone  AS owner_phone
-      FROM rental_properties AS p
-      LEFT JOIN users   AS u ON p.assigned_to = u.id
-      LEFT JOIN owners  AS o ON p.owner_id   = o.id
-      WHERE p.status = 'Available'
-    `;
-    const params = [];
+    try {
+      const { city, location, property_type, bedrooms, exclude_id, propertyId, limit = 6 } = opts;
+      const targetExclude = exclude_id || propertyId || null;
+      let sql = `
+        SELECT p.*,
+               CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
+               u.email  AS executive_email,
+               u.phone  AS executive_phone,
+               IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
+               o.email  AS owner_email,
+               o.phone  AS owner_phone
+        FROM rental_properties AS p
+        LEFT JOIN users   AS u ON p.assigned_to = u.id
+        LEFT JOIN owners  AS o ON p.owner_id   = o.id
+        WHERE 1=1
+      `;
+      const params = [];
 
-    if (city) {
-      sql += " AND p.city_name = ?";
-      params.push(city);
-    }
-    if (location) {
-      sql += " AND p.location_name = ?";
-      params.push(location);
-    }
-    if (property_type) {
-      sql += " AND p.property_type_name = ?";
-      params.push(property_type);
-    }
-    if (bedrooms != null) {
-      sql += " AND p.bedrooms = ?";
-      params.push(Number(bedrooms));
-    }
-    if (exclude_id) {
-      sql += " AND p.id != ?";
-      params.push(exclude_id);
-    }
+      if (targetExclude) {
+        sql += " AND p.id != ?";
+        params.push(Number(targetExclude));
+      }
+      if (city) {
+        sql += " AND (p.city_name LIKE ? OR p.city_name IS NULL)";
+        params.push(`%${city}%`);
+      }
+      if (bedrooms != null && !isNaN(Number(bedrooms))) {
+        sql += " AND p.bedrooms = ?";
+        params.push(Number(bedrooms));
+      }
 
-    sql += " ORDER BY p.created_at DESC LIMIT ?";
-    params.push(Number(limit));
+      const safeLimit = Math.max(1, Math.min(50, Number(limit) || 6));
+      sql += ` ORDER BY p.id DESC LIMIT ${safeLimit}`;
 
-    const [rows] = await db.execute(sql, params);
-    return rows.map((row) => {
-      row.photos = safeJsonParse(row.photos, []);
-      row.amenities = safeJsonParse(row.amenities, []);
-      row.furnishing_items = safeJsonParse(row.furnishing_items, []);
-      row.nearby_places = safeJsonParse(row.nearby_places, []);
-      row.assignedTo = {
-        id: row.assigned_to ?? null,
-        name: row.executive_name || null,
-        email: row.executive_email || null,
-        phone: row.executive_phone || null,
-      };
-      row.owner = {
-        id: row.owner_id ?? null,
-        name: row.owner_name || null,
-        email: row.owner_email || null,
-        phone: row.owner_phone || null,
-      };
-      return row;
-    });
+      const [rows] = await db.query(sql, params);
+      return (rows || []).map((row) => {
+        row.photos = safeJsonParse(row.photos, []);
+        row.amenities = safeJsonParse(row.amenities, []);
+        row.furnishing_items = safeJsonParse(row.furnishing_items, []);
+        row.nearby_places = safeJsonParse(row.nearby_places, []);
+        row.assignedTo = {
+          id: row.assigned_to ?? null,
+          name: row.executive_name?.trim() || null,
+          email: row.executive_email ?? null,
+          phone: row.executive_phone ?? null,
+        };
+        row.owner = {
+          id: row.owner_id ?? null,
+          name: row.owner_name?.trim() || null,
+          email: row.owner_email ?? null,
+          phone: row.owner_phone ?? null,
+        };
+        return row;
+      });
+    } catch (err) {
+      console.error("RentalProperty.getSimilarProperties error:", err);
+      return [];
+    }
   }
 
   static async getPopularLocations(limit = 5) {
-    const [rows] = await db.execute(
-      `SELECT location_name, COUNT(*) AS count 
-       FROM rental_properties 
-       WHERE location_name IS NOT NULL AND location_name != ''
-       GROUP BY location_name 
-       ORDER BY count DESC 
-       LIMIT ?`,
-      [Number(limit)],
-    );
-    return rows;
+    try {
+      const safeLimit = Math.max(1, Math.min(50, Number(limit) || 5));
+      const [rows] = await db.query(
+        `SELECT location_name, COUNT(*) AS count 
+         FROM rental_properties 
+         WHERE location_name IS NOT NULL AND location_name != ''
+         GROUP BY location_name 
+         ORDER BY count DESC 
+         LIMIT ${safeLimit}`
+      );
+      return rows;
+    } catch (err) {
+      console.error("RentalProperty.getPopularLocations error:", err);
+      return [];
+    }
   }
 }
 

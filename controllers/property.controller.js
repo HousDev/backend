@@ -1,6 +1,7 @@
 
 // controllers/property.controller.js
 const Property = require("../models/Property");
+const RentalProperty = require("../models/RentalProperty");
 const MasterData = require("../models/masterModel");
 const path = require("path");
 const fs = require("fs");
@@ -1423,17 +1424,24 @@ const PublicgetPropertyBySlug = async (req, res) => {
         .json({ success: false, message: "Invalid slug format" });
 
     const id = Number(m[1]);
-    const property = await Property.getById(id);
+    let property = await Property.getById(id);
+    let isRental = false;
+    if (!property) {
+      property = await RentalProperty.getById(id);
+      if (property) isRental = true;
+    }
+
     if (!property)
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
 
     if (property.slug && property.slug !== slug) {
+      const targetRoute = isRental ? '/api/rental-properties/pro-page/' : '/api/properties/pro-page/';
       const qs = req.url.includes("?")
         ? req.url.slice(req.url.indexOf("?"))
         : "";
-      return res.redirect(301, `/properties/${property.slug}${qs}`);
+      return res.redirect(301, `${targetRoute}${property.slug}${qs}`);
     }
 
     const xff = req.headers["x-forwarded-for"];
