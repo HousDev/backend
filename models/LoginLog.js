@@ -69,15 +69,45 @@ class LoginLog {
   }
 
   static async getAllLogs(filters = {}) {
+    const hasDates = Boolean(filters.startDate && filters.endDate && !filters.ignoreDate);
+    const subQueryParams = hasDates ? [filters.startDate, filters.endDate] : [];
+
     let query = `
       SELECT 
         l.*,
-        COALESCE(NULLIF(CONCAT_WS(' ', u.first_name, u.last_name), ''), u.username, l.username, l.email) AS name
+        COALESCE(NULLIF(CONCAT_WS(' ', u.first_name, u.last_name), ''), u.username, l.username, l.email) AS name,
+        (
+          SELECT COUNT(*) 
+          FROM login_logs l2 
+          WHERE (l.user_id IS NOT NULL AND l2.user_id = l.user_id) 
+             OR (l.user_id IS NULL AND l2.email IS NOT NULL AND l2.email = l.email)
+        ) AS total_user_logins,
+        (
+          SELECT COUNT(*) 
+          FROM login_logs l2 
+          WHERE ((l.user_id IS NOT NULL AND l2.user_id = l.user_id) 
+             OR (l.user_id IS NULL AND l2.email IS NOT NULL AND l2.email = l.email))
+            ${hasDates ? 'AND DATE(l2.login_time) BETWEEN ? AND ?' : 'AND DATE(l2.login_time) = DATE(l.login_time)'}
+        ) AS day_logins_count
       FROM login_logs l
       LEFT JOIN users u ON l.user_id = u.id
       WHERE 1=1
     `;
-    const params = [];
+    const params = [...subQueryParams];
+
+    const targetUser = filters.user_id || filters.assigned_executive || filters.created_by;
+    if (targetUser && targetUser !== 'all') {
+      query += ` AND l.user_id = ?`;
+      params.push(targetUser);
+    }
+
+    if (filters.active_status && filters.active_status !== 'all') {
+      if (filters.active_status === 'active') {
+        query += ` AND l.logout_time IS NULL`;
+      } else if (filters.active_status === 'inactive') {
+        query += ` AND l.logout_time IS NOT NULL`;
+      }
+    }
 
     if (filters.role && filters.role !== 'all') {
       const r = filters.role.toLowerCase().trim();
