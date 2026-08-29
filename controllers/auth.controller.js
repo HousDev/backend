@@ -177,14 +177,17 @@ exports.signin = async (req, res) => {
         source: req.body.source || 'Web Browser',
         latitude: req.body.latitude,
         longitude: req.body.longitude,
+        address: req.body.address || null,
       });
 
-      // Trigger non-blocking reverse geocoding
-      reverseGeocodeNonBlocking({
-        logId,
-        latitude: req.body.latitude,
-        longitude: req.body.longitude,
-      });
+      // Trigger non-blocking reverse geocoding if address wasn't passed from client
+      if (!req.body.address) {
+        reverseGeocodeNonBlocking({
+          logId,
+          latitude: req.body.latitude,
+          longitude: req.body.longitude,
+        });
+      }
     } catch (logErr) {
       console.error('Error logging user signin session:', logErr);
     }
