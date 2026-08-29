@@ -11,6 +11,26 @@ const LoginLog = require('../models/LoginLog');
 async function geocodeAddress(addressString) {
   if (!addressString || !addressString.trim()) return null;
 
+  // 1. Try Photon API (fast, open CORS, no rate limit)
+  try {
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(addressString)}&limit=1`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'ResaleExpert-App/1.0' } });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.features && data.features.length > 0) {
+        const coords = data.features[0].geometry?.coordinates;
+        if (Array.isArray(coords) && coords.length >= 2) {
+          const lng = parseFloat(coords[0]);
+          const lat = parseFloat(coords[1]);
+          if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+            return { latitude: lat, longitude: lng };
+          }
+        }
+      }
+    }
+  } catch (err) {}
+
+  // 2. Nominatim fallback with timeout
   try {
     const response = await axios.get('https://nominatim.openstreetmap.org/search', {
       params: {
@@ -20,7 +40,8 @@ async function geocodeAddress(addressString) {
       },
       headers: {
         'User-Agent': 'ResaleExpert-App/1.0 (contact@resaleexpert.com)'
-      }
+      },
+      timeout: 3000
     });
 
     if (response.data && response.data.length > 0) {

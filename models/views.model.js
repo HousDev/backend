@@ -13,7 +13,7 @@ async function getTotalViews() {
   const sql = `
     SELECT 
       COUNT(*) AS total_views,
-      COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views
+      COUNT(DISTINCT COALESCE(session_id, dedupe_key, ip, CAST(id AS CHAR))) AS unique_views
     FROM property_events
     WHERE event_type = ?
   `;
@@ -32,15 +32,31 @@ async function getTotalViews() {
 /**
  * Returns { total_views, unique_views } for a specific property
  */
-async function getPropertyViews(propertyId) {
-  const sql = `
-    SELECT
-      COUNT(*) AS total_views,
-      COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views
-    FROM property_events
-    WHERE event_type = ? AND property_id = ?
-  `;
-  const [rows] = await db.execute(sql, [VIEWS_EVENT, propertyId]);
+async function getPropertyViews(propertyId, slug = null) {
+  let sql;
+  let params;
+
+  if (slug && typeof slug === 'string' && slug.trim() !== '') {
+    sql = `
+      SELECT
+        COUNT(*) AS total_views,
+        COUNT(DISTINCT COALESCE(session_id, dedupe_key, ip, CAST(id AS CHAR))) AS unique_views
+      FROM property_events
+      WHERE event_type = ? AND slug = ?
+    `;
+    params = [VIEWS_EVENT, slug.trim()];
+  } else {
+    sql = `
+      SELECT
+        COUNT(*) AS total_views,
+        COUNT(DISTINCT COALESCE(session_id, dedupe_key, ip, CAST(id AS CHAR))) AS unique_views
+      FROM property_events
+      WHERE event_type = ? AND property_id = ?
+    `;
+    params = [VIEWS_EVENT, propertyId];
+  }
+
+  const [rows] = await db.execute(sql, params);
 
   if (!rows || rows.length === 0) {
     return { total_views: 0, unique_views: 0 };
@@ -134,12 +150,12 @@ async function getBottomViews({ limit = 10, unique = false }) {
  *
  * NOTE: using JS to compute cutoff to avoid INTERVAL parameter issues.
  */
-async function hasRecentView(propertyId, sessionId, dedupeKey, minutes = 1, ip = null, userAgent = null) {
+async function hasRecentView(propertyId, sessionId, dedupeKey, minutes = 1440, ip = null, userAgent = null) {
   try {
-    const cutoffDate = new Date(Date.now() - Number(minutes || 1) * 60 * 1000);
+    const cutoffDate = new Date(Date.now() - Number(minutes || 1440) * 60 * 1000);
     const cutoffStr = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
 
-  
+
 
     // Priority logic:
     // 1. If sessionId exists, check for same session + property (most important)
@@ -172,7 +188,7 @@ async function hasRecentView(propertyId, sessionId, dedupeKey, minutes = 1, ip =
 
 async function recordView(payload = {}) {
   const {
-    property_id: propertyId = null,
+    property_id: propertyIdInput = null,
     slug = null,
     dedupe_key: dedupeKey = null,
     session_id: sessionId = null,
@@ -181,13 +197,32 @@ async function recordView(payload = {}) {
     path = null,
     referrer = null,
     source = null,
-    minutes_window = 1,
+    minutes_window = 1440,
     event_type = VIEWS_EVENT,
     // allow callers to send a `payload` object with extra fields
     payload: extraPayload = null,
   } = payload;
 
   try {
+    let propertyId = propertyIdInput;
+
+    // Auto-resolve property_id from slug if missing/null to prevent NULL property_id in DB
+    if ((!propertyId || Number.isNaN(Number(propertyId))) && slug) {
+      try {
+        const [rentalRows] = await db.execute(`SELECT id FROM rental_properties WHERE slug = ? LIMIT 1`, [slug]);
+        if (rentalRows && rentalRows.length > 0) {
+          propertyId = rentalRows[0].id;
+        } else {
+          const [propRows] = await db.execute(`SELECT id FROM properties WHERE slug = ? LIMIT 1`, [slug]);
+          if (propRows && propRows.length > 0) {
+            propertyId = propRows[0].id;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to resolve property_id from slug:", e);
+      }
+    }
+
     // Normalize dedupeKey: treat string "null"/"undefined"/"" as null
     let dedupeKeyNorm = dedupeKey;
     if (typeof dedupeKeyNorm === "string") {
@@ -197,7 +232,7 @@ async function recordView(payload = {}) {
 
     // If propertyId provided, check recent view to avoid duplicate inserts
     if (propertyId) {
-      const recent = await hasRecentView(propertyId, sessionId, dedupeKeyNorm, Number(minutes_window || 1), ip, userAgent);
+      const recent = await hasRecentView(propertyId, sessionId, dedupeKeyNorm, Number(minutes_window || 1440), ip, userAgent);
       if (recent) {
         return { inserted: false, meta: { deduped: true } };
       }
@@ -258,7 +293,7 @@ async function getAllViews({ unique = false } = {}) {
         SELECT 
           property_id,
           slug,
-          COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views,
+          COUNT(DISTINCT COALESCE(session_id, dedupe_key, ip, CAST(id AS CHAR))) AS unique_views,
           COUNT(*) AS total_views
         FROM property_events
         WHERE event_type = ?
@@ -270,7 +305,7 @@ async function getAllViews({ unique = false } = {}) {
           property_id,
           slug,
           COUNT(*) AS total_views,
-          COUNT(DISTINCT COALESCE(session_id, dedupe_key)) AS unique_views
+          COUNT(DISTINCT COALESCE(session_id, dedupe_key, ip, CAST(id AS CHAR))) AS unique_views
         FROM property_events
         WHERE event_type = ?
         GROUP BY property_id, slug
