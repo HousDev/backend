@@ -130,6 +130,7 @@ app.use("/api/activities", require("./routes/activity.routes"));
 app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/dashboard", require("./routes/dashboard.routes"));
 app.use("/api/masters", masterRoutes);
+app.use("/api/automation", require("./routes/automationMaster.routes"));
 app.use("/api/connected-remarks", remarkRoutes);
 app.use("/api/followups", require("./routes/followupRoutes"));
 app.use("/api/properties", propertyRoutes);
