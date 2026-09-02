@@ -130,6 +130,10 @@ class SystemSettings {
     this.auto_assign_leads = settings.auto_assign_leads || false;
     this.lead_scoring_enabled = settings.lead_scoring_enabled || false;
     this.property_auto_approval = settings.property_auto_approval || false;
+    this.inactivity_timeout_minutes = settings.inactivity_timeout_minutes !== undefined ? settings.inactivity_timeout_minutes : 15;
+    this.enable_inactivity_logout = settings.enable_inactivity_logout !== undefined ? settings.enable_inactivity_logout : true;
+    this.enable_guest_property_limit = settings.enable_guest_property_limit !== undefined ? settings.enable_guest_property_limit : true;
+    this.guest_property_view_limit = settings.guest_property_view_limit !== undefined ? settings.guest_property_view_limit : 5;
   }
 
   static async getSettings() {
@@ -145,9 +149,11 @@ class SystemSettings {
         date_format, time_format, default_language,
         max_file_size, backup_frequency,
         auto_assign_leads, lead_scoring_enabled, property_auto_approval,
+        inactivity_timeout_minutes, enable_inactivity_logout,
+        enable_guest_property_limit, guest_property_view_limit,
         created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `;
 
     const values = [
@@ -166,6 +172,10 @@ class SystemSettings {
       newSettings.auto_assign_leads ? 1 : 0,
       newSettings.lead_scoring_enabled ? 1 : 0,
       newSettings.property_auto_approval ? 1 : 0,
+      newSettings.inactivity_timeout_minutes !== undefined ? Number(newSettings.inactivity_timeout_minutes) : 15,
+      newSettings.enable_inactivity_logout !== undefined ? (newSettings.enable_inactivity_logout ? 1 : 0) : 1,
+      newSettings.enable_guest_property_limit !== undefined ? (newSettings.enable_guest_property_limit ? 1 : 0) : 1,
+      newSettings.guest_property_view_limit !== undefined ? Number(newSettings.guest_property_view_limit) : 5,
     ];
 
     const [result] = await db.query(query, values);
@@ -189,6 +199,10 @@ class SystemSettings {
       "auto_assign_leads",
       "lead_scoring_enabled",
       "property_auto_approval",
+      "inactivity_timeout_minutes",
+      "enable_inactivity_logout",
+      "enable_guest_property_limit",
+      "guest_property_view_limit",
     ];
 
     const fields = [];

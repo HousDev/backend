@@ -27,7 +27,7 @@ class Integration {
     }
 
     // Ensure all tabs exist with defaults
-    const allTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt"];
+    const allTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt", "google"];
     for (const tab of allTabs) {
       if (!grouped[tab]) {
         grouped[tab] = {

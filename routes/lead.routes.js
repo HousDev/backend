@@ -4,7 +4,7 @@ const leadController = require("../controllers/lead.controller");
 const { authJwt } = require("../middleware"); // ✅ auth middleware import
 
 // Lead CRUD routes
-router.post("/", authJwt.verifyToken, leadController.createLead);
+router.post("/", authJwt.verifyTokenOptional, leadController.createLead);
 router.get("/", authJwt.verifyToken, leadController.getLeads);
 router.get("/:id", authJwt.verifyToken, leadController.getLead);
 router.put("/:id", authJwt.verifyToken, leadController.updateLead);

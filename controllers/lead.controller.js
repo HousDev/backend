@@ -1,4 +1,5 @@
 const Lead = require("../models/Lead");
+const UserActivityEvent = require("../models/userActivityEvent.model");
 const db = require("../config/database");
 
 
@@ -8,11 +9,39 @@ exports.createLead = async (req, res) => {
 
     const payload = {
       ...req.body,
-      created_by: req.userId,
-      updated_by: req.userId
+      created_by: req.userId || req.body.created_by || null,
+      updated_by: req.userId || req.body.updated_by || null
     };
 
     const lead = await Lead.create(payload);
+
+    // Stitch guest activity if guest_id was passed (body or header)
+    const guestId = req.body.guest_id || req.headers["x-guest-id"] || null;
+    if (guestId && lead && lead.id) {
+      try {
+        await UserActivityEvent.stitchGuestToLead(guestId, lead.id);
+        // Also record a lead_submission event
+        await UserActivityEvent.recordEvent({
+          guest_id: guestId,
+          lead_id: lead.id,
+          source: 'website',
+          session_id: req.body.session_id || ('sess_' + guestId.replace('gst_', '')),
+          event_type: 'lead',
+          event_name: 'contact_form_submitted',
+          page_url: req.headers.referer || '/contact',
+          ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+          user_agent: req.headers['user-agent'] || null,
+          payload: {
+            name: lead.name,
+            phone: lead.phone,
+            email: lead.email,
+            lead_type: lead.lead_type || 'General Enquiry'
+          }
+        });
+      } catch (stitchErr) {
+        console.error("Error stitching guest in createLead:", stitchErr);
+      }
+    }
 
     res.status(201).json({
       success: true,
