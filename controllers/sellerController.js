@@ -376,13 +376,12 @@ const getSellerById = async (req, res) => {
       [id]
     );
 
-    // 4) Followups (kept as-is; can join assigned_to -> users if needed)
+    // 4) Followups (return all fields so edit modal pre-fills completely)
     const [followups] = await pool.query(
-      `SELECT id, followup_date, followup_type, followup_time, status, priority,
-              assigned_to, reminder, notes
+      `SELECT *
        FROM seller_followups
        WHERE seller_id = ?
-       ORDER BY followup_date DESC, id DESC`,
+       ORDER BY COALESCE(schedule_date, followup_date, created_at) DESC, id DESC`,
       [id]
     );
 
