@@ -5,7 +5,10 @@ const integrationController = require("../controllers/integration.controller");
 const { verifyToken } = require("../middleware/authJwt");
 
 
-// All integration routes require authentication
+// Public routes (no token required)
+router.get("/public/google-config", integrationController.getPublicGoogleConfig);
+
+// All other integration routes require authentication
 router.use(verifyToken);
 
 // GET /integrations — all tabs at once (grouped by tab column)

@@ -83,6 +83,7 @@ class User {
     // relational fields
     this.buyer_id = user.buyer_id !== undefined ? user.buyer_id : null;
     this.seller_id = user.seller_id !== undefined ? user.seller_id : null;
+    this.google_id = user.google_id || null;
   }
 
   // ───────────────── CREATE ─────────────────
@@ -110,9 +111,9 @@ class User {
         username, salutation, first_name, last_name, email, password, 
         phone, role, is_active, avatar, designation, department,
         total_leads, total_properties, total_revenue, module_permissions,
-        dob, blood_group, buyer_id, seller_id,
+        dob, blood_group, buyer_id, seller_id, google_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `;
 
     const normalizedBuyerId =
@@ -154,6 +155,7 @@ class User {
       newUser.blood_group || null,
       normalizedBuyerId,
       normalizedSellerId,
+      newUser.google_id || null,
     ];
 
     try {

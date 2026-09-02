@@ -127,6 +127,34 @@ exports.saveSystemSettings = async (req, res) => {
         ? 1
         : 0;
 
+    if (data.enable_inactivity_logout !== undefined) {
+      data.enable_inactivity_logout =
+        data.enable_inactivity_logout === "true" ||
+        data.enable_inactivity_logout === true ||
+        data.enable_inactivity_logout == 1
+          ? 1
+          : 0;
+    }
+
+    if (data.inactivity_timeout_minutes !== undefined) {
+      const parsedMinutes = parseInt(data.inactivity_timeout_minutes, 10);
+      data.inactivity_timeout_minutes = !isNaN(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : 15;
+    }
+
+    if (data.enable_guest_property_limit !== undefined) {
+      data.enable_guest_property_limit =
+        data.enable_guest_property_limit === "true" ||
+        data.enable_guest_property_limit === true ||
+        data.enable_guest_property_limit == 1
+          ? 1
+          : 0;
+    }
+
+    if (data.guest_property_view_limit !== undefined) {
+      const parsedLimit = parseInt(data.guest_property_view_limit, 10);
+      data.guest_property_view_limit = !isNaN(parsedLimit) && parsedLimit > 0 ? parsedLimit : 5;
+    }
+
     // ✅ Save in DB
     await SystemSettings.save(data);
 

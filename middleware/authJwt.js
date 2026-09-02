@@ -466,6 +466,49 @@ const verifyToken = (req, res, next) => {
   });
 };
 
+// Optional JWT verification (for public lead submissions)
+const verifyTokenOptional = (req, res, next) => {
+  let token = req.headers["x-access-token"] || req.headers["authorization"];
+
+  if (!token) {
+    req.user = null;
+    req.userId = null;
+    return next();
+  }
+
+  if (typeof token === "string" && token.startsWith("Bearer ")) {
+    token = token.slice(7);
+  }
+
+  jwt.verify(token, config.secret, async (err, decoded) => {
+    if (err || !decoded) {
+      req.user = null;
+      req.userId = null;
+      return next();
+    }
+
+    try {
+      let user = getUserFromCache(decoded.id);
+      if (!user) {
+        user = await User.findById(decoded.id);
+        if (user) {
+          normalizeModulePermissions(user);
+          setUserInCache(decoded.id, user);
+        }
+      }
+      if (user && user.is_active) {
+        req.user = user;
+        req.userId = user.id;
+        req.sessionId = decoded.session_id;
+        req.userRole = String(user.role || "").toLowerCase().trim();
+      }
+    } catch (e) {
+      // Ignore in optional check
+    }
+    next();
+  });
+};
+
 // Check if user is admin
 const isAdmin = (req, res, next) => {
   if (!roleIn(req.userRole, ["admin"])) {
@@ -656,6 +699,7 @@ const clearAllCache = () => {
 
 module.exports = {
   verifyToken,
+  verifyTokenOptional,
   isAdmin,
   isManager,
   isAgent,

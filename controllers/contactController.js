@@ -1,4 +1,5 @@
 const ContactModel = require("../models/contactModel");
+const UserActivityEvent = require("../models/userActivityEvent.model");
 
 // allowed statuses - keep in sync with frontend
 const ALLOWED_STATUSES = ["new", "replied", "in-progress", "resolved"];
@@ -6,7 +7,7 @@ const ALLOWED_STATUSES = ["new", "replied", "in-progress", "resolved"];
 const ContactController = {
   async submitContact(req, res) {
     try {
-      const { name, email, phone, subject, message, propertyType, budget } =
+      const { name, email, phone, subject, message, propertyType, budget, guest_id } =
         req.body;
 
       if (!name || !email || !phone || !subject || !message) {
@@ -30,6 +31,15 @@ const ContactController = {
         propertyType,
         budget,
       });
+
+      // Stitch guest activity if guest_id provided
+      if (guest_id && insertId) {
+        try {
+          await UserActivityEvent.stitchGuestToLead(guest_id, insertId);
+        } catch (stitchErr) {
+          console.error("Error stitching guest in submitContact:", stitchErr);
+        }
+      }
 
       return res
         .status(201)

@@ -27,7 +27,7 @@ const getAllIntegrations = async (req, res) => {
 const getIntegrationByTab = async (req, res) => {
   try {
     const { tab } = req.params;
-    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt"];
+    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt", "google"];
     
     if (!validTabs.includes(tab)) {
       return res.status(400).json({
@@ -67,7 +67,7 @@ const saveIntegrationConfig = async (req, res) => {
     const { tab } = req.params;
     const { config } = req.body;
     
-    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt"];
+    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt", "google"];
     
     if (!validTabs.includes(tab)) {
       return res.status(400).json({
@@ -87,7 +87,7 @@ const saveIntegrationConfig = async (req, res) => {
     const cleanedConfig = {};
     for (const [key, value] of Object.entries(config)) {
       if (value !== null && value !== undefined && value !== "") {
-        cleanedConfig[key] = String(value);
+        cleanedConfig[key] = String(value).trim();
       }
     }
 
@@ -116,7 +116,7 @@ const toggleIntegration = async (req, res) => {
     const { tab } = req.params;
     const { is_active } = req.body;
     
-    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt"];
+    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt", "google"];
     
     if (!validTabs.includes(tab)) {
       return res.status(400).json({
@@ -166,7 +166,7 @@ const toggleIntegration = async (req, res) => {
 const clearIntegrationConfig = async (req, res) => {
   try {
     const { tab } = req.params;
-    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt"];
+    const validTabs = ["email", "sms", "whatsapp", "razorpay", "stripe", "chatgpt", "google"];
     
     if (!validTabs.includes(tab)) {
       return res.status(400).json({
@@ -206,6 +206,7 @@ const validateIntegration = async (req, res) => {
       razorpay: ["key_id", "key_secret", "webhook_secret"],
       stripe: ["publishable_key", "secret_key", "webhook_secret"],
       chatgpt: ["api_key"],
+      google: ["client_id"],
     };
     
     const keys = requiredKeys[tab];
@@ -248,6 +249,32 @@ const validateIntegration = async (req, res) => {
   }
 };
 
+/**
+ * Public GET /integrations/public/google-config - Safely fetch Google client_id for frontend
+ */
+const getPublicGoogleConfig = async (req, res) => {
+  try {
+    const data = await Integration.getByTab("google");
+    const rawClientId = data?.config?.client_id || process.env.GOOGLE_CLIENT_ID || "";
+    const clientId = String(rawClientId).trim();
+    const isActive = data ? data.is_active : Boolean(process.env.GOOGLE_CLIENT_ID);
+
+    res.json({
+      success: true,
+      data: {
+        client_id: clientId,
+        is_active: isActive,
+      },
+    });
+  } catch (error) {
+    console.error("getPublicGoogleConfig error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch Google configuration",
+    });
+  }
+};
+
 // ✅ CORRECT EXPORT - Make sure all functions are exported
 module.exports = {
   getAllIntegrations,
@@ -256,4 +283,5 @@ module.exports = {
   toggleIntegration,
   clearIntegrationConfig,
   validateIntegration,
+  getPublicGoogleConfig,
 };
