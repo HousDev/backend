@@ -29,10 +29,11 @@ async getAll(req, res) {
       limit: parseInt(limit, 10),
     });
 
-    // Add cache headers
+    // Prevent browser HTTP caching so fresh followups show immediately
     res.set({
-      'Cache-Control': 'private, max-age=60', // Cache for 60 seconds
-      'ETag': `W/"${JSON.stringify(followups).length}"`, // Weak ETag
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
 
     res.json({ success: true, data: followups });

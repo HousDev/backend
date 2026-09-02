@@ -7,15 +7,21 @@ const AutomationMasterModel = {
   // --------------------------------------------------
   // 1. STAGES
   // --------------------------------------------------
-  getStages: async (entity) => {
+  getStages: async (entity, onlyActive = false) => {
     let sql = 'SELECT * FROM automation_stages';
     const params = [];
+    const conditions = [];
     if (entity) {
-      sql += ' WHERE entity = ? AND is_active = 1 ORDER BY order_index ASC, id ASC';
+      conditions.push('entity = ?');
       params.push(entity.toLowerCase());
-    } else {
-      sql += ' WHERE is_active = 1 ORDER BY entity ASC, order_index ASC';
     }
+    if (onlyActive) {
+      conditions.push('is_active = 1');
+    }
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY order_index ASC, id ASC';
     const [rows] = await pool.query(sql, params);
     return rows;
   },
@@ -31,7 +37,7 @@ const AutomationMasterModel = {
     const [result] = await pool.query(
       `INSERT INTO automation_stages (entity, name, code, order_index, is_initial, is_terminal, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [entity.toLowerCase(), name, stageCode, order_index, is_initial ? 1 : 0, is_terminal ? 1 : 0, is_active ? 1 : 0]
+      [entity.toLowerCase(), name, stageCode, order_index, is_initial ? 1 : 0, is_terminal ? 1 : 0, is_active !== undefined ? (is_active ? 1 : 0) : 1]
     );
     return result.insertId;
   },
@@ -52,22 +58,30 @@ const AutomationMasterModel = {
   },
 
   deleteStage: async (id) => {
-    const [result] = await pool.query('UPDATE automation_stages SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('DELETE FROM automation_outcomes WHERE stage_id = ?', [id]);
+    await pool.query('DELETE FROM automation_rules WHERE trigger_stage_id = ? OR next_stage_id = ?', [id, id]);
+    const [result] = await pool.query('DELETE FROM automation_stages WHERE id = ?', [id]);
     return result.affectedRows;
   },
 
   // --------------------------------------------------
   // 2. STATUSES
   // --------------------------------------------------
-  getStatuses: async (entity) => {
+  getStatuses: async (entity, onlyActive = false) => {
     let sql = 'SELECT * FROM automation_statuses';
     const params = [];
+    const conditions = [];
     if (entity) {
-      sql += ' WHERE entity = ? AND is_active = 1 ORDER BY id ASC';
+      conditions.push('entity = ?');
       params.push(entity.toLowerCase());
-    } else {
-      sql += ' WHERE is_active = 1 ORDER BY entity ASC, id ASC';
     }
+    if (onlyActive) {
+      conditions.push('is_active = 1');
+    }
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY id ASC';
     const [rows] = await pool.query(sql, params);
     return rows;
   },
@@ -83,7 +97,7 @@ const AutomationMasterModel = {
     const [result] = await pool.query(
       `INSERT INTO automation_statuses (entity, name, code, is_terminal, is_active)
        VALUES (?, ?, ?, ?, ?)`,
-      [entity.toLowerCase(), name, statusCode, is_terminal ? 1 : 0, is_active ? 1 : 0]
+      [entity.toLowerCase(), name, statusCode, is_terminal ? 1 : 0, is_active !== undefined ? (is_active ? 1 : 0) : 1]
     );
     return result.insertId;
   },
@@ -104,33 +118,34 @@ const AutomationMasterModel = {
   },
 
   deleteStatus: async (id) => {
-    const [result] = await pool.query('UPDATE automation_statuses SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('DELETE FROM automation_rules WHERE next_status_id = ? OR trigger_status_id = ?', [id, id]);
+    const [result] = await pool.query('DELETE FROM automation_statuses WHERE id = ?', [id]);
     return result.affectedRows;
   },
 
   // --------------------------------------------------
   // 3. OUTCOMES (FK Normalized to stage_id)
   // --------------------------------------------------
-  getOutcomesByStageId: async (stageId) => {
+  getOutcomesByStageId: async (stageId, onlyActive = false) => {
     const [rows] = await pool.query(
       `SELECT o.*, s.name as stage_name, s.entity
        FROM automation_outcomes o
        JOIN automation_stages s ON o.stage_id = s.id
-       WHERE o.stage_id = ? AND o.is_active = 1
+       WHERE o.stage_id = ? ${onlyActive ? 'AND o.is_active = 1' : ''}
        ORDER BY o.order_index ASC, o.id ASC`,
       [stageId]
     );
     return rows;
   },
 
-  getOutcomesByEntity: async (entity) => {
+  getOutcomesByEntity: async (entity, onlyActive = false) => {
     const [rows] = await pool.query(
-      `SELECT o.*, s.name as stage_name, s.entity
+      `SELECT o.*, s.name as stage_name, COALESCE(s.entity, o.entity) as entity
        FROM automation_outcomes o
-       JOIN automation_stages s ON o.stage_id = s.id
-       WHERE s.entity = ? AND o.is_active = 1
+       LEFT JOIN automation_stages s ON o.stage_id = s.id
+       WHERE (LOWER(s.entity) = ? OR LOWER(o.entity) = ? OR o.entity IS NULL) ${onlyActive ? 'AND o.is_active = 1' : ''}
        ORDER BY s.order_index ASC, o.order_index ASC`,
-      [entity.toLowerCase()]
+      [entity.toLowerCase(), entity.toLowerCase()]
     );
     return rows;
   },
@@ -162,7 +177,8 @@ const AutomationMasterModel = {
   },
 
   deleteOutcome: async (id) => {
-    const [result] = await pool.query('UPDATE automation_outcomes SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('DELETE FROM automation_rules WHERE condition_outcome_id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM automation_outcomes WHERE id = ?', [id]);
     return result.affectedRows;
   },
 
