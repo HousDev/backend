@@ -5,9 +5,10 @@ const { reverseGeocodeNonBlocking } = require('../utils/geocoder');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const config = require('../config/auth.config');
-const { sendMail, renderOtpEmail } = require('../utils/mailer');
+const { sendMail, getDynamicOtpEmail } = require('../utils/mailer');
 const Lead = require('../models/Lead');
 const Integration = require('../models/integration.model');
+const db = require('../config/database');
 const axios = require('axios');
 
 // In-Memory OTP Store: email -> { otp, expiresAt, attempts, userData }
@@ -20,12 +21,33 @@ const generateUsername = (nameOrEmail) => {
   return `${clean.slice(0, 15)}${rand}`;
 };
 
-// Auto-provision or link buyer/seller entity record for buyer/seller/owner users
+// Auto-provision or link entity record for buyer/seller/tenant/owner/broker users
 const ensureBuyerOrSellerProfile = async (user) => {
   if (!user || !user.role) return user;
   const role = user.role.toLowerCase().trim();
+  const safeName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'User';
 
-  if (role === 'buyer' && !user.buyer_id) {
+  // 1. Automatically Create / Ensure Lead in CRM `client_leads` Table
+  try {
+    const [existingLead] = await db.query(
+      "SELECT id FROM client_leads WHERE email = ? LIMIT 1",
+      [user.email]
+    );
+    if (!existingLead || existingLead.length === 0) {
+      await db.query(
+        `INSERT INTO client_leads 
+         (salutation, name, phone, email, lead_type, lead_source, status, priority, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, 'Website Registration', 'new', 'hot', NOW(), NOW())`,
+        [user.salutation || 'Mr.', safeName, user.phone || null, user.email, role]
+      );
+      console.log(`✅ [CRM Lead Created] Auto-created ${role} lead for ${user.email}`);
+    }
+  } catch (leadErr) {
+    console.warn("CRM lead provisioning note:", leadErr.message);
+  }
+
+  // 2. Automatically Create / Link Role-Specific Entity Record
+  if (role === 'buyer') {
     try {
       const [existing] = await db.query("SELECT id FROM buyers WHERE email = ? LIMIT 1", [user.email]);
       if (existing && existing.length > 0) {
@@ -33,15 +55,17 @@ const ensureBuyerOrSellerProfile = async (user) => {
       } else {
         const [bRes] = await db.query(
           "INSERT INTO buyers (salutation, name, phone, email, buyer_lead_source, buyer_lead_status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Website User', 'new', NOW(), NOW())",
-          [user.salutation || 'Mr.', `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'Buyer', user.phone || null, user.email]
+          [user.salutation || 'Mr.', safeName, user.phone || null, user.email]
         );
         user.buyer_id = bRes.insertId;
       }
-      await db.query("UPDATE users SET buyer_id = ? WHERE id = ?", [user.buyer_id, user.id]);
+      if (user.id) {
+        await db.query("UPDATE users SET buyer_id = ? WHERE id = ?", [user.buyer_id, user.id]);
+      }
     } catch (e) {
       console.warn("Auto-link buyer profile note:", e.message);
     }
-  } else if ((role === 'seller' || role === 'owner') && !user.seller_id) {
+  } else if (role === 'seller') {
     try {
       const [existing] = await db.query("SELECT id FROM sellers WHERE email = ? LIMIT 1", [user.email]);
       if (existing && existing.length > 0) {
@@ -49,13 +73,54 @@ const ensureBuyerOrSellerProfile = async (user) => {
       } else {
         const [sRes] = await db.query(
           "INSERT INTO sellers (salutation, name, phone, email, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', NOW(), NOW())",
-          [user.salutation || 'Mr.', `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'Seller', user.phone || null, user.email]
+          [user.salutation || 'Mr.', safeName, user.phone || null, user.email]
         );
         user.seller_id = sRes.insertId;
       }
-      await db.query("UPDATE users SET seller_id = ? WHERE id = ?", [user.seller_id, user.id]);
+      if (user.id) {
+        await db.query("UPDATE users SET seller_id = ? WHERE id = ?", [user.seller_id, user.id]);
+      }
     } catch (e) {
       console.warn("Auto-link seller profile note:", e.message);
+    }
+  } else if (role === 'tenant') {
+    try {
+      const [existing] = await db.query("SELECT id FROM tenants WHERE email = ? LIMIT 1", [user.email]);
+      if (existing && existing.length > 0) {
+        user.tenant_id = existing[0].id;
+      } else {
+        const [maxIdRow] = await db.query("SELECT MAX(id) as max_id FROM tenants");
+        const nextId = (maxIdRow[0]?.max_id || 0) + 1;
+        const tenantCode = `TEN${String(nextId).padStart(4, '0')}`;
+        const [tRes] = await db.query(
+          "INSERT INTO tenants (tenant_id, name, phone, email, tenant_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Bachelor', 'Active Search', NOW(), NOW())",
+          [tenantCode, safeName, user.phone || null, user.email]
+        );
+        user.tenant_id = tRes.insertId;
+      }
+      if (user.id) {
+        await db.query("UPDATE users SET tenant_id = ? WHERE id = ?", [user.tenant_id, user.id]);
+      }
+    } catch (e) {
+      console.warn("Auto-link tenant profile note:", e.message);
+    }
+  } else if (role === 'owner') {
+    try {
+      const [existing] = await db.query("SELECT id FROM owners WHERE email = ? LIMIT 1", [user.email]);
+      if (existing && existing.length > 0) {
+        user.owner_id = existing[0].id;
+      } else {
+        const [oRes] = await db.query(
+          "INSERT INTO owners (name, phone, email, status, created_at, updated_at) VALUES (?, ?, ?, 'active', NOW(), NOW())",
+          [safeName, user.phone || null, user.email]
+        );
+        user.owner_id = oRes.insertId;
+      }
+      if (user.id) {
+        await db.query("UPDATE users SET owner_id = ? WHERE id = ?", [user.owner_id, user.id]);
+      }
+    } catch (e) {
+      console.warn("Auto-link owner profile note:", e.message);
     }
   }
   return user;
@@ -536,16 +601,18 @@ exports.sendLoginOTP = async (req, res) => {
       email: normalizedEmail,
     });
 
-    // Send email via dynamic mailer
+    // Send email via dynamic template mailer
     try {
+      const emailPayload = await getDynamicOtpEmail({
+        name: `${user.first_name || user.username || 'User'}`,
+        otpCode: otp,
+        companyName: 'Resale Expert',
+      });
+
       await sendMail({
         to: normalizedEmail,
-        subject: `Your Login Code: ${otp} - Resale Expert`,
-        html: renderOtpEmail({
-          name: `${user.first_name || user.username || 'User'}`,
-          otpCode: otp,
-          companyName: 'Resale Expert',
-        }),
+        subject: emailPayload.subject || `Your Login Code: ${otp} - Resale Expert`,
+        html: emailPayload.html,
       });
     } catch (mailErr) {
       console.error('Error sending login OTP email:', mailErr);
@@ -730,16 +797,18 @@ exports.sendRegistrationOTP = async (req, res) => {
       },
     });
 
-    // Send email via dynamic mailer
+    // Send email via dynamic template mailer
     try {
+      const emailPayload = await getDynamicOtpEmail({
+        name: first_name || 'Valued User',
+        otpCode: otp,
+        companyName: 'Resale Expert',
+      });
+
       await sendMail({
         to: normalizedEmail,
-        subject: `Your Verification Code: ${otp} - Resale Expert`,
-        html: renderOtpEmail({
-          name: first_name || 'Valued User',
-          otpCode: otp,
-          companyName: 'Resale Expert',
-        }),
+        subject: emailPayload.subject || `Your Verification Code: ${otp} - Resale Expert`,
+        html: emailPayload.html,
       });
     } catch (mailErr) {
       console.error('Error sending registration OTP email:', mailErr);
@@ -881,7 +950,10 @@ exports.verifyOTPAndRegister = async (req, res) => {
       console.warn('⚠️ [CRM Lead Note] Lead entry skipped or duplicate:', leadErr.message);
     }
 
-    // 3. Generate JWT Token for Immediate Login
+    // 3. Auto ensure buyer, seller, tenant, or owner profile & lead is created
+    await ensureBuyerOrSellerProfile(createdUser);
+
+    // 4. Generate JWT Token for Immediate Login
     const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const token = jwt.sign(
       {
@@ -889,13 +961,17 @@ exports.verifyOTPAndRegister = async (req, res) => {
         username: createdUser.username,
         email: createdUser.email,
         role: createdUser.role,
+        buyer_id: createdUser.buyer_id,
+        seller_id: createdUser.seller_id,
+        tenant_id: createdUser.tenant_id,
+        owner_id: createdUser.owner_id,
         session_id: sessionId,
       },
       config.secret,
       { expiresIn: config.jwtExpiration }
     );
 
-    // 4. Stitch Guest Activity if guest_id was provided
+    // 5. Stitch Guest Activity if guest_id was provided
     if (guest_id) {
       try {
         await UserActivityEvent.stitchGuestToUser(guest_id, createdUser.id);
@@ -903,9 +979,6 @@ exports.verifyOTPAndRegister = async (req, res) => {
         console.error('Error stitching guest in register:', stitchErr);
       }
     }
-
-    // Auto ensure buyer or seller profile is linked
-    await ensureBuyerOrSellerProfile(createdUser);
 
     delete createdUser.password;
 
@@ -1045,6 +1118,9 @@ exports.googleAuth = async (req, res) => {
       user.is_new_user = false;
     }
 
+    // Auto ensure buyer, seller, tenant, or owner profile is linked
+    await ensureBuyerOrSellerProfile(user);
+
     // Generate JWT
     const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const token = jwt.sign(
@@ -1053,6 +1129,10 @@ exports.googleAuth = async (req, res) => {
         username: user.username,
         email: user.email,
         role: user.role,
+        buyer_id: user.buyer_id,
+        seller_id: user.seller_id,
+        tenant_id: user.tenant_id,
+        owner_id: user.owner_id,
         session_id: sessionId,
       },
       config.secret,
@@ -1067,9 +1147,6 @@ exports.googleAuth = async (req, res) => {
         console.error('Error stitching guest in google auth:', stitchErr);
       }
     }
-
-    // Auto ensure buyer or seller profile is linked
-    await ensureBuyerOrSellerProfile(user);
 
     delete user.password;
 

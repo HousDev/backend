@@ -56,19 +56,20 @@ function validate(body) {
     is_active = (is_active === true || is_active === 1 || is_active === "1") ? 1 : 0;
   }
 
-  // ✅ ADD THIS - Handle rejection_reason
- const rejection_reason = body.rejection_reason || null;
-const subject = (body.subject || "").trim() || null;   // ← ADD
+  // ✅ Handle rejection_reason & subCategory
+  const rejection_reason = body.rejection_reason || null;
+  const subject = (body.subject || "").trim() || null;
+  const subCategory = (body.subCategory || body.sub_category || "None").trim();
 
-return {
-  ok: errors.length === 0,
-  errors,
-  value: { 
-    name, category, content, subject,   // ← ADD subject
-    priority, autoApprove, status, channel,
-    is_active, rejection_reason
-  },
-};
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { 
+      name, category, subCategory, sub_category: subCategory, content, subject,
+      priority, autoApprove, status, channel,
+      is_active, rejection_reason
+    },
+  };
 }
 
 async function create(req, res) {
