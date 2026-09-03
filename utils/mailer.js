@@ -78,120 +78,123 @@ async function sendMail({ to, subject, html, text, headers }) {
   return transporter.sendMail(opts);
 }
 
-/* ---------- 6-Digit OTP Email Template ---------- */
-function renderOtpEmail({ name, otpCode, companyName = "Resale Expert" }) {
+/* ---------- 100% Dynamic OTP Email Template from Database ---------- */
+async function getDynamicOtpEmail({ name, otpCode, companyName = "Resale Expert" }) {
   const safeName = name || "Valued User";
-  return `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Your Verification Code</title>
-  </head>
-  <body style="margin: 0; padding: 0; background-color: #f4f7fa; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f4f7fa; padding: 30px 15px;">
-      <tr>
-        <td align="center">
-          <table width="100%" max-width="580" style="max-width: 580px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06); border: 1px solid #eef2f6;">
-            <!-- Header -->
-            <tr>
-              <td style="background: linear-gradient(135deg, #1a3a5c 0%, #0e2439 100%); padding: 32px 24px; text-align: center;">
-                <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">
-                  ${companyName}
-                </h1>
-                <p style="color: rgba(255, 255, 255, 0.7); margin: 6px 0 0; font-size: 13px;">
-                  Email Verification Code
-                </p>
-              </td>
-            </tr>
+  const year = new Date().getFullYear().toString();
+  const expiryMinutes = "10";
 
-            <!-- Body Content -->
-            <tr>
-              <td style="padding: 32px 28px;">
-                <p style="color: #2d3748; font-size: 15px; margin: 0 0 16px; font-weight: 600;">
-                  Hello ${safeName},
-                </p>
-                <p style="color: #4a5568; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
-                  Thank you for registering with <strong>${companyName}</strong>. Please use the verification code below to verify your email address and activate your account.
-                </p>
+  try {
+    const pool = require("../config/database");
+    // Fetch active & approved OTP email template dynamically from DB
+    const [rows] = await pool.execute(
+      `SELECT subject, content FROM templates 
+       WHERE channel = 'email' 
+         AND (category = 'OTP' OR category = 'Security' OR name LIKE '%OTP%' OR name LIKE '%Verification%')
+         AND is_active = 1 
+         AND status = 'approved'
+       ORDER BY updatedAt DESC LIMIT 1`
+    );
 
-                <!-- OTP Box -->
-                <div style="background: #fff8f3; border: 2px dashed #e87722; border-radius: 12px; padding: 24px; text-align: center; margin: 0 0 24px;">
-                  <span style="display: block; font-size: 12px; text-transform: uppercase; font-weight: 700; color: #718096; letter-spacing: 1px; margin-bottom: 8px;">
-                    Your One-Time Password (OTP)
-                  </span>
-                  <div style="font-size: 36px; font-weight: 800; color: #e87722; letter-spacing: 8px; font-family: 'Courier New', monospace;">
-                    ${otpCode}
-                  </div>
-                  <span style="display: block; font-size: 12px; color: #a0aec0; margin-top: 8px;">
-                    ⏱️ Code valid for <strong>10 minutes</strong>
-                  </span>
-                </div>
+    if (rows && rows.length > 0 && rows[0].content) {
+      let content = rows[0].content;
+      let subject = rows[0].subject || `Your Verification Code: ${otpCode} - ${companyName}`;
 
-                <div style="background-color: #f7fafc; border-left: 4px solid #1a3a5c; padding: 12px 16px; border-radius: 4px; margin-bottom: 24px;">
-                  <p style="color: #4a5568; font-size: 12px; line-height: 1.5; margin: 0;">
-                    <strong>Security Notice:</strong> Never share this code with anyone. Our support team will never ask for your verification code.
-                  </p>
-                </div>
+      const replaceMap = {
+        "{otp}": otpCode,
+        "{{otp}}": otpCode,
+        "{otpCode}": otpCode,
+        "{{otpCode}}": otpCode,
+        "{name}": safeName,
+        "{{name}}": safeName,
+        "{first_name}": safeName.split(" ")[0] || safeName,
+        "{{first_name}}": safeName.split(" ")[0] || safeName,
+        "{expiry_minutes}": expiryMinutes,
+        "{{expiry_minutes}}": expiryMinutes,
+        "{company_name}": companyName,
+        "{{company_name}}": companyName,
+        "{site_name}": companyName,
+        "{{site_name}}": companyName,
+        "{year}": year,
+        "{{year}}": year,
+      };
 
-                <p style="color: #718096; font-size: 13px; margin: 0; line-height: 1.5;">
-                  If you didn't request this verification code, please disregard this email.
-                </p>
-              </td>
-            </tr>
+      for (const [key, val] of Object.entries(replaceMap)) {
+        content = content.split(key).join(val);
+        subject = subject.split(key).join(val);
+      }
 
-            <!-- Footer -->
-            <tr>
-              <td style="background-color: #f8fafc; padding: 20px 24px; text-align: center; border-top: 1px solid #edf2f7;">
-                <p style="color: #a0aec0; font-size: 11px; margin: 0;">
-                  © ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
-  `;
+      return { subject, html: content };
+    }
+  } catch (err) {
+    console.error("[Mailer] Dynamic OTP template error:", err.message);
+  }
+
+  // Pure dynamic baseline return if template not found in DB
+  return {
+    subject: `Your Verification Code: ${otpCode} - ${companyName}`,
+    html: `<div>Your verification code is: <b>${otpCode}</b> (Valid for ${expiryMinutes} minutes)</div>`,
+  };
 }
 
-/* ---------- simple signing email template ---------- */
-function renderSigningEmail({
+/* ---------- 100% Dynamic Signing Email Template from Database ---------- */
+async function renderSigningEmail({
   name,
   documentName,
   signingUrl,
   validTill,
-  isNewUser = false,
+  companyName = "Resale Expert",
 }) {
-  const safeName = name || "there";
-  const safeDoc = documentName || "document";
-  const expiryLine = validTill
-    ? `<p style="margin:8px 0;color:#444;">Link valid till: <b>${validTill}</b></p>`
-    : "";
-  const otpNote = isNewUser
-    ? `<p style="margin:8px 0;color:#444;">First-time user: Please verify via OTP after opening the link.</p>`
-    : "";
+  const safeName = name || "User";
+  const safeDoc = documentName || "Document";
+  const year = new Date().getFullYear().toString();
 
-  return `
-  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:16px;">
-    <h2 style="margin:0 0 12px;">Complete your e-Signature</h2>
-    <p style="margin:8px 0;">Hi ${safeName},</p>
-    <p style="margin:8px 0;">You have a pending signature request for <b>${safeDoc}</b>.</p>
-    ${expiryLine}
-    ${otpNote}
-    <p style="margin:16px 0;">
-      <a href="${signingUrl}" style="display:inline-block;padding:12px 18px;text-decoration:none;border-radius:8px;border:1px solid #1f7aec;">
-        Open Signing Link
-      </a>
-    </p>
-    <p style="margin:8px 0;">If the button doesn’t work, copy this URL:</p>
-    <p style="word-break:break-all;color:#555;">${signingUrl}</p>
-    <hr style="margin:16px 0;border:none;border-top:1px solid #eee;">
-    <p style="font-size:12px;color:#888;">This is an automated message from Resale Expert.</p>
-  </div>`;
+  try {
+    const pool = require("../config/database");
+    // Fetch active & approved Signing / Agreement email template dynamically from DB
+    const [rows] = await pool.execute(
+      `SELECT subject, content FROM templates 
+       WHERE channel = 'email' 
+         AND (category = 'Signing' OR category = 'Agreement' OR name LIKE '%Signing%' OR name LIKE '%Signature%' OR name LIKE '%Agreement%')
+         AND is_active = 1 
+         AND status = 'approved'
+       ORDER BY updatedAt DESC LIMIT 1`
+    );
+
+    if (rows && rows.length > 0 && rows[0].content) {
+      let content = rows[0].content;
+      let subject = rows[0].subject || `Complete your e-Signature: ${safeDoc} - ${companyName}`;
+
+      const replaceMap = {
+        "{name}": safeName,
+        "{{name}}": safeName,
+        "{document_name}": safeDoc,
+        "{{document_name}}": safeDoc,
+        "{signing_url}": signingUrl,
+        "{{signing_url}}": signingUrl,
+        "{valid_till}": validTill || "",
+        "{{valid_till}}": validTill || "",
+        "{company_name}": companyName,
+        "{{company_name}}": companyName,
+        "{site_name}": companyName,
+        "{{site_name}}": companyName,
+        "{year}": year,
+        "{{year}}": year,
+      };
+
+      for (const [key, val] of Object.entries(replaceMap)) {
+        content = content.split(key).join(val);
+        subject = subject.split(key).join(val);
+      }
+
+      return content;
+    }
+  } catch (err) {
+    console.error("[Mailer] Dynamic Signing template error:", err.message);
+  }
+
+  // Pure dynamic link return if template not found in DB
+  return `<div><p>Hello ${safeName},</p><p>Please review and sign <b>${safeDoc}</b>: <a href="${signingUrl}">${signingUrl}</a></p></div>`;
 }
 
-module.exports = { sendMail, renderSigningEmail, renderOtpEmail };
+module.exports = { sendMail, renderSigningEmail, getDynamicOtpEmail };

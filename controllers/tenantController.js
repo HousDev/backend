@@ -1,4 +1,5 @@
 const Tenant = require("../models/Tenant");
+const db = require("../config/database");
 const { geocodeAddress } = require("../utils/geocoder");
 
 async function geocodeTenantLocations(locStr) {
@@ -31,7 +32,37 @@ const getTenants = async (req, res) => {
 
 const getTenantById = async (req, res) => {
   try {
-    const tenant = await Tenant.getById(req.params.id);
+    let tenant = await Tenant.getById(req.params.id);
+    if (!tenant) {
+      const [rows] = await db.query(
+        `SELECT t.id FROM tenants t
+         LEFT JOIN users u ON (u.tenant_id = t.id OR u.email = t.email)
+         WHERE t.id = ? OR u.id = ? OR t.email = ? LIMIT 1`,
+        [req.params.id, req.params.id, req.params.id]
+      );
+      if (rows && rows.length > 0) {
+        tenant = await Tenant.getById(rows[0].id);
+      }
+    }
+    if (!tenant) {
+      const [uRows] = await db.query(
+        "SELECT * FROM users WHERE id = ? OR email = ? LIMIT 1",
+        [req.params.id, req.params.id]
+      );
+      if (uRows && uRows.length > 0) {
+        const u = uRows[0];
+        const [maxIdRow] = await db.query("SELECT MAX(id) as max_id FROM tenants");
+        const nextId = (maxIdRow[0]?.max_id || 0) + 1;
+        const tenantCode = `TEN${String(nextId).padStart(4, '0')}`;
+        const safeName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant';
+        const [tRes] = await db.query(
+          "INSERT INTO tenants (tenant_id, name, phone, email, tenant_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Bachelor', 'Active Search', NOW(), NOW())",
+          [tenantCode, safeName, u.phone || null, u.email]
+        );
+        await db.query("UPDATE users SET tenant_id = ? WHERE id = ?", [tRes.insertId, u.id]);
+        tenant = await Tenant.getById(tRes.insertId);
+      }
+    }
     if (!tenant) {
       return res.status(404).json({ success: false, message: "Tenant not found" });
     }

@@ -7,65 +7,56 @@ async function generateTemplate(req, res) {
   try {
     const payload = req.body || {};
 
-    // if (!process.env.OPENAI_API_KEY) {
-    //   return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
-    // }
-    const apiKey = await Integration.getSetting("chatgpt", "api_key");
-const model  = await Integration.getSetting("chatgpt", "model") || "gpt-4o-mini";
-if (!apiKey) {
-  return res.status(500).json({ error: "ChatGPT integration not configured. Please configure it in Settings > Integrations." });
-}
+    let apiKey = await Integration.getSetting("chatgpt", "api_key");
+    if (!apiKey) {
+      apiKey = process.env.OPENAI_API_KEY;
+    }
+    const model = (await Integration.getSetting("chatgpt", "model")) || "gpt-4o-mini";
+
+    if (!apiKey) {
+      return res.status(400).json({ 
+        error: "ChatGPT / OpenAI API key is not configured. Please configure it in Settings > Integrations." 
+      });
+    }
 
     const prompt = buildTemplatePrompt(payload);
 
-    const r = await fetch("https://api.openai.com/v1/responses", {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        Authorization: `Bearer ${apiKey}`,
-
+        Authorization: `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify({
-        // model: "gpt-4o-mini", 
         model: model,
-
-        input: [
+        messages: [
           {
             role: "system",
             content:
-              "You are a concise assistant that writes production-ready SMS / WhatsApp / Email templates. Use placeholders like {name}, {order_id} exactly as shown. Do not add extra commentary.",
+              "You are a professional real-estate copywriting assistant that writes production-ready SMS, WhatsApp, and Email templates. Use placeholders like {name}, {first_name}, {otp}, {property_name}, {location}, {price}, {date} exactly as requested without alteration. Do not wrap in markdown code blocks or add conversational chat commentary.",
           },
           { role: "user", content: prompt },
         ],
-        temperature: 0.6,
-        max_output_tokens: 800,
+        temperature: 0.7,
+        max_tokens: 1000,
       }),
     });
 
     if (!r.ok) {
       const errText = await r.text();
-      return res.status(500).json({ error: errText });
+      let errorMsg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        errorMsg = parsed.error?.message || errText;
+      } catch (_) {}
+      console.error("OpenAI API error:", errorMsg);
+      return res.status(500).json({ error: errorMsg || `OpenAI error ${r.status}` });
     }
 
     const data = await r.json();
+    const text = data.choices?.[0]?.message?.content ? data.choices[0].message.content.trim() : "";
 
-    // Normalize response similar to description.controller
-    const text =
-      data.output_text ||
-      (Array.isArray(data.output)
-        ? data.output
-            .map((c) =>
-              Array.isArray(c.content)
-                ? c.content.map((p) => p?.text || "").join("")
-                : c?.content?.[0]?.text || ""
-            )
-            .join("\n")
-        : data.output?.[0]?.content?.[0]?.text || "") ||
-      (data.choices && data.choices[0]?.message?.content) ||
-      "";
-
-    return res.json({ content: text });
+    return res.json({ content: text, success: true });
   } catch (err) {
     console.error("generateTemplate error", err);
     return res.status(500).json({ error: err?.message || "Unknown error" });

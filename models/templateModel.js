@@ -1,11 +1,8 @@
-
 // models/templateModel.js
-// Use ONE of the following requires:
-// const pool = require("../db");                 // if your pool is at projectRoot/db.js
-const pool = require("../config/database");       // if your pool is at projectRoot/config/database.js
+const pool = require("../config/database");
 
 const SELECT = `
-  id, name, category, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel, createdAt, updatedAt
+  id, name, category, subCategory, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel, createdAt, updatedAt
 `;
 
 function toInt(v, def = 0) {
@@ -13,39 +10,47 @@ function toInt(v, def = 0) {
   return Number.isFinite(n) && n >= 0 ? n : def;
 }
 
+function normalizeRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    subCategory: row.subCategory || row.sub_category || "None",
+    sub_category: row.subCategory || row.sub_category || "None",
+  };
+}
+
 async function createTemplate(data) {
   const sql = `
-   INSERT INTO templates
-  (name, category, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO templates
+    (name, category, subCategory, content, subject, priority, autoApprove, status, is_active, rejection_reason, channel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const params = [
     data.name,
     data.category,
+    data.subCategory || data.sub_category || "None",
     data.content,
     data.subject || null,
     data.priority,
     data.autoApprove ? 1 : 0,
     data.status,
-data.is_active !== undefined ? data.is_active : 1, 
+    data.is_active !== undefined ? data.is_active : 1, 
     data.rejection_reason || null,                  
-       data.channel,
+    data.channel,
   ];
   const [res] = await pool.execute(sql, params);
   return getById(res.insertId);
 }
-
 
 async function getById(id) {
   const [rows] = await pool.execute(
     `SELECT ${SELECT} FROM templates WHERE id = ? LIMIT 1`,
     [id]
   );
-  return rows[0] || null;
+  return rows[0] ? normalizeRow(rows[0]) : null;
 }
 
 async function list({ q, channel, status, category, limit = 20, offset = 0 }) {
-  // sanitize ints BEFORE interpolation
   let lim = toInt(limit, 20);
   let off = toInt(offset, 0);
   if (lim < 1) lim = 1;
@@ -55,8 +60,8 @@ async function list({ q, channel, status, category, limit = 20, offset = 0 }) {
   const args = [];
 
   if (q) {
-    where.push(`(name LIKE ? OR content LIKE ?)`);
-    args.push(`%${q}%`, `%${q}%`);
+    where.push(`(name LIKE ? OR content LIKE ? OR subCategory LIKE ?)`);
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (channel) {
     where.push(`channel = ?`);
@@ -73,7 +78,6 @@ async function list({ q, channel, status, category, limit = 20, offset = 0 }) {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  // Inline LIMIT/OFFSET (prepared placeholders can error on some MySQL builds)
   const sqlList = `
     SELECT ${SELECT}
     FROM templates
@@ -90,7 +94,7 @@ async function list({ q, channel, status, category, limit = 20, offset = 0 }) {
   `;
   const [[{ total } = { total: 0 }]] = await pool.execute(sqlCount, args);
 
-  return { data: rows, total };
+  return { data: (rows || []).map(normalizeRow), total };
 }
 
 async function updateTemplate(id, data) {
@@ -98,6 +102,7 @@ async function updateTemplate(id, data) {
     UPDATE templates
        SET name = ?,
            category = ?,
+           subCategory = ?,
            content = ?,
            subject = ?,
            priority = ?,
@@ -111,14 +116,14 @@ async function updateTemplate(id, data) {
   const params = [
     data.name,
     data.category,
+    data.subCategory || data.sub_category || "None",
     data.content,
     data.subject || null,
     data.priority,
-
     data.autoApprove ? 1 : 0,
     data.autoApprove ? "approved" : data.status,
-    data.is_active !== undefined ? data.is_active : 1,  // ✅ ADD THIS
-    data.rejection_reason || null,                      // ✅ ADD THIS
+    data.is_active !== undefined ? data.is_active : 1,
+    data.rejection_reason || null,
     data.channel,
     id,
   ];
