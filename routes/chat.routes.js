@@ -1,0 +1,23 @@
+// backend/routes/chat.routes.js
+const express = require("express");
+const router = express.Router();
+const chatController = require("../controllers/chat.controller");
+const { verifyToken } = require("../middleware/authJwt");
+
+// All chat routes require valid JWT authentication
+router.use(verifyToken);
+
+// Conversation endpoints
+router.post("/conversations", chatController.createOrGetConversation);
+router.get("/conversations", chatController.getConversations);
+router.get("/conversations/:conversationId", chatController.getConversationById);
+
+// Message endpoints
+router.get("/conversations/:conversationId/messages", chatController.getMessages);
+router.post("/conversations/:conversationId/messages", chatController.sendMessage);
+
+// Read receipts and management
+router.post("/conversations/:conversationId/read", chatController.markAsRead);
+router.post("/conversations/:conversationId/reassign", chatController.reassignExecutive);
+
+module.exports = router;

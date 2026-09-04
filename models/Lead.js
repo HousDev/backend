@@ -90,6 +90,21 @@ class Lead {
           created_by || null,
           updated_by || null,
           priority || 'Medium',
+          salutation ?? 'Mr.',
+          name ?? null,
+          phone ?? null,
+          email ?? null,
+          lead_type ?? 'seller',
+          lead_source ?? 'Website',
+          whatsapp_number ?? null,
+          state ?? null,
+          city ?? null,
+          location ?? null,
+          status ?? 'new',
+          assigned_executive ?? null,
+          created_by ?? null,
+          updated_by ?? null,
+          priority ?? 'hot',
         ]
       );
 
@@ -136,6 +151,30 @@ class Lead {
           console.warn("Automation trigger warning:", autoErr.message);
         }
         return createdLead;
+      // If id is UUID, lookup by phone/email
+      const [rows] = await db.execute(
+        `SELECT l.*, 
+                ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
+                cu.first_name AS created_first_name, cu.last_name AS created_last_name,
+                uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
+         FROM client_leads l
+         LEFT JOIN users ae ON l.assigned_executive = ae.id
+         LEFT JOIN users cu ON l.created_by = cu.id
+         LEFT JOIN users uu ON l.updated_by = uu.id
+         WHERE l.phone = ?
+         ORDER BY l.created_at DESC
+         LIMIT 1`,
+        [phone ?? null]
+      );
+
+      if (rows && rows.length > 0) {
+        const row = rows[0];
+        return {
+          ...row,
+          assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
+          created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
+          updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
+        };
       }
 
       return null;

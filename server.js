@@ -148,6 +148,7 @@ app.use("/api/templates", templateRoutes);
 
 app.use("/api/contacts", require("./routes/contacts.routes"));
 app.use("/api/messages", require("./routes/messages.routes"));
+app.use("/api/chat", require("./routes/chat.routes"));
 app.use("/api/templates", require("./routes/templates.routes"));
 
 app.use("/api/campaigns", require("./routes/campaigns"));
@@ -311,6 +312,119 @@ io.on('connection', (socket) => {
 
   socket.on('leave_contact_room', (contactId) => {
     socket.leave(`contact:${contactId}`);
+  });
+
+  // ---- Chat System Real-Time Handlers ----
+  socket.on('chat:join_room', async (data) => {
+    try {
+      const conversationId = typeof data === 'object' ? data.conversationId : data;
+      const sUserId = socket.handshake.query?.userId;
+      if (!sUserId || !conversationId) return;
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) {
+        socket.emit('chat:error', { message: 'Conversation not found' });
+        return;
+      }
+
+      const isOwner = Number(conv.user_id) === Number(sUserId);
+      const isExec = Number(conv.executive_id) === Number(sUserId);
+
+      if (isOwner || isExec) {
+        socket.join(`conversation:${conv.id}`);
+        socket.emit('chat:room_joined', { conversationId: conv.id });
+      } else {
+        socket.emit('chat:error', { message: 'Unauthorized to join this conversation' });
+      }
+    } catch (err) {
+      console.error('Socket chat:join_room error:', err);
+    }
+  });
+
+  socket.on('chat:leave_room', (data) => {
+    const conversationId = typeof data === 'object' ? data.conversationId : data;
+    if (conversationId) {
+      socket.leave(`conversation:${conversationId}`);
+      socket.emit('chat:room_left', { conversationId });
+    }
+  });
+
+  socket.on('chat:send_message', async (data) => {
+    try {
+      const { conversationId, messageText, messageType, messageUuid } = data || {};
+      const sUserId = socket.handshake.query?.userId;
+      if (!sUserId || !conversationId || !messageText || !messageText.trim()) return;
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) return;
+
+      const isOwner = Number(conv.user_id) === Number(sUserId);
+      const isExec = Number(conv.executive_id) === Number(sUserId);
+      if (!isOwner && !isExec) {
+        socket.emit('chat:error', { message: 'Unauthorized to send message in this conversation' });
+        return;
+      }
+
+      const senderType = isExec ? 'executive' : 'user';
+      const { message, isDuplicate } = await ChatModel.createMessage({
+        conversationId: conv.id,
+        senderId: Number(sUserId),
+        senderType,
+        messageType: messageType || 'text',
+        messageText: messageText.trim(),
+        messageUuid: messageUuid || null,
+      });
+
+      if (!isDuplicate) {
+        io.to(`conversation:${conv.id}`).emit('chat:new_message', message);
+        if (senderType === 'user') {
+          io.to(`user:${conv.executive_id}`).emit('chat:unread_count_update', {
+            conversationId: conv.id,
+            unreadCount: (conv.unread_executive_count || 0) + 1,
+          });
+        } else {
+          io.to(`user:${conv.user_id}`).emit('chat:unread_count_update', {
+            conversationId: conv.id,
+            unreadCount: (conv.unread_user_count || 0) + 1,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Socket chat:send_message error:', err);
+    }
+  });
+
+  socket.on('chat:read_receipt', async (data) => {
+    try {
+      const { conversationId } = data || {};
+      const sUserId = socket.handshake.query?.userId;
+      if (!sUserId || !conversationId) return;
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) return;
+
+      const isOwner = Number(conv.user_id) === Number(sUserId);
+      const isExec = Number(conv.executive_id) === Number(sUserId);
+      if (!isOwner && !isExec) return;
+
+      const role = isExec ? 'executive' : 'user';
+      await ChatModel.markMessagesAsRead(conv.id, Number(sUserId), role);
+
+      io.to(`conversation:${conv.id}`).emit('chat:messages_read', {
+        conversationId: conv.id,
+        readBy: Number(sUserId),
+        readAt: new Date().toISOString(),
+      });
+      io.to(`user:${sUserId}`).emit('chat:unread_count_update', {
+        conversationId: conv.id,
+        unreadCount: 0,
+      });
+    } catch (err) {
+      console.error('Socket chat:read_receipt error:', err);
+    }
   });
 });
 
