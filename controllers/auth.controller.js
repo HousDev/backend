@@ -21,10 +21,18 @@ const generateUsername = (nameOrEmail) => {
   return `${clean.slice(0, 15)}${rand}`;
 };
 
+const CLIENT_LEAD_ROLES = ['buyer', 'seller', 'owner', 'tenant', 'broker'];
+
 // Auto-provision or link entity record for buyer/seller/tenant/owner/broker users
 const ensureBuyerOrSellerProfile = async (user) => {
   if (!user || !user.role) return user;
   const role = user.role.toLowerCase().trim();
+
+  // Only create CRM leads and entity profiles for client roles (skip admin, executives, agents, staff)
+  if (!CLIENT_LEAD_ROLES.includes(role)) {
+    return user;
+  }
+
   const safeName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'User';
 
   // 1. Automatically Create / Ensure Lead in CRM `client_leads` Table
@@ -196,6 +204,9 @@ exports.signup = async (req, res) => {
         console.error('Error stitching guest in signup:', stitchErr);
       }
     }
+
+    // Auto ensure entity profile and CRM lead is created for client personas
+    await ensureBuyerOrSellerProfile(data);
 
     // Remove password from response
     delete data.password;
@@ -932,22 +943,24 @@ exports.verifyOTPAndRegister = async (req, res) => {
 
     const createdUser = await User.create(newUser);
 
-    // 2. Automatically Create Lead in CRM `client_leads` table
-    try {
-      const fullName = `${safeFirstName} ${safeLastName}`.trim() || 'New Registered User';
-      await Lead.create({
-        salutation: safeSalutation,
-        name: fullName,
-        phone: safePhone || null,
-        email: normalizedEmail,
-        lead_type: safeRole, // buyer, seller, owner, tenant, broker
-        lead_source: 'Website Registration',
-        status: 'new',
-        priority: 'hot',
-      });
-      console.log(`✅ [CRM Lead Auto-Captured] Lead created for registered user ${normalizedEmail} (Role: ${safeRole})`);
-    } catch (leadErr) {
-      console.warn('⚠️ [CRM Lead Note] Lead entry skipped or duplicate:', leadErr.message);
+    // 2. Automatically Create Lead in CRM `client_leads` table (ONLY for client personas)
+    if (CLIENT_LEAD_ROLES.includes(safeRole)) {
+      try {
+        const fullName = `${safeFirstName} ${safeLastName}`.trim() || 'New Registered User';
+        await Lead.create({
+          salutation: safeSalutation,
+          name: fullName,
+          phone: safePhone || null,
+          email: normalizedEmail,
+          lead_type: safeRole, // buyer, seller, owner, tenant, broker
+          lead_source: 'Website Registration',
+          status: 'new',
+          priority: 'hot',
+        });
+        console.log(`✅ [CRM Lead Auto-Captured] Lead created for registered user ${normalizedEmail} (Role: ${safeRole})`);
+      } catch (leadErr) {
+        console.warn('⚠️ [CRM Lead Note] Lead entry skipped or duplicate:', leadErr.message);
+      }
     }
 
     // 3. Auto ensure buyer, seller, tenant, or owner profile & lead is created
@@ -1082,21 +1095,23 @@ exports.googleAuth = async (req, res) => {
 
       user = await User.create(newUser);
 
-      // Auto capture lead in CRM with complete phone number and role
-      try {
-        await Lead.create({
-          salutation: safeSalutation,
-          name: `${firstName} ${lastName}`.trim() || 'Google User',
-          phone: phone.trim(),
-          email: email,
-          lead_type: safeRole, // seller, owner, buyer, tenant, broker
-          lead_source: 'Google Sign-In',
-          status: 'new',
-          priority: 'hot',
-        });
-        console.log(`✅ [CRM Lead Auto-Captured] Lead created (${safeRole}) with phone for Google user ${email}`);
-      } catch (lErr) {
-        console.warn('⚠️ [CRM Lead Note] Google lead creation note:', lErr.message);
+      // Auto capture lead in CRM with complete phone number and role (ONLY for client personas)
+      if (CLIENT_LEAD_ROLES.includes(safeRole)) {
+        try {
+          await Lead.create({
+            salutation: safeSalutation,
+            name: `${firstName} ${lastName}`.trim() || 'Google User',
+            phone: phone.trim(),
+            email: email,
+            lead_type: safeRole, // seller, owner, buyer, tenant, broker
+            lead_source: 'Google Sign-In',
+            status: 'new',
+            priority: 'hot',
+          });
+          console.log(`✅ [CRM Lead Auto-Captured] Lead created (${safeRole}) with phone for Google user ${email}`);
+        } catch (lErr) {
+          console.warn('⚠️ [CRM Lead Note] Google lead creation note:', lErr.message);
+        }
       }
 
       user.is_new_user = true;
