@@ -75,21 +75,21 @@ class Lead {
         created_by, updated_by, priority
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          salutation,
-          name,
-          phone,
-          email,
-          lead_type,
-          lead_source,
-          whatsapp_number,
-          state,
-          city,
-          location,
-          status,
-          assigned_executive, // now null if ""
-          created_by,
-          updated_by,
-          priority, // now null if ""
+          salutation ?? 'Mr.',
+          name ?? null,
+          phone ?? null,
+          email ?? null,
+          lead_type ?? 'seller',
+          lead_source ?? 'Website',
+          whatsapp_number ?? null,
+          state ?? null,
+          city ?? null,
+          location ?? null,
+          status ?? 'new',
+          assigned_executive ?? null,
+          created_by ?? null,
+          updated_by ?? null,
+          priority ?? 'hot',
         ]
       );
 
@@ -111,7 +111,7 @@ class Lead {
          WHERE l.phone = ?
          ORDER BY l.created_at DESC
          LIMIT 1`,
-        [phone]
+        [phone ?? null]
       );
 
       if (rows && rows.length > 0) {
