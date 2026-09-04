@@ -141,6 +141,12 @@ const createSeller = async (req, res) => {
       }
     }
 
+    // Trigger non-blocking Welcome Email & WhatsApp Automation for Seller
+    try {
+      const { triggerWelcomeAutomation } = require("../services/automationEngine");
+      triggerWelcomeAutomation({ entityType: "seller", entityData: { ...seller, id: sellerId } }).catch((e) => console.warn("Welcome seller automation warning:", e.message));
+    } catch (e) {}
+
     return res.status(201).json({ success: true, id: sellerId });
   } catch (err) {
     await conn.rollback();

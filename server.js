@@ -348,7 +348,9 @@ server.listen(PORT, () => {
   console.log(`🚀 Server: http://localhost:${PORT}`);
 });
 
-// ✅ Start campaign scheduler AFTER server is ready
+// ✅ Start schedulers AFTER server is ready
 startCampaignScheduler();
+const { startAutomationMasterCron } = require("./corn/automationMasterCron");
+startAutomationMasterCron();
 
 module.exports = app;

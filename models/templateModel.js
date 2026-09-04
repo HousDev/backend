@@ -34,8 +34,8 @@ async function createTemplate(data) {
     data.priority,
     data.autoApprove ? 1 : 0,
     data.status,
-    data.is_active !== undefined ? data.is_active : 1, 
-    data.rejection_reason || null,                  
+    data.is_active !== undefined ? data.is_active : 1,
+    data.rejection_reason || null,
     data.channel,
   ];
   const [res] = await pool.execute(sql, params);

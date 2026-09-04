@@ -14,5 +14,7 @@ router.get('/lead-sources', dashboardController.getLeadSources);
 router.get('/agent-performance', dashboardController.getAgentPerformance);
 router.get('/property-market-analysis', dashboardController.getPropertyMarketAnalysis);
 router.get('/activity-timeline', dashboardController.getActivityTimeline);
+router.get('/executive-recommended-actions', dashboardController.getExecutiveRecommendedActions);
+router.get('/admin-escalations', dashboardController.getAdminEscalations);
 
 module.exports = router;
