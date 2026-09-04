@@ -165,6 +165,46 @@ exports.getMatchingBuyers = async (req, res) => {
       }
     }
 
+    const getBuyerPrefLoc = (buyer, reqs) => {
+      if (reqs && reqs.preferredLocations) {
+        if (Array.isArray(reqs.preferredLocations) && reqs.preferredLocations.length > 0) {
+          return reqs.preferredLocations.join(', ');
+        }
+        if (typeof reqs.preferredLocations === 'string' && reqs.preferredLocations.trim()) {
+          return reqs.preferredLocations.trim();
+        }
+      }
+      if (reqs && reqs.preferred_locations) {
+        if (Array.isArray(reqs.preferred_locations) && reqs.preferred_locations.length > 0) {
+          return reqs.preferred_locations.join(', ');
+        }
+        if (typeof reqs.preferred_locations === 'string' && reqs.preferred_locations.trim()) {
+          return reqs.preferred_locations.trim();
+        }
+      }
+      if (buyer.preferred_location && typeof buyer.preferred_location === 'string' && buyer.preferred_location.trim()) {
+        return buyer.preferred_location.trim();
+      }
+      return '';
+    };
+
+    const isLocSpecified = (buyer, reqs) => {
+      const loc = getBuyerPrefLoc(buyer, reqs);
+      if (!loc || typeof loc !== 'string') return false;
+      const cleaned = loc.trim().toLowerCase();
+      if (!cleaned) return false;
+      return !(
+        cleaned === 'any location' ||
+        cleaned === 'any' ||
+        cleaned === '-' ||
+        cleaned === '--' ||
+        cleaned === 'n/a' ||
+        cleaned === 'not specified' ||
+        cleaned === 'undefined' ||
+        cleaned === 'null'
+      );
+    };
+
     const results = allLeads.map(buyer => {
       let reqs = buyer.requirements;
       if (typeof reqs === 'string') {
@@ -184,19 +224,17 @@ exports.getMatchingBuyers = async (req, res) => {
       }
       if (!Array.isArray(buyerCoords)) buyerCoords = [];
 
+      const buyerLocRaw = getBuyerPrefLoc(buyer, reqs);
+      const hasValidPrefLoc = isLocSpecified(buyer, reqs);
+
       // 1. Location match (35% weight)
       if (buyerCoords.length === 0 || isNaN(propLat) || isNaN(propLng) || propLat === 0 || propLng === 0) {
-        // Fallback to text-based matching if coordinates are missing
+        // Text-based matching using ONLY preferred location
         const propLoc = (property.location || property.location_name || property.society || property.society_name || property.address || '').toLowerCase().trim();
         const propCity = (property.city || property.city_name || '').toLowerCase().trim();
 
-        let buyerLocRaw = buyer.location || buyer.preferred_location || '';
-        if (reqs.preferredLocations && Array.isArray(reqs.preferredLocations)) {
-          buyerLocRaw = reqs.preferredLocations.join(', ');
-        }
-
-        if (!buyerLocRaw) {
-          locationScore = 15;
+        if (!hasValidPrefLoc) {
+          locationScore = 0;
         } else {
           const buyerLocs = buyerLocRaw.toLowerCase().split(/[;,]+/).map(s => s.trim()).filter(Boolean);
           const hasExactMatch = buyerLocs.some(loc =>
@@ -241,7 +279,7 @@ exports.getMatchingBuyers = async (req, res) => {
             } else {
               const words = buyerLocs.flatMap(l => l.split(/\s+/));
               const partial = words.some(word => word.length > 2 && propLoc.includes(word));
-              locationScore = partial ? 20 : (buyer.city && propCity && buyer.city.toLowerCase() === propCity ? 15 : 10);
+              locationScore = partial ? 20 : 0;
             }
           }
         }
@@ -256,7 +294,7 @@ exports.getMatchingBuyers = async (req, res) => {
         if (minDistance <= 2) locationScore = 35;
         else if (minDistance <= 5) locationScore = 25;
         else if (minDistance <= 10) locationScore = 15;
-        else locationScore = 5;
+        else locationScore = 0;
       }
 
       // 2. Budget match (30% weight with 20% tolerance threshold)
@@ -270,10 +308,8 @@ exports.getMatchingBuyers = async (req, res) => {
           if (propPrice >= tMin && propPrice <= tMax) {
             budgetScore = 30;
           } else if (propPrice < tMin) {
-            // Under-budget: buyer can easily afford it. Give a moderate score of 20/30
             budgetScore = 20;
           } else {
-            // Over-budget: buyer cannot afford it.
             const diff = propPrice - tMax;
             const tolerance = tMax * 0.2;
             if (diff <= tolerance) {
@@ -290,7 +326,6 @@ exports.getMatchingBuyers = async (req, res) => {
       }
 
       // 3. BHK & Unit Type match (20% weight)
-
       const preferredBhkStr = String(reqs.preferred_bhk || reqs.unitTypes || buyer.preferred_bhk || '').toLowerCase();
 
       if (!preferredBhkStr) {
@@ -329,12 +364,6 @@ exports.getMatchingBuyers = async (req, res) => {
 
       const totalScore = locationScore + budgetScore + bhkScore + areaScore;
 
-      // Extract locations string
-      let displayLocation = buyer.location || buyer.preferred_location || '';
-      if (reqs.preferredLocations && Array.isArray(reqs.preferredLocations)) {
-        displayLocation = reqs.preferredLocations.join(', ');
-      }
-
       let displayBHK = buyer.preferred_bhk || buyer.unit_type || '';
       if (reqs.unitTypes) {
         displayBHK = Array.isArray(reqs.unitTypes) ? reqs.unitTypes.join(', ') : reqs.unitTypes;
@@ -342,17 +371,18 @@ exports.getMatchingBuyers = async (req, res) => {
 
       return {
         ...buyer,
-        displayLocation: displayLocation || 'Any Location',
+        displayLocation: buyerLocRaw || '',
         displayBHK: displayBHK || 'Any BHK / Type',
         matchScore: totalScore,
         distance: minDistance === 9999 ? null : parseFloat(minDistance.toFixed(1)),
         locationScore,
         budgetScore,
         bhkScore,
-        areaScore
+        areaScore,
+        hasLocationSpecified: hasValidPrefLoc
       };
     })
-      .filter(res => res.matchScore >= 35)
+      .filter(res => res.hasLocationSpecified && res.locationScore > 0 && res.matchScore >= 35)
       .sort((a, b) => b.matchScore - a.matchScore || b.locationScore - a.locationScore || (a.distance || 999) - (b.distance || 999));
 
     res.status(200).json(results);

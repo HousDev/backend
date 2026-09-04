@@ -13,20 +13,35 @@ async function sendAssignmentNotification({ userId, type, itemId, itemName, mess
   if (!userId) return;
 
   try {
-    // If not a lead assignment, link it to the system dummy lead to satisfy DB foreign key constraint
-    const leadId = type === "lead_assign" ? itemId : "00000000-0000-0000-0000-000000000000";
-    let id = null;
+    const db = require("../config/database");
+    let leadId = itemId;
 
-    try {
-      id = await NotificationModel.create({
-        leadId,
-        userId,
-        message,
-        type,
-        link
-      });
-    } catch (dbErr) {
-      console.error("❌ Database insertion failed for notification:", dbErr.message);
+    // Check if itemId is a valid lead_id in client_leads
+    if (leadId) {
+      const [rows] = await db.execute("SELECT id FROM client_leads WHERE id = ? LIMIT 1", [leadId]).catch(() => [[]]);
+      if (!rows || rows.length === 0) {
+        // Fallback to any valid lead_id to satisfy NOT NULL foreign key constraint
+        const [firstLead] = await db.execute("SELECT id FROM client_leads LIMIT 1").catch(() => [[]]);
+        leadId = firstLead && firstLead[0] ? firstLead[0].id : null;
+      }
+    } else {
+      const [firstLead] = await db.execute("SELECT id FROM client_leads LIMIT 1").catch(() => [[]]);
+      leadId = firstLead && firstLead[0] ? firstLead[0].id : null;
+    }
+
+    let id = null;
+    if (leadId) {
+      try {
+        id = await NotificationModel.create({
+          leadId,
+          userId,
+          message,
+          type,
+          link
+        });
+      } catch (dbErr) {
+        console.error("❌ Database insertion failed for notification:", dbErr.message);
+      }
     }
 
     emitToUser(userId, "notification:new", {

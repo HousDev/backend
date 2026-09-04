@@ -15,6 +15,13 @@ exports.createLead = async (req, res) => {
 
     const lead = await Lead.create(payload);
 
+    if (lead) {
+      try {
+        const { triggerWelcomeAutomation } = require("../services/automationEngine");
+        triggerWelcomeAutomation({ entityType: "lead", entityData: lead }).catch((e) => console.warn("Controller welcome automation warning:", e.message));
+      } catch (e) {}
+    }
+
     // Stitch guest activity if guest_id was passed (body or header)
     const guestId = req.body.guest_id || req.headers["x-guest-id"] || null;
     if (guestId && lead && lead.id) {

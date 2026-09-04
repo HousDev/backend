@@ -262,3 +262,120 @@ exports.getActivityTimeline = async (req, res) => {
     });
   }
 };
+
+// Get Executive "Today's Recommended Actions"
+exports.getExecutiveRecommendedActions = async (req, res) => {
+  try {
+    const db = require('../config/database');
+    const userId = req.query.user_id || req.userId;
+
+    // A. Lead Followups
+    const [leadActions] = await db.execute(`
+      SELECT f.id, 'lead' AS entity_type, f.lead_id AS entity_id, l.name AS entity_name, l.phone,
+             f.next_action, f.scheduled_date, f.completed_date, COALESCE(l.priority, 'medium') AS priority
+      FROM followups f
+      JOIN client_leads l ON f.lead_id = l.id
+      WHERE (l.assigned_executive = ? OR f.created_by = ?)
+        AND f.completed_date IS NULL
+        AND (DATE(f.scheduled_date) <= CURDATE() OR f.scheduled_date IS NULL)
+      ORDER BY f.scheduled_date ASC
+      LIMIT 10
+    `, [userId, userId]).catch(() => [[]]);
+
+    // B. Buyer Followups
+    const [buyerActions] = await db.execute(`
+      SELECT bf.id, 'buyer' AS entity_type, bf.buyer_id AS entity_id, b.name AS entity_name, b.phone,
+             bf.next_action, CONCAT(bf.schedule_date, ' ', COALESCE(bf.schedule_time, '00:00:00')) AS scheduled_date,
+             bf.completed_date, COALESCE(b.buyer_lead_priority, b.priority, 'medium') AS priority
+      FROM buyer_followups bf
+      JOIN buyers b ON bf.buyer_id = b.id
+      WHERE (b.assigned_executive = ? OR bf.created_by = ?)
+        AND bf.completed_date IS NULL
+        AND (bf.schedule_date <= CURDATE() OR bf.schedule_date IS NULL)
+      ORDER BY bf.schedule_date ASC
+      LIMIT 10
+    `, [userId, userId]).catch(() => [[]]);
+
+    // C. Seller Followups
+    const [sellerActions] = await db.execute(`
+      SELECT sf.id, 'seller' AS entity_type, sf.seller_id AS entity_id, s.name AS entity_name, s.phone,
+             sf.next_action, CONCAT(sf.schedule_date, ' ', COALESCE(sf.schedule_time, '00:00:00')) AS scheduled_date,
+             sf.completed_date, COALESCE(s.priority, 'medium') AS priority
+      FROM seller_followups sf
+      JOIN sellers s ON sf.seller_id = s.id
+      WHERE (s.assigned_to = ? OR sf.created_by = ?)
+        AND sf.completed_date IS NULL
+        AND (sf.schedule_date <= CURDATE() OR sf.schedule_date IS NULL)
+      ORDER BY sf.schedule_date ASC
+      LIMIT 10
+    `, [userId, userId]).catch(() => [[]]);
+
+    const combinedActions = [...leadActions, ...buyerActions, ...sellerActions].sort((a, b) => {
+      const priorityOrder = { high: 1, medium: 2, low: 3 };
+      const pA = priorityOrder[String(a.priority).toLowerCase()] || 2;
+      const pB = priorityOrder[String(b.priority).toLowerCase()] || 2;
+      return pA - pB;
+    });
+
+    res.send({
+      success: true,
+      data: {
+        actions: combinedActions,
+        total: combinedActions.length,
+      }
+    });
+  } catch (err) {
+    res.status(500).send({
+      success: false,
+      message: err.message || 'Error fetching executive recommended actions.'
+    });
+  }
+};
+
+// Get Admin Escalations & High Priority Lead Summary
+exports.getAdminEscalations = async (req, res) => {
+  try {
+    const db = require('../config/database');
+
+    // High Priority Leads/Buyers/Sellers
+    const [highPriorityLeads] = await db.execute(`
+      SELECT id, name, phone, email, priority, stage, assigned_executive, 'lead' AS entity_type
+      FROM client_leads
+      WHERE LOWER(priority) = 'high'
+      ORDER BY updated_at DESC
+      LIMIT 15
+    `).catch(() => [[]]);
+
+    const [highPriorityBuyers] = await db.execute(`
+      SELECT id, name, phone, email, COALESCE(buyer_lead_priority, priority) AS priority, buyer_lead_stage AS stage, assigned_executive, 'buyer' AS entity_type
+      FROM buyers
+      WHERE LOWER(priority) = 'high' OR LOWER(buyer_lead_priority) = 'high'
+      ORDER BY updated_at DESC
+      LIMIT 15
+    `).catch(() => [[]]);
+
+    // Overdue Followups for Escalation Card
+    const [overdueLeadFollowups] = await db.execute(`
+      SELECT f.id, f.lead_id, l.name AS lead_name, l.priority, u.first_name AS exec_name, f.scheduled_date
+      FROM followups f
+      JOIN client_leads l ON f.lead_id = l.id
+      LEFT JOIN users u ON l.assigned_executive = u.id
+      WHERE f.completed_date IS NULL AND f.scheduled_date < NOW()
+      ORDER BY f.scheduled_date ASC
+      LIMIT 10
+    `).catch(() => [[]]);
+
+    res.send({
+      success: true,
+      data: {
+        highPriorityEntities: [...highPriorityLeads, ...highPriorityBuyers],
+        overdueFollowups: overdueLeadFollowups,
+      }
+    });
+  } catch (err) {
+    res.status(500).send({
+      success: false,
+      message: err.message || 'Error fetching admin escalations.'
+    });
+  }
+};

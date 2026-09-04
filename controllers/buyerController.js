@@ -70,6 +70,12 @@ exports.createBuyer = async (req, res) => {
     }
 
     const buyer = await Buyer.create(buyerData);
+    if (buyer) {
+      try {
+        const { triggerWelcomeAutomation } = require("../services/automationEngine");
+        triggerWelcomeAutomation({ entityType: "buyer", entityData: buyer }).catch((e) => console.warn("Welcome buyer automation warning:", e.message));
+      } catch (e) {}
+    }
     res.status(201).json(buyer);
   } catch (error) {
     console.error("Error creating buyer:", error);
