@@ -7,8 +7,17 @@ const db = require("../config/database");
  */
 function getRoleInfo(role) {
   const normalized = String(role || "").toLowerCase().trim();
-  const isAdmin = ["admin", "super_admin"].includes(normalized);
-  const isExecutive = ["executive", "agent", "team leader", "manager"].includes(normalized);
+  const isAdmin = normalized.includes("admin");
+  const isExecutive =
+    !isAdmin &&
+    (normalized.includes("exec") ||
+      normalized.includes("agent") ||
+      normalized.includes("leader") ||
+      normalized.includes("manager") ||
+      normalized.includes("staff") ||
+      normalized.includes("sales") ||
+      normalized.includes("presales") ||
+      normalized.includes("marketing"));
 
   let senderType = "user";
   if (isAdmin) senderType = "admin";
@@ -19,7 +28,7 @@ function getRoleInfo(role) {
 
 /**
  * POST /api/chat/conversations
- * Create a new conversation or return an existing active/reopened one
+ * Create a new conversation or return an existing active/reopened one (Atomic & Race-Protected)
  */
 exports.createOrGetConversation = async (req, res) => {
   try {
@@ -35,7 +44,8 @@ exports.createOrGetConversation = async (req, res) => {
 
     // 1. Validate property in my_properties
     const [propRows] = await db.execute(
-      `SELECT id, title, slug, assigned_to, final_price, location_name, society_name
+      `SELECT id, slug, assigned_to, final_price, location_name, society_name, property_subtype_name, unit_type,
+              COALESCE(NULLIF(CONCAT_WS(' ', unit_type, property_subtype_name, 'in', society_name), ''), society_name, 'Property') AS title
        FROM my_properties
        WHERE id = ?
        LIMIT 1`,
@@ -51,7 +61,7 @@ exports.createOrGetConversation = async (req, res) => {
 
     const property = propRows[0];
 
-    // Determine initial executive from property.assigned_to
+    // Determine initial executive strictly from property.assigned_to (never trust req.body.executive_id)
     let executiveId = property.assigned_to;
     if (!executiveId) {
       // Fallback: Find an active admin/executive or default to 1
@@ -61,42 +71,10 @@ exports.createOrGetConversation = async (req, res) => {
       executiveId = execRows.length > 0 ? execRows[0].id : 1;
     }
 
-    // 2. Search for existing conversation for this user + property
-    const existingConv = await ChatModel.findByUserAndProperty(userId, property_id);
-
-    if (existingConv) {
-      if (existingConv.status === "active") {
-        return res.status(200).json({
-          success: true,
-          isNew: false,
-          conversation: existingConv,
-        });
-      }
-
-      if (existingConv.status === "closed") {
-        const { senderType } = getRoleInfo(req.userRole);
-        const reopened = await ChatModel.reopenConversation(existingConv.id, userId, senderType);
-
-        // Notify room if socket is available
-        if (global.io) {
-          global.io.to(`conversation:${existingConv.id}`).emit("chat:conversation_reopened", {
-            conversationId: existingConv.id,
-            reopenedBy: userId,
-          });
-        }
-
-        return res.status(200).json({
-          success: true,
-          isNew: false,
-          reopened: true,
-          conversation: reopened,
-        });
-      }
-    }
-
-    // 3. Create new conversation
     const { senderType } = getRoleInfo(req.userRole);
-    const newConv = await ChatModel.createConversation({
+
+    // 2. Atomic Create or Retrieve (Row-locked inside MySQL transaction to eliminate duplicate race conditions)
+    const { conversation, isNew, reopened } = await ChatModel.createOrGetAtomic({
       userId,
       propertyId: property.id,
       executiveId,
@@ -106,18 +84,24 @@ exports.createOrGetConversation = async (req, res) => {
       senderType,
     });
 
-    // Notify executive via Socket.IO if initial message was sent
-    if (global.io && initial_message) {
+    // Notify executive via Socket.IO if new thread with initial message was created
+    if (global.io && isNew && initial_message) {
       global.io.to(`user:${executiveId}`).emit("chat:unread_count_update", {
-        conversationId: newConv.id,
-        unreadCount: newConv.unread_executive_count,
+        conversationId: conversation.id,
+        unreadCount: conversation.unread_executive_count,
+      });
+    } else if (global.io && reopened) {
+      global.io.to(`conversation:${conversation.id}`).emit("chat:conversation_reopened", {
+        conversationId: conversation.id,
+        reopenedBy: userId,
       });
     }
 
-    return res.status(201).json({
+    return res.status(isNew ? 201 : 200).json({
       success: true,
-      isNew: true,
-      conversation: newConv,
+      isNew,
+      reopened: !!reopened,
+      conversation,
     });
   } catch (error) {
     console.error("Error in createOrGetConversation:", error);
@@ -334,7 +318,15 @@ exports.sendMessage = async (req, res) => {
       // 1. Emit to conversation room
       global.io.to(`conversation:${conversation.id}`).emit("chat:new_message", message);
 
-      // 2. Emit unread update to the recipient's user room
+      // 2. Emit to participant personal rooms for guaranteed real-time delivery
+      if (conversation.executive_id) {
+        global.io.to(`user:${conversation.executive_id}`).emit("chat:new_message", message);
+      }
+      if (conversation.user_id) {
+        global.io.to(`user:${conversation.user_id}`).emit("chat:new_message", message);
+      }
+
+      // 3. Emit unread update to the recipient's user room
       if (senderType === "user") {
         global.io.to(`user:${conversation.executive_id}`).emit("chat:unread_count_update", {
           conversationId: conversation.id,
@@ -358,6 +350,109 @@ exports.sendMessage = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to send message",
+    });
+  }
+};
+
+/**
+ * POST /api/chat/conversations/:conversationId/media
+ * Upload & send photo or video attachment in property chat
+ */
+exports.sendMedia = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.userId;
+    const { isAdmin, senderType } = getRoleInfo(req.userRole);
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: "No media file uploaded",
+      });
+    }
+
+    const conversation = await ChatModel.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: "Conversation not found",
+      });
+    }
+
+    // Access control
+    const isOwner = Number(conversation.user_id) === Number(userId);
+    const isAssignedExecutive = Number(conversation.executive_id) === Number(userId);
+
+    if (!isAdmin && !isOwner && !isAssignedExecutive) {
+      return res.status(403).json({
+        success: false,
+        message: "Access forbidden: You do not have permission to send media in this conversation",
+      });
+    }
+
+    const mime = file.mimetype || "";
+    let messageType = "doc";
+    if (mime.startsWith("image/")) {
+      messageType = "image";
+    } else if (mime.startsWith("video/")) {
+      messageType = "video";
+    }
+
+    const publicUrl = file.publicUrl || `/uploads/messages/${file.filename}`;
+    const caption = (req.body.caption || "").trim();
+    const messageText = caption || (messageType === "image" ? "📷 Photo" : messageType === "video" ? "🎥 Video" : `📎 ${file.originalname}`);
+
+    const metadataJson = {
+      file_url: publicUrl,
+      file_name: file.originalname,
+      file_size: file.size,
+      mime_type: file.mimetype,
+      caption: caption || undefined,
+    };
+
+    const { message, isDuplicate } = await ChatModel.createMessage({
+      conversationId: conversation.id,
+      senderId: userId,
+      senderType,
+      messageType,
+      messageText,
+      metadataJson,
+      messageUuid: req.body.message_uuid || null,
+    });
+
+    if (!isDuplicate && global.io) {
+      global.io.to(`conversation:${conversation.id}`).emit("chat:new_message", message);
+      if (conversation.executive_id) {
+        global.io.to(`user:${conversation.executive_id}`).emit("chat:new_message", message);
+      }
+      if (conversation.user_id) {
+        global.io.to(`user:${conversation.user_id}`).emit("chat:new_message", message);
+      }
+
+      if (senderType === "user") {
+        global.io.to(`user:${conversation.executive_id}`).emit("chat:unread_count_update", {
+          conversationId: conversation.id,
+          unreadCount: (conversation.unread_executive_count || 0) + 1,
+        });
+      } else {
+        global.io.to(`user:${conversation.user_id}`).emit("chat:unread_count_update", {
+          conversationId: conversation.id,
+          unreadCount: (conversation.unread_user_count || 0) + 1,
+        });
+      }
+    }
+
+    return res.status(isDuplicate ? 200 : 201).json({
+      success: true,
+      isDuplicate,
+      message,
+    });
+  } catch (error) {
+    console.error("Error in sendMedia:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload and send media",
     });
   }
 };
