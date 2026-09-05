@@ -39,13 +39,18 @@ const Tenant = {
     const sql = `
       SELECT 
         t.*,
+        u_ten.username AS username,
         CONCAT_WS(' ', rp.property_type_name, rp.unit_type, rp.property_subtype_name, 'at', rp.society_name) AS property_title,
         rp.owner_id,
         o.name AS owner_name,
+        o.phone AS owner_phone,
+        o.email AS owner_email,
+        o.whatsapp AS owner_whatsapp,
         CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS assigned_to_name,
         u.email AS assigned_to_email,
         u.phone AS assigned_to_phone
       FROM tenants t
+        LEFT JOIN users u_ten ON (BINARY u_ten.email = BINARY t.email AND u_ten.role = 'tenant')
         LEFT JOIN rental_properties rp ON t.rental_property_id = rp.id
         LEFT JOIN owners o ON rp.owner_id = o.id
         LEFT JOIN users u ON t.assigned_to = u.id
@@ -59,13 +64,18 @@ const Tenant = {
     const sql = `
       SELECT 
         t.*,
+        u_ten.username AS username,
         CONCAT_WS(' ', rp.property_type_name, rp.unit_type, rp.property_subtype_name, 'at', rp.society_name) AS property_title,
         rp.owner_id,
         o.name AS owner_name,
+        o.phone AS owner_phone,
+        o.email AS owner_email,
+        o.whatsapp AS owner_whatsapp,
         CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS assigned_to_name,
         u.email AS assigned_to_email,
         u.phone AS assigned_to_phone
       FROM tenants t
+        LEFT JOIN users u_ten ON (BINARY u_ten.email = BINARY t.email AND u_ten.role = 'tenant')
         LEFT JOIN rental_properties rp ON t.rental_property_id = rp.id
         LEFT JOIN owners o ON rp.owner_id = o.id
         LEFT JOIN users u ON t.assigned_to = u.id
