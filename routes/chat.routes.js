@@ -3,6 +3,11 @@ const express = require("express");
 const router = express.Router();
 const chatController = require("../controllers/chat.controller");
 const { verifyToken } = require("../middleware/authJwt");
+const {
+  uploadMedia,
+  handleUploadErrors,
+  attachPublicUrls,
+} = require("../middleware/upload");
 
 // All chat routes require valid JWT authentication
 router.use(verifyToken);
@@ -15,6 +20,13 @@ router.get("/conversations/:conversationId", chatController.getConversationById)
 // Message endpoints
 router.get("/conversations/:conversationId/messages", chatController.getMessages);
 router.post("/conversations/:conversationId/messages", chatController.sendMessage);
+router.post(
+  "/conversations/:conversationId/media",
+  uploadMedia.single("file"),
+  handleUploadErrors,
+  attachPublicUrls,
+  chatController.sendMedia
+);
 
 // Read receipts and management
 router.post("/conversations/:conversationId/read", chatController.markAsRead);

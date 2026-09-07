@@ -9,9 +9,8 @@ class Lead {
   static mapLeadRow(row) {
     return {
       ...row,
-      assigned_executive_name: `${row.first_name || ""} ${
-        row.last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.first_name || ""} ${row.last_name || ""
+        }`.trim(),
     };
   }
 
@@ -75,67 +74,53 @@ class Lead {
         created_by, updated_by, priority
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          salutation ?? 'Mr.',
-          name ?? null,
-          phone ?? null,
-          email ?? null,
-          lead_type ?? 'seller',
-          lead_source ?? 'Website',
-          whatsapp_number ?? null,
-          state ?? null,
-          city ?? null,
-          location ?? null,
-          status ?? 'new',
-          assigned_executive ?? null,
-          created_by ?? null,
-          updated_by ?? null,
-          priority ?? 'hot',
+          salutation,
+          name,
+          phone,
+          email,
+          lead_type,
+          lead_source,
+          whatsapp_number,
+          state,
+          city,
+          location,
+          status,
+          assigned_executive, // now null if ""
+          created_by,
+          updated_by,
+          priority, // now null if ""
         ]
       );
 
-      let createdLead = null;
       if (result.insertId) {
-        createdLead = await this.findById(result.insertId);
-      }
-      
-      if (!createdLead) {
-        const [rows] = await db.execute(
-          `SELECT l.*, 
-                  ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
-                  cu.first_name AS created_first_name, cu.last_name AS created_last_name,
-                  uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
-           FROM client_leads l
-           LEFT JOIN users ae ON l.assigned_executive = ae.id
-           LEFT JOIN users cu ON l.created_by = cu.id
-           LEFT JOIN users uu ON l.updated_by = uu.id
-           WHERE (? IS NOT NULL AND l.email = ?) OR (? IS NOT NULL AND l.phone = ?)
-           ORDER BY l.created_at DESC
-           LIMIT 1`,
-          [email || null, email || null, phone || null, phone || null]
-        );
-
-        if (rows && rows.length > 0) {
-          const row = rows[0];
-          createdLead = {
-            ...row,
-            assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
-            created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
-            updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
-          };
-        }
+        const lead = await this.findById(result.insertId);
+        if (lead) return lead;
       }
 
-      if (createdLead) {
-        // Trigger non-blocking Welcome Email & WhatsApp Automation
-        try {
-          const { triggerWelcomeAutomation } = require("../services/automationEngine");
-          const { updateEntityPriorityScore } = require("../utils/leadScoring");
-          triggerWelcomeAutomation({ entityType: "lead", entityData: createdLead }).catch((e) => console.warn("Welcome automation warning:", e.message));
-          updateEntityPriorityScore("lead", createdLead.id).catch(() => {});
-        } catch (autoErr) {
-          console.warn("Automation trigger warning:", autoErr.message);
-        }
-        return createdLead;
+      // If id is UUID, lookup by phone/email
+      const [rows] = await db.execute(
+        `SELECT l.*, 
+                ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
+                cu.first_name AS created_first_name, cu.last_name AS created_last_name,
+                uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
+         FROM client_leads l
+         LEFT JOIN users ae ON l.assigned_executive = ae.id
+         LEFT JOIN users cu ON l.created_by = cu.id
+         LEFT JOIN users uu ON l.updated_by = uu.id
+         WHERE l.phone = ?
+         ORDER BY l.created_at DESC
+         LIMIT 1`,
+        [phone]
+      );
+
+      if (rows && rows.length > 0) {
+        const row = rows[0];
+        return {
+          ...row,
+          assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
+          created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
+          updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
+        };
       }
 
       return null;
@@ -167,15 +152,12 @@ class Lead {
 
     return rows.map((row) => ({
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${
-        row.assigned_last_name || ""
-      }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${
-        row.created_last_name || ""
-      }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${
-        row.updated_last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
+        }`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
+        }`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
+        }`.trim(),
     }));
   }
 
@@ -197,15 +179,12 @@ class Lead {
 
     return rows.map((row) => ({
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${
-        row.assigned_last_name || ""
-      }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${
-        row.created_last_name || ""
-      }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${
-        row.updated_last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
+        }`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
+        }`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
+        }`.trim(),
     }));
   }
 
@@ -231,18 +210,14 @@ class Lead {
 
     return rows.map((row) => ({
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${
-        row.assigned_last_name || ""
-      }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${
-        row.created_last_name || ""
-      }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${
-        row.updated_last_name || ""
-      }`.trim(),
-      transferred_by_name: `${row.transferred_by_first_name || ""} ${
-        row.transferred_by_last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
+        }`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
+        }`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
+        }`.trim(),
+      transferred_by_name: `${row.transferred_by_first_name || ""} ${row.transferred_by_last_name || ""
+        }`.trim(),
     }));
   }
 
@@ -268,18 +243,14 @@ class Lead {
 
     return rows.map((row) => ({
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${
-        row.assigned_last_name || ""
-      }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${
-        row.created_last_name || ""
-      }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${
-        row.updated_last_name || ""
-      }`.trim(),
-      transferred_by_name: `${row.transferred_by_first_name || ""} ${
-        row.transferred_by_last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
+        }`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
+        }`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
+        }`.trim(),
+      transferred_by_name: `${row.transferred_by_first_name || ""} ${row.transferred_by_last_name || ""
+        }`.trim(),
     }));
   }
 
@@ -305,15 +276,12 @@ class Lead {
     const row = rows[0];
     return {
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${
-        row.assigned_last_name || ""
-      }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${
-        row.created_last_name || ""
-      }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${
-        row.updated_last_name || ""
-      }`.trim(),
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
+        }`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
+        }`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
+        }`.trim(),
     };
   }
 
@@ -321,9 +289,9 @@ class Lead {
   // UPDATE with duplicate check
   // ===========================
   static async update(id, leadData) {
-   const cleanData = Object.fromEntries(
-  Object.entries(leadData).map(([k, v]) => [k, v === undefined || v === "" ? null : v])
-);
+    const cleanData = Object.fromEntries(
+      Object.entries(leadData).map(([k, v]) => [k, v === undefined || v === "" ? null : v])
+    );
 
     // 🔒 Protected fields — never allow these to be updated via dynamic query
     const PROTECTED_FIELDS = new Set([
@@ -484,39 +452,39 @@ class Lead {
     return result.affectedRows > 0;
   }
   static async bulkUpdateAssignedExecutive(ids = [], assigned_executive = null) {
-  if (!Array.isArray(ids) || ids.length === 0) {
-    throw new Error("IDs array is required");
-  }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new Error("IDs array is required");
+    }
 
-  // Ensure unique IDs
-  const uniqueIds = [...new Set(ids.map(String))];
+    // Ensure unique IDs
+    const uniqueIds = [...new Set(ids.map(String))];
 
-  // Step 1: Get which IDs exist
-  const [existingRows] = await db.execute(
-    `SELECT id FROM client_leads WHERE id IN (${uniqueIds.map(() => '?').join(',')})`,
-    uniqueIds
-  );
-  const existingIds = existingRows.map((r) => String(r.id));
-  const notFoundIds = uniqueIds.filter((id) => !existingIds.includes(id));
+    // Step 1: Get which IDs exist
+    const [existingRows] = await db.execute(
+      `SELECT id FROM client_leads WHERE id IN (${uniqueIds.map(() => '?').join(',')})`,
+      uniqueIds
+    );
+    const existingIds = existingRows.map((r) => String(r.id));
+    const notFoundIds = uniqueIds.filter((id) => !existingIds.includes(id));
 
-  // Step 2: Update existing ones
-  let affectedCount = 0;
-  if (existingIds.length > 0) {
-    const [result] = await db.execute(
-      `UPDATE client_leads 
+    // Step 2: Update existing ones
+    let affectedCount = 0;
+    if (existingIds.length > 0) {
+      const [result] = await db.execute(
+        `UPDATE client_leads 
        SET assigned_executive = ?, updated_at = NOW() 
        WHERE id IN (${existingIds.map(() => '?').join(',')})`,
-      [assigned_executive, ...existingIds]
-    );
-    affectedCount = result.affectedRows || 0;
-  }
+        [assigned_executive, ...existingIds]
+      );
+      affectedCount = result.affectedRows || 0;
+    }
 
-  return {
-    affectedCount,
-    affectedIds: existingIds,
-    notFoundIds,
-  };
-}
+    return {
+      affectedCount,
+      affectedIds: existingIds,
+      notFoundIds,
+    };
+  }
 
 
   static async findByIds(ids) {

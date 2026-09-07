@@ -138,7 +138,16 @@ class SystemSettings {
 
   static async getSettings() {
     const [rows] = await db.query("SELECT * FROM system_settings LIMIT 1");
-    return rows.length ? rows[0] : null;
+    if (!rows.length) return null;
+    const row = rows[0];
+    return {
+      ...row,
+      auto_assign_leads: Boolean(row.auto_assign_leads),
+      lead_scoring_enabled: Boolean(row.lead_scoring_enabled),
+      property_auto_approval: Boolean(row.property_auto_approval),
+      enable_inactivity_logout: row.enable_inactivity_logout === 1 || row.enable_inactivity_logout === true || row.enable_inactivity_logout === "1" || row.enable_inactivity_logout === "true",
+      enable_guest_property_limit: row.enable_guest_property_limit === 1 || row.enable_guest_property_limit === true || row.enable_guest_property_limit === "1" || row.enable_guest_property_limit === "true",
+    };
   }
 
   static async create(newSettings) {
