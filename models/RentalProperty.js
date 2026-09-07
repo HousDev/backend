@@ -19,6 +19,129 @@ function safeJsonParse(str, defaultValue = []) {
   }
 }
 
+const DUMMY_RENTAL_PROPERTIES = [
+  {
+    owner_name: "Prerana",
+    title: "Luxury 2 BHK Apartment in Wakad",
+    property_type_name: "2 BHK",
+    monthly_rent: 28000,
+    expected_rent: 28000,
+    security_deposit: 56000,
+    location_name: "Wakad",
+    city_name: "Pune",
+    society_name: "Kaspate Wasti, Wakad",
+    address: "Kaspate Wasti, Wakad, Pune, Maharashtra 411057",
+    furnishing: "Semi Furnished",
+    carpet_area: 850,
+    builtup_area: 1050,
+    bedrooms: 2,
+    bathrooms: 2,
+    balcony: 2,
+    listing_type: "rent",
+    status: "Available",
+    is_public: 1,
+    photos: JSON.stringify(["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80"]),
+    amenities: JSON.stringify(["Parking", "Lift", "Security", "WiFi", "Gym"]),
+    nearby_places: JSON.stringify([{ label: "Metro", distance: "800m" }, { label: "D-Mart", distance: "1km" }]),
+  },
+  {
+    owner_name: "Pream",
+    title: "Modern 1 BHK Smart Home near IT Park",
+    property_type_name: "1 BHK",
+    monthly_rent: 18500,
+    expected_rent: 18500,
+    security_deposit: 37000,
+    location_name: "Hinjewadi",
+    city_name: "Pune",
+    society_name: "Rajiv Gandhi IT Park Area",
+    address: "Phase 1, Hinjewadi, Pune, Maharashtra 411057",
+    furnishing: "Fully Furnished",
+    carpet_area: 620,
+    builtup_area: 750,
+    bedrooms: 1,
+    bathrooms: 1,
+    balcony: 1,
+    listing_type: "rent",
+    status: "Available",
+    is_public: 1,
+    photos: JSON.stringify(["https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80"]),
+    amenities: JSON.stringify(["Parking", "Security", "WiFi", "Water"]),
+    nearby_places: JSON.stringify([{ label: "IT Park", distance: "500m" }, { label: "Hospital", distance: "1.5km" }]),
+  },
+  {
+    owner_name: "Pranjali",
+    title: "Spacious 3 BHK Family Residence in Baner",
+    property_type_name: "3 BHK",
+    monthly_rent: 38000,
+    expected_rent: 38000,
+    security_deposit: 76000,
+    location_name: "Baner",
+    city_name: "Pune",
+    society_name: "Pan Card Club Road",
+    address: "Pan Card Club Road, Baner, Pune, Maharashtra 411045",
+    furnishing: "Fully Furnished",
+    carpet_area: 1250,
+    builtup_area: 1500,
+    bedrooms: 3,
+    bathrooms: 3,
+    balcony: 3,
+    listing_type: "rent",
+    status: "Available",
+    is_public: 1,
+    photos: JSON.stringify(["https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80"]),
+    amenities: JSON.stringify(["Parking", "Lift", "Security", "Garden", "Gym", "Power Backup"]),
+    nearby_places: JSON.stringify([{ label: "School", distance: "500m" }, { label: "Mall", distance: "2km" }]),
+  },
+  {
+    owner_name: "Shree",
+    title: "Premium 2 BHK Gated Community Residence",
+    property_type_name: "2 BHK",
+    monthly_rent: 24500,
+    expected_rent: 24500,
+    security_deposit: 49000,
+    location_name: "Tathawade",
+    city_name: "Pune",
+    society_name: "Near JSPM College Campus",
+    address: "JSPM Road, Tathawade, Pune, Maharashtra 411033",
+    furnishing: "Semi Furnished",
+    carpet_area: 920,
+    builtup_area: 1100,
+    bedrooms: 2,
+    bathrooms: 2,
+    balcony: 2,
+    listing_type: "rent",
+    status: "Available",
+    is_public: 1,
+    photos: JSON.stringify(["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80"]),
+    amenities: JSON.stringify(["Parking", "Lift", "Security", "Clubhouse"]),
+    nearby_places: JSON.stringify([{ label: "College", distance: "400m" }, { label: "Market", distance: "600m" }]),
+  },
+  {
+    owner_name: "Sumit",
+    title: "Studio Apartment with Modern Amenities",
+    property_type_name: "Studio",
+    monthly_rent: 14000,
+    expected_rent: 14000,
+    security_deposit: 28000,
+    location_name: "Rahatani",
+    city_name: "Pune",
+    society_name: "Main Chowk Area",
+    address: "Rahatani Main Road, Pune, Maharashtra 411017",
+    furnishing: "Fully Furnished",
+    carpet_area: 450,
+    builtup_area: 550,
+    bedrooms: 1,
+    bathrooms: 1,
+    balcony: 1,
+    listing_type: "rent",
+    status: "Available",
+    is_public: 1,
+    photos: JSON.stringify(["https://images.unsplash.com/photo-1554995207-c18c203602cb?auto=format&fit=crop&w=800&q=80"]),
+    amenities: JSON.stringify(["Parking", "Security", "WiFi"]),
+    nearby_places: JSON.stringify([{ label: "Bus Stop", distance: "200m" }, { label: "Market", distance: "500m" }]),
+  },
+];
+
 class RentalProperty {
   /* =========================
      CREATE
@@ -96,24 +219,60 @@ class RentalProperty {
     return r.affectedRows;
   }
 
+
   /* =========================
      READ
      ========================= */
   static async getAll() {
-    const [rows] = await db.execute(`
-      SELECT 
-        p.*,
-        CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
-        u.email  AS executive_email,
-        u.phone  AS executive_phone,
-        IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
-        o.email  AS owner_email,
-        o.phone  AS owner_phone
-      FROM rental_properties AS p
-      LEFT JOIN users   AS u ON p.assigned_to = u.id
-      LEFT JOIN owners  AS o ON p.owner_id   = o.id
-      ORDER BY p.created_at DESC
-    `);
+    let rows = [];
+    try {
+      const [dbRows] = await db.execute(`
+        SELECT 
+          p.*,
+          CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
+          u.email  AS executive_email,
+          u.phone  AS executive_phone,
+          IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
+          o.email  AS owner_email,
+          o.phone  AS owner_phone
+        FROM rental_properties AS p
+        LEFT JOIN users   AS u ON p.assigned_to = u.id
+        LEFT JOIN owners  AS o ON p.owner_id   = o.id
+        ORDER BY p.created_at DESC
+      `);
+      rows = dbRows || [];
+
+      if (rows.length === 0) {
+        for (const item of DUMMY_RENTAL_PROPERTIES) {
+          try {
+            await RentalProperty.create(item);
+          } catch (e) {
+            // ignore
+          }
+        }
+        const [seededRows] = await db.execute(`
+          SELECT 
+            p.*,
+            CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS executive_name,
+            u.email  AS executive_email,
+            u.phone  AS executive_phone,
+            IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
+            o.email  AS owner_email,
+            o.phone  AS owner_phone
+          FROM rental_properties AS p
+          LEFT JOIN users   AS u ON p.assigned_to = u.id
+          LEFT JOIN owners  AS o ON p.owner_id   = o.id
+          ORDER BY p.created_at DESC
+        `);
+        rows = seededRows || [];
+      }
+    } catch (err) {
+      console.error("Error in RentalProperty.getAll db query:", err.message);
+    }
+
+    if (!rows || rows.length === 0) {
+      rows = DUMMY_RENTAL_PROPERTIES;
+    }
 
     return rows.map((row) => {
       row.photos = safeJsonParse(row.photos, []);
