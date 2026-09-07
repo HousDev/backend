@@ -4,10 +4,10 @@ const tenantVisitController = {
   async create(req, res) {
     try {
       const id = await tenantVisitModel.create(req.body);
-      return res.status(201).json({ success: true, message: "Site Visit scheduled", id });
+      return res.status(201).json({ success: true, message: "Site Visit scheduled successfully", id });
     } catch (err) {
       console.error("Create tenant visit error:", err);
-      return res.status(500).json({ success: false, message: "Failed to schedule visit" });
+      return res.status(500).json({ success: false, message: "Failed to schedule visit: " + (err.message || '') });
     }
   },
 

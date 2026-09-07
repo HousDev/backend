@@ -540,8 +540,52 @@ exports.me = async (req, res) => {
     }
     const user = req.user ? { ...req.user } : await User.findById(userId);
     if (!user) {
-      return res.status(404).send({ success: false, message: 'User not found' });
+      return res.status(401).send({ success: false, message: 'User not found', code: 'USER_NOT_FOUND' });
     }
+    if (!user.is_active) {
+      return res.status(401).send({ success: false, message: 'User account is inactive', code: 'USER_INACTIVE' });
+    }
+
+    // If role is tenant, verify that their tenant record still exists in tenants table
+    if (String(user.role || '').toLowerCase() === 'tenant') {
+      let tenantExists = false;
+      if (user.email) {
+        try {
+          const [tRows] = await db.query(
+            "SELECT id FROM tenants WHERE LOWER(email) = ? LIMIT 1",
+            [user.email.toLowerCase().trim()]
+          );
+          if (tRows && tRows.length > 0) {
+            tenantExists = true;
+          }
+        } catch (e) {}
+      }
+
+      if (!tenantExists && user.phone) {
+        try {
+          const [tRows] = await db.query(
+            "SELECT id FROM tenants WHERE phone = ? LIMIT 1",
+            [user.phone.trim()]
+          );
+          if (tRows && tRows.length > 0) {
+            tenantExists = true;
+          }
+        } catch (e) {}
+      }
+
+      if (!tenantExists) {
+        // Tenant record was deleted by admin from tenants table!
+        try {
+          await User.remove(user.id);
+        } catch (e) {}
+        return res.status(401).send({
+          success: false,
+          message: 'Tenant account profile has been deleted.',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+    }
+
     delete user.password;
     res.send({
       success: true,

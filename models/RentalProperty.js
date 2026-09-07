@@ -149,7 +149,8 @@ class RentalProperty {
         u.phone  AS executive_phone,
         IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
         o.email  AS owner_email,
-        o.phone  AS owner_phone
+        o.phone  AS owner_phone,
+        o.whatsapp AS owner_whatsapp
       FROM rental_properties AS p
       LEFT JOIN users   AS u ON p.assigned_to = u.id
       LEFT JOIN owners  AS o ON p.owner_id   = o.id
@@ -166,6 +167,23 @@ class RentalProperty {
     property.furnishing_items = safeJsonParse(property.furnishing_items, []);
     property.nearby_places = safeJsonParse(property.nearby_places, []);
 
+    // Live counts for shortlisted and inquiries from DB
+    let tenantsCount = 0;
+    let visitsCount = 0;
+    try {
+      const [tRows] = await db.execute("SELECT COUNT(*) AS cnt FROM tenants WHERE rental_property_id = ?", [id]);
+      tenantsCount = Number(tRows[0]?.cnt || 0);
+    } catch (e) {}
+
+    try {
+      const [vRows] = await db.execute("SELECT COUNT(*) AS cnt FROM tenant_visits WHERE rental_property_id = ?", [id]);
+      visitsCount = Number(vRows[0]?.cnt || 0);
+    } catch (e) {}
+
+    property.shortlisted_count = tenantsCount;
+    property.inquiries_count = (tenantsCount + visitsCount);
+    property.direct_inquiries = (tenantsCount + visitsCount);
+
     property.assignedTo = {
       id: property.assigned_to ?? null,
       name: property.executive_name || null,
@@ -178,6 +196,7 @@ class RentalProperty {
       name: property.owner_name || null,
       email: property.owner_email || null,
       phone: property.owner_phone || null,
+      whatsapp: property.owner_whatsapp || null,
     };
 
     return property;
