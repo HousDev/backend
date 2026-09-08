@@ -415,7 +415,59 @@ class FollowUpModel {
       params.push(id);
       await db.query(sql, params);
 
-      return await this.findById(id);
+      // Update parent entity (Lead / Buyer / Seller) stage, status, priority, and last_contact if updated
+      const current = await this.findById(id);
+      if (current && current.entity_id) {
+        const entityCode = data.entity_code || current.entity_code;
+        const statusCode = data.status_code || current.status_code;
+        const stageCode = data.stage_code || current.stage_code;
+        const priorityCode = data.priority_code || current.priority_code;
+        const entityId = current.entity_id;
+        const updatedBy = data.updated_by || current.updated_by || null;
+
+        try {
+          if (entityCode === "LEAD") {
+            await db.query(
+              `UPDATE client_leads 
+               SET status = COALESCE(?, status), 
+                   stage = COALESCE(?, stage), 
+                   priority = COALESCE(?, priority),
+                   last_contact = NOW(),
+                   last_contact_by = COALESCE(?, last_contact_by),
+                   updated_at = NOW()
+               WHERE id = ? OR lead_number = ?`,
+              [statusCode, stageCode, priorityCode, updatedBy, entityId, entityId]
+            );
+          } else if (entityCode === "BUYER") {
+            await db.query(
+              `UPDATE buyers 
+               SET buyer_lead_status = COALESCE(?, buyer_lead_status), 
+                   buyer_lead_stage = COALESCE(?, buyer_lead_stage), 
+                   priority = COALESCE(?, priority),
+                   last_contact = NOW(),
+                   last_contact_by = COALESCE(?, last_contact_by),
+                   updated_at = NOW()
+               WHERE id = ?`,
+              [statusCode, stageCode, priorityCode, updatedBy, entityId]
+            );
+          } else if (entityCode === "SELLER") {
+            await db.query(
+              `UPDATE sellers 
+               SET status = COALESCE(?, status), 
+                   stage = COALESCE(?, stage), 
+                   priority = COALESCE(?, priority),
+                   last_activity = NOW(),
+                   updated_at = NOW()
+               WHERE id = ?`,
+              [statusCode, stageCode, priorityCode, entityId]
+            );
+          }
+        } catch (parentUpdateErr) {
+          console.warn("[FollowUpModel.update] Parent entity update warning:", parentUpdateErr.message);
+        }
+      }
+
+      return current;
     } catch (err) {
       console.error("[FollowUpModel.update] error:", err.message);
       throw err;
