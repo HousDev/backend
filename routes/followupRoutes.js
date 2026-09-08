@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const FollowUpController = require("../controllers/FollowUpController");
+const FollowUpController = require("../controllers/followupController");
 const { authJwt } = require("../middleware");
 
 // Unified CRUD & Action endpoints
