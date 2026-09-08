@@ -128,9 +128,59 @@ const FollowUpMaster = {
     const filteredData = {};
     for (const [k, v] of Object.entries(data)) {
       if (cols.length === 0 || cols.includes(k)) {
-        filteredData[k] = v;
+        if (typeof v === "object" && v !== null && !(v instanceof Date)) {
+          filteredData[k] = JSON.stringify(v);
+        } else {
+          filteredData[k] = v;
+        }
       }
     }
+
+    // Auto-generate ID if table has id column and it is missing
+    if (cols.includes("id") && !filteredData.id) {
+      if (data.id) {
+        filteredData.id = data.id;
+      } else if (tableName === "fu_rules") {
+        filteredData.id = data.rule_id || data.name || `FUR_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      } else if (tableName === "fu_sequences") {
+        filteredData.id = `${data.sequence_name}_STEP_${data.step}`;
+      } else if (tableName === "fu_stages" || tableName === "fu_statuses") {
+        filteredData.id = `${data.entity_code || 'GEN'}_${data.code || data.name}`;
+      } else if (tableName === "fu_outcomes") {
+        filteredData.id = `${data.follow_up_type_code || 'ALL'}_${data.code || data.name}`;
+      } else if (tableName === "fu_reasons") {
+        filteredData.id = `${data.outcome_code ? data.outcome_code + '_' : ''}${data.code || data.name}`;
+      } else {
+        filteredData.id =
+          data.code ||
+          data.name ||
+          `${tableName.replace("fu_", "")}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      }
+    }
+
+    // Ensure name is present for tables with name requirement
+    if (cols.includes("name") && !filteredData.name) {
+      filteredData.name = data.rule_id || data.code || data.id || filteredData.id || "Untitled";
+    }
+
+    // Ensure entity_code fallback if table has entity_code column
+    if (cols.includes("entity_code") && filteredData.entity_code === undefined) {
+      filteredData.entity_code = data.entity_code || "";
+    }
+
+    // Ensure icon fallback if table has icon/icon_name
+    if (cols.includes("icon") && !filteredData.icon) {
+      filteredData.icon = data.icon || data.icon_name || "Phone";
+    }
+    if (cols.includes("icon_name") && !filteredData.icon_name) {
+      filteredData.icon_name = data.icon_name || data.icon || "Phone";
+    }
+
+    // Ensure priority_code fallback
+    if (cols.includes("priority_code") && !filteredData.priority_code) {
+      filteredData.priority_code = data.priority_code || "MEDIUM";
+    }
+
     const keys = Object.keys(filteredData);
     if (keys.length === 0) throw new Error("No valid data provided.");
 
@@ -157,7 +207,11 @@ const FollowUpMaster = {
     const filteredData = {};
     for (const [k, v] of Object.entries(data)) {
       if (k !== "id" && (cols.length === 0 || cols.includes(k))) {
-        filteredData[k] = v;
+        if (typeof v === "object" && v !== null && !(v instanceof Date)) {
+          filteredData[k] = JSON.stringify(v);
+        } else {
+          filteredData[k] = v;
+        }
       }
     }
     const keys = Object.keys(filteredData);
@@ -189,9 +243,14 @@ const FollowUpMaster = {
     return result;
   },
 
+  // Check if a record is duplicate (disabled for full import)
+  checkDuplicate: async (tableName, row) => {
+    return false;
+  },
+
   // Bulk import tables
   bulkImport: async (backupTables) => {
-    const results = { importedTables: 0, importedRows: 0 };
+    const results = { importedTables: 0, importedRows: 0, duplicatesSkipped: 0 };
     for (const [table, rows] of Object.entries(backupTables)) {
       if (!ALLOWED_TABLES.includes(table) || !Array.isArray(rows) || rows.length === 0) {
         continue;

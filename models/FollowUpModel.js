@@ -8,6 +8,7 @@ class FollowUpModel {
   static async create(data) {
     const id = data.id || `fu_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const entityCode = (data.entity_code || data.entityCode || "LEAD").toUpperCase();
+    const entityId = data.entity_id || data.entityId || null;
     const entityName = data.entity_name || data.entityName || data.name || (data.entity_ref ? String(data.entity_ref).replace(/\s*\([^)]*\)\s*$/, '') : 'Customer');
     const entityPhone = data.entity_phone || data.entityPhone || data.phone || (data.entity_ref && String(data.entity_ref).match(/\(([^)]+)\)/) ? String(data.entity_ref).match(/\(([^)]+)\)/)[1] : null);
     const entityRef = data.entity_ref || data.entityRef || (entityPhone ? `${entityName} (${entityPhone})` : entityName);

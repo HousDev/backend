@@ -4,7 +4,7 @@ const Template = require("../models/templateModel");
 
 const CONTENT_LIMITS = { sms: 1000, whatsapp: 2000, email: 5000 };
 const CHANNELS = ["sms", "whatsapp", "email"];
-const PRIORITIES = ["Normal", "High", "Critical"];
+const PRIORITIES = ["Normal", "High", "Urgent", "Critical", "Low", "Medium"];
 const STATUSES = ["pending", "approved", "rejected"];
 
 // Toggle this if you want to allow ANY category string
@@ -39,8 +39,13 @@ function validate(body) {
     errors.push(`Content exceeds limit for ${channel} (${limit}).`);
   }
 
-  const priority = (body.priority || "Normal").trim();
-  if (!PRIORITIES.includes(priority)) errors.push("Invalid priority.");
+  let priority = (body.priority || "Normal").trim();
+  const matchedPriority = PRIORITIES.find(p => p.toLowerCase() === priority.toLowerCase());
+  if (matchedPriority) {
+    priority = matchedPriority;
+  } else {
+    priority = "Normal";
+  }
 
   const autoApprove = !!body.autoApprove;
 
