@@ -192,31 +192,69 @@ const OwnerModel = {
     if (data.last_activity) data.last_activity = toDateOnly(data.last_activity);
     data.notifications = safeStringify(data.notifications, null);
 
-    const sql = `
-      UPDATE owners SET 
-        salutation=?, name=?, phone=?, whatsapp=?, email=?, state=?, city=?, 
-        location=?, stage=?, lead_type=?, priority=?, status=?, notes=?, 
-        owner_dob=?, countryCode=?, assigned_to=?, assigned_to_name=?,
-        lead_score=?, deal_value=?, expected_close=?, source=?, visits=?, 
-        total_visits=?, last_activity=?, notifications=?, current_stage=?, 
-        stage_progress=?, deal_potential=?, response_rate=?, avg_response_time=?,
-        updated_at=CURRENT_TIMESTAMP
-      WHERE id=?
-    `;
-    const params = [
-      data.salutation, data.name, data.phone, data.whatsapp, data.email,
-      data.state, data.city, data.location, data.stage, data.leadType ?? data.lead_type,
-      data.priority, data.status, data.notes, data.owner_dob,
-      data.countryCode, data.assigned_to, data.assigned_to_name,
-      data.lead_score, data.deal_value, data.expected_close, data.source,
-      data.visits, data.total_visits, data.last_activity, data.notifications,
-      data.current_stage, data.stage_progress, data.deal_potential,
-      data.response_rate, data.avg_response_time,
-      id
-    ];
+    // Format preferred_visit_slots
+    let preferredVisitSlots = data.preferred_visit_slots || data.preferred_slots || null;
+    if (preferredVisitSlots && typeof preferredVisitSlots === 'object') {
+      preferredVisitSlots = JSON.stringify(preferredVisitSlots);
+    }
 
-    const [result] = await runQuery(conn, sql, params);
-    return result.affectedRows;
+    // Try update with preferred_visit_slots first
+    try {
+      const sqlWithSlots = `
+        UPDATE owners SET 
+          salutation=?, name=?, phone=?, whatsapp=?, email=?, state=?, city=?, 
+          location=?, stage=?, lead_type=?, priority=?, status=?, notes=?, 
+          owner_dob=?, countryCode=?, assigned_to=?, assigned_to_name=?,
+          lead_score=?, deal_value=?, expected_close=?, source=?, visits=?, 
+          total_visits=?, last_activity=?, notifications=?, current_stage=?, 
+          stage_progress=?, deal_potential=?, response_rate=?, avg_response_time=?,
+          preferred_visit_slots=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `;
+      const paramsWithSlots = [
+        data.salutation, data.name, data.phone, data.whatsapp, data.email,
+        data.state, data.city, data.location, data.stage, data.leadType ?? data.lead_type,
+        data.priority, data.status, data.notes, data.owner_dob,
+        data.countryCode, data.assigned_to, data.assigned_to_name,
+        data.lead_score, data.deal_value, data.expected_close, data.source,
+        data.visits, data.total_visits, data.last_activity, data.notifications,
+        data.current_stage, data.stage_progress, data.deal_potential,
+        data.response_rate, data.avg_response_time,
+        preferredVisitSlots,
+        id
+      ];
+
+      const [result] = await runQuery(conn, sqlWithSlots, paramsWithSlots);
+      return result ? result.affectedRows : 1;
+    } catch (colErr) {
+      // Fallback if preferred_visit_slots column doesn't exist yet
+      const sql = `
+        UPDATE owners SET 
+          salutation=?, name=?, phone=?, whatsapp=?, email=?, state=?, city=?, 
+          location=?, stage=?, lead_type=?, priority=?, status=?, notes=?, 
+          owner_dob=?, countryCode=?, assigned_to=?, assigned_to_name=?,
+          lead_score=?, deal_value=?, expected_close=?, source=?, visits=?, 
+          total_visits=?, last_activity=?, notifications=?, current_stage=?, 
+          stage_progress=?, deal_potential=?, response_rate=?, avg_response_time=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `;
+      const params = [
+        data.salutation, data.name, data.phone, data.whatsapp, data.email,
+        data.state, data.city, data.location, data.stage, data.leadType ?? data.lead_type,
+        data.priority, data.status, data.notes, data.owner_dob,
+        data.countryCode, data.assigned_to, data.assigned_to_name,
+        data.lead_score, data.deal_value, data.expected_close, data.source,
+        data.visits, data.total_visits, data.last_activity, data.notifications,
+        data.current_stage, data.stage_progress, data.deal_potential,
+        data.response_rate, data.avg_response_time,
+        id
+      ];
+
+      const [result] = await runQuery(conn, sql, params);
+      return result ? result.affectedRows : 0;
+    }
   },
 
   async getByIdWithRentalProperties(id, conn = null) {
@@ -255,14 +293,23 @@ const OwnerModel = {
 
   async updateLeadField(ownerId, field, value) {
     if (!ownerId) throw new Error("Owner ID required");
-    const allowed = ["stage", "status", "priority", "is_active", "lead_type", "assigned_to"];
+    const allowed = [
+      "stage", "status", "priority", "is_active", "lead_type", "assigned_to",
+      "preferred_visit_slots", "preferred_slots", "preferred_location", "inquiries_received"
+    ];
     if (!allowed.includes(field)) throw new Error("Invalid field name");
+    const actualCol = field === "preferred_slots" ? "preferred_visit_slots" : field;
 
-    const [res] = await pool.execute(
-      `UPDATE owners SET \`${field}\`=?, updated_at=NOW() WHERE id=?`,
-      [value, ownerId]
-    );
-    return { success: true, affected: res.affectedRows };
+    try {
+      const [res] = await pool.execute(
+        `UPDATE owners SET \`${actualCol}\`=?, updated_at=NOW() WHERE id=?`,
+        [value, ownerId]
+      );
+      return { success: true, affected: res.affectedRows };
+    } catch (e) {
+      console.warn(`Could not update owner field ${actualCol}:`, e.message);
+      return { success: false, message: e.message };
+    }
   },
 
   async bulkUpdateLeadField(ownerIds = [], field, value, onlyEmpty = false) {

@@ -234,7 +234,9 @@ class RentalProperty {
           u.phone  AS executive_phone,
           IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
           o.email  AS owner_email,
-          o.phone  AS owner_phone
+          o.phone  AS owner_phone,
+          o.whatsapp AS owner_whatsapp,
+          o.preferred_visit_slots AS owner_preferred_visit_slots
         FROM rental_properties AS p
         LEFT JOIN users   AS u ON p.assigned_to = u.id
         LEFT JOIN owners  AS o ON p.owner_id   = o.id
@@ -258,7 +260,9 @@ class RentalProperty {
             u.phone  AS executive_phone,
             IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
             o.email  AS owner_email,
-            o.phone  AS owner_phone
+            o.phone  AS owner_phone,
+            o.whatsapp AS owner_whatsapp,
+            o.preferred_visit_slots AS owner_preferred_visit_slots
           FROM rental_properties AS p
           LEFT JOIN users   AS u ON p.assigned_to = u.id
           LEFT JOIN owners  AS o ON p.owner_id   = o.id
@@ -279,6 +283,7 @@ class RentalProperty {
       row.amenities = safeJsonParse(row.amenities, []);
       row.furnishing_items = safeJsonParse(row.furnishing_items, []);
       row.nearby_places = safeJsonParse(row.nearby_places, []);
+      row.preferred_visit_slots = safeJsonParse(row.preferred_visit_slots || row.owner_preferred_visit_slots, []);
 
       row.assignedTo = {
         id: row.assigned_to ?? null,
@@ -292,6 +297,8 @@ class RentalProperty {
         name: row.owner_name || null,
         email: row.owner_email || null,
         phone: row.owner_phone || null,
+        whatsapp: row.owner_whatsapp || null,
+        preferred_visit_slots: safeJsonParse(row.owner_preferred_visit_slots || row.preferred_visit_slots, []),
       };
 
       return row;
@@ -309,7 +316,8 @@ class RentalProperty {
         IFNULL(NULLIF(CONCAT_WS(' ', o.salutation, o.name), ''), p.owner_name) AS owner_name,
         o.email  AS owner_email,
         o.phone  AS owner_phone,
-        o.whatsapp AS owner_whatsapp
+        o.whatsapp AS owner_whatsapp,
+        o.preferred_visit_slots AS owner_preferred_visit_slots
       FROM rental_properties AS p
       LEFT JOIN users   AS u ON p.assigned_to = u.id
       LEFT JOIN owners  AS o ON p.owner_id   = o.id
@@ -325,23 +333,64 @@ class RentalProperty {
     property.amenities = safeJsonParse(property.amenities, []);
     property.furnishing_items = safeJsonParse(property.furnishing_items, []);
     property.nearby_places = safeJsonParse(property.nearby_places, []);
+    property.preferred_visit_slots = safeJsonParse(property.preferred_visit_slots || property.owner_preferred_visit_slots, []);
 
-    // Live counts for shortlisted and inquiries from DB
-    let tenantsCount = 0;
+    // Live unique counts for shortlisted and inquiries from DB
+    let shortlistedCount = 0;
+    let enquiredCount = 0;
     let visitsCount = 0;
+
     try {
-      const [tRows] = await db.execute("SELECT COUNT(*) AS cnt FROM tenants WHERE rental_property_id = ?", [id]);
-      tenantsCount = Number(tRows[0]?.cnt || 0);
+      // 1. Count distinct verified tenants who shortlisted this property
+      const [sRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM tenants 
+         WHERE (shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+      );
+      shortlistedCount = Number(sRows[0]?.cnt || 0);
+      if (shortlistedCount === 0) {
+        const [sRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM tenants 
+           WHERE shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+        );
+        shortlistedCount = Number(sRowsId[0]?.cnt || 0);
+      }
     } catch (e) {}
 
     try {
-      const [vRows] = await db.execute("SELECT COUNT(*) AS cnt FROM tenant_visits WHERE rental_property_id = ?", [id]);
+      // 2. Count distinct tenants who directly enquired for this property
+      const [eRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM tenants 
+         WHERE (enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ? OR rental_property_id = ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`, id]
+      );
+      enquiredCount = Number(eRows[0]?.cnt || 0);
+      if (enquiredCount === 0) {
+        const [eRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM tenants 
+           WHERE enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ? OR rental_property_id = ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`, id]
+        );
+        enquiredCount = Number(eRowsId[0]?.cnt || 0);
+      }
+    } catch (e) {}
+
+    try {
+      // 3. Count total scheduled site visits for this property
+      const [vRows] = await db.execute(
+        `SELECT COUNT(*) AS cnt FROM tenant_visits WHERE rental_property_id = ?`,
+        [id]
+      );
       visitsCount = Number(vRows[0]?.cnt || 0);
     } catch (e) {}
 
-    property.shortlisted_count = tenantsCount;
-    property.inquiries_count = (tenantsCount + visitsCount);
-    property.direct_inquiries = (tenantsCount + visitsCount);
+    property.shortlisted_count = shortlistedCount;
+    property.shortlistedBy = shortlistedCount;
+    property.inquiries_count = Math.max(enquiredCount, visitsCount);
+    property.direct_inquiries = Math.max(enquiredCount, visitsCount);
 
     property.assignedTo = {
       id: property.assigned_to ?? null,
@@ -356,6 +405,7 @@ class RentalProperty {
       email: property.owner_email || null,
       phone: property.owner_phone || null,
       whatsapp: property.owner_whatsapp || null,
+      preferred_visit_slots: safeJsonParse(property.owner_preferred_visit_slots || property.preferred_visit_slots, []),
     };
 
     return property;

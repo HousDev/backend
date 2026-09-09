@@ -44,10 +44,10 @@ const normalizeOwner = (b = {}) => {
     status: emptyToNull(b.status),
     notes: emptyToNull(b.notes),
     owner_dob: toDateOrNull(b.owner_dob ?? b.dob ?? null),
-    countryCode: b.countryCode || "+91",
     assigned_to: toIntOrNull(assignedRaw),
     assigned_to_name: emptyToNull(assignedName),
     source: emptyToNull(b.source),
+    preferred_visit_slots: b.preferred_visit_slots ? (typeof b.preferred_visit_slots === 'string' ? b.preferred_visit_slots : JSON.stringify(b.preferred_visit_slots)) : (b.preferred_slots ? (typeof b.preferred_slots === 'string' ? b.preferred_slots : JSON.stringify(b.preferred_slots)) : null),
   };
 };
 
@@ -394,14 +394,89 @@ const getOwnerById = async (req, res) => {
 
       const [allTenants] = await pool.query(
         `SELECT id AS tenant_id, name AS tenant_name, phone AS tenant_phone, email AS tenant_email,
-                tenant_type, preferred_bhk, move_in_date, status AS tenant_status, rental_property_id, notes, created_at
+                tenant_type, preferred_bhk, move_in_date, status AS tenant_status, rental_property_id, notes, created_at,
+                enquired_properties, shortlisted_properties
          FROM tenants
          ORDER BY id DESC`
       );
 
       const inquiriesMap = new Map();
 
-      // 1. Match from tenant activities
+      // 1. Match from tenant enquired_properties and shortlisted_properties
+      for (const t of (allTenants || [])) {
+        let enqList = [];
+        if (t.enquired_properties) {
+          try {
+            enqList = typeof t.enquired_properties === 'string' ? JSON.parse(t.enquired_properties) : t.enquired_properties;
+          } catch (e) {
+            enqList = [];
+          }
+        }
+        if (Array.isArray(enqList)) {
+          for (const enq of enqList) {
+            const enqPropId = Number(enq.id || enq.rental_property_id || enq.property_id);
+            const matchedProp = properties.find((p) => Number(p.id) === enqPropId);
+            if (matchedProp) {
+              const key = `${t.tenant_id}_${matchedProp.id}`;
+              inquiriesMap.set(key, {
+                tenant_id: t.tenant_id,
+                tenant_name: t.tenant_name,
+                tenant_phone: t.tenant_phone,
+                tenant_email: t.tenant_email,
+                tenant_type: t.tenant_type || 'Family',
+                preferred_bhk: t.preferred_bhk || matchedProp.unit_type || '2 BHK',
+                move_in_date: t.move_in_date || enq.move_in_date || 'Immediately',
+                tenant_status: t.tenant_status,
+                rental_property_id: matchedProp.id,
+                created_at: enq.enquired_at || t.created_at,
+                notes: enq.notes || `Direct enquiry for ${matchedProp.unit_type || 'rental'} in ${matchedProp.society_name || 'Society'}`,
+                lead_type: 'Direct Enquiry',
+                rental_property_title: `${matchedProp.unit_type || '2 BHK'} in ${matchedProp.society_name || 'Society'}`,
+                society_name: matchedProp.society_name,
+              });
+            }
+          }
+        }
+
+        // Check shortlisted_properties
+        let shortList = [];
+        if (t.shortlisted_properties) {
+          try {
+            shortList = typeof t.shortlisted_properties === 'string' ? JSON.parse(t.shortlisted_properties) : t.shortlisted_properties;
+          } catch (e) {
+            shortList = [];
+          }
+        }
+        if (Array.isArray(shortList)) {
+          for (const s of shortList) {
+            const sPropId = Number(s.id || s.rental_property_id || s);
+            const matchedProp = properties.find((p) => Number(p.id) === sPropId);
+            if (matchedProp) {
+              const key = `${t.tenant_id}_${matchedProp.id}`;
+              if (!inquiriesMap.has(key)) {
+                inquiriesMap.set(key, {
+                  tenant_id: t.tenant_id,
+                  tenant_name: t.tenant_name,
+                  tenant_phone: t.tenant_phone,
+                  tenant_email: t.tenant_email,
+                  tenant_type: t.tenant_type || 'Family',
+                  preferred_bhk: t.preferred_bhk || matchedProp.unit_type || '2 BHK',
+                  move_in_date: t.move_in_date || 'Immediately',
+                  tenant_status: t.tenant_status,
+                  rental_property_id: matchedProp.id,
+                  created_at: s.shortlisted_at || t.created_at,
+                  notes: `Shortlisted rental property ${matchedProp.unit_type || ''} in ${matchedProp.society_name || ''}`,
+                  lead_type: 'Shortlisted Lead',
+                  rental_property_title: `${matchedProp.unit_type || '2 BHK'} in ${matchedProp.society_name || 'Society'}`,
+                  society_name: matchedProp.society_name,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Match from tenant activities
       for (const act of (allActivities || [])) {
         const actNotes = act.notes || '';
         for (const prop of properties) {
@@ -418,13 +493,14 @@ const getOwnerById = async (req, res) => {
                 tenant_name: act.tenant_name,
                 tenant_phone: act.tenant_phone,
                 tenant_email: act.tenant_email,
-                tenant_type: act.tenant_type,
-                preferred_bhk: act.preferred_bhk,
-                move_in_date: act.move_in_date,
+                tenant_type: act.tenant_type || 'Family',
+                preferred_bhk: act.preferred_bhk || prop.unit_type || '2 BHK',
+                move_in_date: act.move_in_date || 'Immediately',
                 tenant_status: act.tenant_status,
                 rental_property_id: prop.id,
                 created_at: act.created_at,
                 notes: act.notes,
+                lead_type: 'Contact Activity',
                 rental_property_title: `${prop.unit_type || '2 BHK'} in ${prop.society_name || 'Society'}`,
                 society_name: prop.society_name,
               });
@@ -433,7 +509,7 @@ const getOwnerById = async (req, res) => {
         }
       }
 
-      // 2. Match directly linked tenants or notes
+      // 3. Match directly linked tenants or notes
       for (const t of (allTenants || [])) {
         const tNotes = t.notes || '';
         for (const prop of properties) {
@@ -451,17 +527,45 @@ const getOwnerById = async (req, res) => {
                 tenant_name: t.tenant_name,
                 tenant_phone: t.tenant_phone,
                 tenant_email: t.tenant_email,
-                tenant_type: t.tenant_type,
-                preferred_bhk: t.preferred_bhk,
-                move_in_date: t.move_in_date,
+                tenant_type: t.tenant_type || 'Family',
+                preferred_bhk: t.preferred_bhk || prop.unit_type || '2 BHK',
+                move_in_date: t.move_in_date || 'Immediately',
                 tenant_status: t.tenant_status,
                 rental_property_id: prop.id,
                 created_at: t.created_at,
                 notes: t.notes,
+                lead_type: 'Direct Lead',
                 rental_property_title: `${prop.unit_type || '2 BHK'} in ${prop.society_name || 'Society'}`,
                 society_name: prop.society_name,
               });
             }
+          }
+        }
+      }
+
+      // 4. Match from tenant visits for this owner's properties
+      for (const v of (tenantVisits || [])) {
+        const vPropId = Number(v.rental_property_id);
+        const matchedProp = properties.find((p) => Number(p.id) === vPropId);
+        if (matchedProp && v.tenant_id) {
+          const key = `${v.tenant_id}_${matchedProp.id}`;
+          if (!inquiriesMap.has(key)) {
+            inquiriesMap.set(key, {
+              tenant_id: v.tenant_id,
+              tenant_name: v.tenant_name,
+              tenant_phone: v.tenant_phone,
+              tenant_email: v.tenant_email,
+              tenant_type: v.tenant_type || 'Family',
+              preferred_bhk: v.preferred_bhk || matchedProp.unit_type || '2 BHK',
+              move_in_date: 'Immediately',
+              tenant_status: v.status || 'Active',
+              rental_property_id: matchedProp.id,
+              created_at: v.created_at || v.visit_date,
+              notes: `Site visit scheduled for ${v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : ''} at ${v.visit_time || ''}`,
+              lead_type: 'Site Visit Lead',
+              rental_property_title: `${matchedProp.unit_type || '2 BHK'} in ${matchedProp.society_name || 'Society'}`,
+              society_name: matchedProp.society_name,
+            });
           }
         }
       }
@@ -527,26 +631,35 @@ const updateOwner = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Owner not found' });
     }
 
-    // Reset linked rental properties for this owner
-    await conn.query(
-      `UPDATE rental_properties SET owner_id = NULL, owner_name = NULL, assigned_to = NULL WHERE owner_id = ?`,
-      [id]
-    );
+    // Update linked rental properties only if properties or property_ids was explicitly passed in body
+    if (body.properties !== undefined || body.property_ids !== undefined) {
+      // Reset linked rental properties for this owner
+      await conn.query(
+        `UPDATE rental_properties SET owner_id = NULL, owner_name = NULL WHERE owner_id = ?`,
+        [id]
+      );
 
-    // Assign selected rental properties
-    if (selectedProps.length > 0) {
-      const propertyIds = selectedProps
-        .map(p => Number(p?.id ?? p?.property_id ?? p?._id ?? p))
-        .filter(n => Number.isFinite(n) && n > 0);
+      // Assign selected rental properties
+      if (selectedProps.length > 0) {
+        const propertyIds = selectedProps
+          .map(p => Number(p?.id ?? p?.property_id ?? p?._id ?? p))
+          .filter(n => Number.isFinite(n) && n > 0);
 
-      if (propertyIds.length > 0) {
-        await conn.query(
-          `UPDATE rental_properties 
-           SET owner_id = ?, owner_name = ?, assigned_to = ?
-           WHERE id IN (${propertyIds.map(() => "?").join(",")})`,
-          [id, owner.name, owner.assigned_to, ...propertyIds]
-        );
+        if (propertyIds.length > 0) {
+          await conn.query(
+            `UPDATE rental_properties 
+             SET owner_id = ?, owner_name = ?
+             WHERE id IN (${propertyIds.map(() => "?").join(",")})`,
+            [id, owner.name, ...propertyIds]
+          );
+        }
       }
+    } else {
+      // Keep owner name in sync on all currently linked rental properties
+      await conn.query(
+        `UPDATE rental_properties SET owner_name = ? WHERE owner_id = ?`,
+        [owner.name, id]
+      );
     }
 
     await conn.commit();

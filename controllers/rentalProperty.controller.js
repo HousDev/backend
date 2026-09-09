@@ -469,9 +469,29 @@ const updateProperty = async (req, res) => {
         ? existingDocFromBody
         : current.ownership_doc_path || null;
 
+    const newOwnerName = req.body.owner_name !== undefined ? req.body.owner_name : (req.body.seller_name !== undefined ? req.body.seller_name : (req.body.seller !== undefined ? req.body.seller : (req.body.owner !== undefined ? req.body.owner : undefined)));
+    const finalOwnerName = newOwnerName !== undefined ? (newOwnerName || null) : (current.owner_name || null);
+    const newOwnerId = req.body.owner_id !== undefined ? req.body.owner_id : (req.body.seller_id !== undefined ? req.body.seller_id : undefined);
+    let finalOwnerId = newOwnerId !== undefined ? (newOwnerId ? Number(newOwnerId) : null) : (current.owner_id || null);
+
+    if (!finalOwnerId && finalOwnerName) {
+      try {
+        const cleanName = finalOwnerName.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Miss\.?|Dr\.?)\s+/i, '').trim();
+        const [foundOwners] = await db.query(
+          `SELECT id, name FROM owners WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [finalOwnerName, `%${cleanName}%`]
+        );
+        if (foundOwners && foundOwners.length > 0) {
+          finalOwnerId = foundOwners[0].id;
+        }
+      } catch (err) {
+        console.warn("Could not lookup owner_id by owner_name in updateRentalProperty:", err);
+      }
+    }
+
     const propertyData = {
-      owner_name: req.body.owner_name || req.body.owner || req.body.seller_name || req.body.seller || null,
-      owner_id: req.body.owner_id || req.body.seller_id || null,
+      owner_name: finalOwnerName,
+      owner_id: finalOwnerId,
       property_type_name: req.body.propertyType || req.body.property_type_name || null,
       property_subtype_name: req.body.propertySubtype || req.body.property_subtype_name || null,
       unit_type: req.body.unitType || req.body.unit_type || null,

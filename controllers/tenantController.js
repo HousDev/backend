@@ -49,14 +49,38 @@ const getTenantById = async (req, res) => {
         const [rows] = await db.query(
           `SELECT t.id FROM tenants t
            LEFT JOIN users u ON u.email = t.email
-           WHERE t.id = ? OR u.id = ? OR t.email = ? LIMIT 1`,
-          [requestedId, requestedId, requestedId]
+           WHERE t.id = ? OR u.id = ? OR t.email = ? OR t.tenant_id = ? LIMIT 1`,
+          [requestedId, requestedId, requestedId, requestedId]
         );
         if (rows && rows.length > 0) {
           tenant = await Tenant.getById(rows[0].id);
         }
       } catch (e) {
         console.warn("Fallback query 1 error:", e.message);
+      }
+    }
+
+    if (!tenant) {
+      try {
+        const [uRows] = await db.query(
+          `SELECT * FROM users WHERE id = ? OR email = ? LIMIT 1`,
+          [requestedId, requestedId]
+        );
+        if (uRows && uRows.length > 0) {
+          const u = uRows[0];
+          tenant = {
+            id: u.id,
+            tenant_id: `TEN${String(u.id).padStart(4, '0')}`,
+            name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant',
+            email: u.email,
+            phone: u.phone,
+            whatsapp: u.whatsapp || u.phone,
+            status: 'Active Search',
+            username: u.username
+          };
+        }
+      } catch (e) {
+        console.warn("User fallback error:", e.message);
       }
     }
 
@@ -638,7 +662,7 @@ const verifyAndRegisterTenant = async (req, res) => {
           visit_time: schedule_visit.visit_time || schedule_visit.visitTime || "11:00 AM",
           meeting_point: schedule_visit.meeting_point || schedule_visit.meetPoint || "Property Location",
           remarks: schedule_visit.remarks || schedule_visit.notes || "Scheduled via Public Rental Page",
-          status: "Scheduled",
+          status: "Pending Owner Approval",
         });
       } catch (visitErr) {
         console.warn("Could not record visit in tenant_visits:", visitErr.message);
@@ -1000,6 +1024,214 @@ const getOwnerDetailsForTenant = async (req, res) => {
   }
 };
 
+// ----------------------------------------------------------------------------
+// PROFILE COMPLETENESS & MATCH SCORING
+// ----------------------------------------------------------------------------
+const getTenantProfileCompleteness = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const tenant = await Tenant.getById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: "Tenant not found" });
+    }
+    const completeness = Tenant.calculateProfileCompletion(tenant);
+    return res.status(200).json({
+      success: true,
+      data: {
+        tenantId,
+        ...completeness,
+      },
+    });
+  } catch (err) {
+    console.error("getTenantProfileCompleteness error:", err);
+    return res.status(500).json({ success: false, message: "Failed to calculate profile completeness" });
+  }
+};
+
+const calculateTenantPropertyMatch = async (req, res) => {
+  try {
+    const { tenantId, propertyId } = req.params;
+    const tenant = await Tenant.getById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: "Tenant not found" });
+    }
+
+    const [propRows] = await db.query(
+      `SELECT * FROM rental_properties WHERE id = ? LIMIT 1`,
+      [propertyId]
+    );
+    if (!propRows || propRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Rental property not found" });
+    }
+
+    const matchScore = Tenant.calculateMatchScore(tenant, propRows[0]);
+    const completeness = Tenant.calculateProfileCompletion(tenant);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        tenantId,
+        propertyId,
+        matchScore,
+        completeness,
+      },
+    });
+  } catch (err) {
+    console.error("calculateTenantPropertyMatch error:", err);
+    return res.status(500).json({ success: false, message: "Failed to calculate match score" });
+  }
+};
+
+// ----------------------------------------------------------------------------
+// INTEREST REQUEST MANAGEMENT (TENANT <-> OWNER)
+// ----------------------------------------------------------------------------
+const sendTenantInterest = async (req, res) => {
+  try {
+    const { rental_property_id, tenant_id, owner_id, sender_type = 'tenant', message } = req.body;
+    if (!rental_property_id || !tenant_id) {
+      return res.status(400).json({ success: false, message: "rental_property_id and tenant_id are required" });
+    }
+
+    // 1. Fetch Tenant & Property
+    const tenant = await Tenant.getById(tenant_id);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: "Tenant not found" });
+    }
+
+    // Check profile completeness
+    const completeness = Tenant.calculateProfileCompletion(tenant);
+    if (!completeness.isComplete && sender_type === 'tenant') {
+      return res.status(400).json({
+        success: false,
+        requiresProfileCompletion: true,
+        message: "Please complete your tenant profile before expressing interest.",
+        completeness,
+      });
+    }
+
+    const [propRows] = await db.query(
+      `SELECT * FROM rental_properties WHERE id = ? LIMIT 1`,
+      [rental_property_id]
+    );
+    if (!propRows || propRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Rental property not found" });
+    }
+    const prop = propRows[0];
+    const targetOwnerId = owner_id || prop.owner_id || null;
+
+    // 2. Compute Match Score Snapshot
+    const matchScore = Tenant.calculateMatchScore(tenant, prop);
+
+    // 3. Create Interest in DB
+    const result = await Tenant.createInterest({
+      rental_property_id,
+      tenant_id,
+      owner_id: targetOwnerId,
+      sender_type,
+      message,
+      match_score: matchScore,
+    });
+
+    if (!result.success && result.isExisting) {
+      return res.status(200).json({
+        success: true,
+        isExisting: true,
+        message: result.message,
+        data: result.data,
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Interest request submitted successfully!",
+      data: result.data,
+      matchScore,
+    });
+  } catch (err) {
+    console.error("sendTenantInterest error:", err);
+    return res.status(500).json({ success: false, message: "Failed to send interest: " + err.message });
+  }
+};
+
+const getTenantInterests = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const interests = await Tenant.getInterestsForTenant(tenantId);
+    return res.status(200).json({ success: true, data: interests });
+  } catch (err) {
+    console.error("getTenantInterests error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch tenant interests" });
+  }
+};
+
+const getOwnerInterests = async (req, res) => {
+  try {
+    const { ownerId } = req.params;
+    const interests = await Tenant.getInterestsForOwner(ownerId);
+    return res.status(200).json({ success: true, data: interests });
+  } catch (err) {
+    console.error("getOwnerInterests error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch owner interests" });
+  }
+};
+
+const ownerConfirmTenant = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { owner_id } = req.body;
+    const result = await Tenant.confirmTenantForProperty(id, owner_id);
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Candidate confirmed! Other active requests for this property are now marked PROPERTY_SELECTED.",
+      data: result.data,
+    });
+  } catch (err) {
+    console.error("ownerConfirmTenant error:", err);
+    return res.status(500).json({ success: false, message: "Failed to confirm candidate" });
+  }
+};
+
+const ownerRejectTenant = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const result = await Tenant.rejectTenantForProperty(id, notes);
+    return res.status(200).json({
+      success: true,
+      message: "Candidate request rejected.",
+      data: result.data,
+    });
+  } catch (err) {
+    console.error("ownerRejectTenant error:", err);
+    return res.status(500).json({ success: false, message: "Failed to reject candidate" });
+  }
+};
+
+const tenantRespondToConfirmation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tenant_id, action } = req.body; // action: 'accept' | 'decline'
+    if (!tenant_id || !action) {
+      return res.status(400).json({ success: false, message: "tenant_id and action ('accept' | 'decline') are required" });
+    }
+    const result = await Tenant.respondToOwnerConfirmation(id, tenant_id, action);
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message });
+    }
+    return res.status(200).json({
+      success: true,
+      message: action === 'accept' ? "You have accepted the owner's selection! Proceeding to booking." : "You have declined. The property is re-opened for other candidates.",
+      data: result.data,
+    });
+  } catch (err) {
+    console.error("tenantRespondToConfirmation error:", err);
+    return res.status(500).json({ success: false, message: "Failed to respond to owner confirmation" });
+  }
+};
+
 module.exports = {
   getTenants,
   getTenantById,
@@ -1014,4 +1246,12 @@ module.exports = {
   reportPropertyIssue,
   updateTenantPassword,
   getOwnerDetailsForTenant,
+  getTenantProfileCompleteness,
+  calculateTenantPropertyMatch,
+  sendTenantInterest,
+  getTenantInterests,
+  getOwnerInterests,
+  ownerConfirmTenant,
+  ownerRejectTenant,
+  tenantRespondToConfirmation,
 };
