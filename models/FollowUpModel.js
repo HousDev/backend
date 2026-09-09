@@ -197,9 +197,15 @@ class FollowUpModel {
   static formatFollowUp(row) {
     if (!row) return null;
 
-    const firstName = row.created_by_first_name || row.assigned_first_name || "";
-    const lastName = row.created_by_last_name || row.assigned_last_name || "";
-    const fullName = row.created_by_name || (firstName || lastName ? `${firstName} ${lastName}`.trim() : "System");
+    const firstName = row.created_by_first_name || "";
+    const lastName = row.created_by_last_name || "";
+    const fullName = (row.created_by_name && row.created_by_name.trim().length > 0 && row.created_by_name !== "System" && !row.created_by_name.toLowerCase().includes("system"))
+      ? row.created_by_name.trim()
+      : (firstName || lastName ? `${firstName} ${lastName}`.trim() : null);
+
+    const asgnFirst = row.assigned_first_name || "";
+    const asgnLast = row.assigned_last_name || "";
+    const asgnName = row.assigned_to_name || (asgnFirst || asgnLast ? `${asgnFirst} ${asgnLast}`.trim() : null);
 
     return {
       ...row,
@@ -251,8 +257,15 @@ class FollowUpModel {
       createdByFirstName: firstName,
       createdByLastName: lastName,
       created_by_name: fullName,
+      createdByName: fullName,
+      createdBy: fullName,
       assigned_to: row.assigned_to || null,
       assignedTo: row.assigned_to || null,
+      assigned_to_name: asgnName,
+      assignedToName: asgnName,
+      assignedExecutiveName: asgnName,
+      assigned_by_name: fullName,
+      assignedByName: fullName,
     };
   }
 

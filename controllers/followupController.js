@@ -7,8 +7,26 @@ const FollowUpController = {
   // POST /api/followups/create
   create: async (req, res) => {
     try {
+      const isSellerRoute = (req.baseUrl && req.baseUrl.toLowerCase().includes("seller")) || !!req.body.seller_id || !!req.body.sellerId;
+      const isBuyerRoute = (req.baseUrl && req.baseUrl.toLowerCase().includes("buyer")) || !!req.body.buyer_id || !!req.body.buyerId;
+
+      let inferredEntity = null;
+      let inferredEntityId = null;
+      if (isSellerRoute) {
+        inferredEntity = "SELLER";
+        inferredEntityId = req.body.seller_id || req.body.sellerId || req.body.entity_id || req.body.entityId;
+      } else if (isBuyerRoute) {
+        inferredEntity = "BUYER";
+        inferredEntityId = req.body.buyer_id || req.body.buyerId || req.body.entity_id || req.body.entityId;
+      }
+
+      const entityCode = req.body.entity_code || req.body.entityCode || inferredEntity || "LEAD";
+      const entityId = req.body.entity_id || req.body.entityId || inferredEntityId || req.body.lead_id || req.body.leadId;
+
       const data = {
         ...req.body,
+        entity_code: entityCode ? String(entityCode).toUpperCase() : "LEAD",
+        entity_id: entityId ? String(entityId) : null,
         created_by: req.user?.id || req.body.createdBy || req.body.created_by,
       };
 
@@ -30,9 +48,21 @@ const FollowUpController = {
   // GET /api/followups/get-all
   getAll: async (req, res) => {
     try {
+      const isSellerRoute = (req.baseUrl && req.baseUrl.toLowerCase().includes("seller")) || !!req.query.sellerId || !!req.query.seller_id;
+      const isBuyerRoute = (req.baseUrl && req.baseUrl.toLowerCase().includes("buyer")) || !!req.query.buyerId || !!req.query.buyer_id;
+      const isLeadRoute = (req.baseUrl && req.baseUrl.toLowerCase().includes("lead")) || !!req.query.leadId || !!req.query.lead_id;
+
+      let inferredEntity = null;
+      if (isSellerRoute) inferredEntity = "SELLER";
+      else if (isBuyerRoute) inferredEntity = "BUYER";
+      else if (isLeadRoute) inferredEntity = "LEAD";
+
+      const entityCode = req.query.entity || req.query.entityCode || req.query.entity_code || inferredEntity;
+      const entityId = req.query.entityId || req.query.entity_id || req.query.leadId || req.query.lead_id || req.query.buyerId || req.query.buyer_id || req.query.sellerId || req.query.seller_id || req.params.sellerId || req.params.buyerId || req.params.leadId;
+
       const filters = {
-        entityCode: req.query.entity || req.query.entityCode || req.query.entity_code,
-        entityId: req.query.entityId || req.query.entity_id || req.query.leadId || req.query.buyerId || req.query.sellerId,
+        entityCode: entityCode ? String(entityCode).toUpperCase() : undefined,
+        entityId: entityId ? String(entityId) : undefined,
         type: req.query.type || req.query.followUpTypeCode,
         isComplete: req.query.isComplete !== undefined ? req.query.isComplete === "true" || req.query.isComplete === "1" : undefined,
         scheduledDate: req.query.date || req.query.scheduledDate,
