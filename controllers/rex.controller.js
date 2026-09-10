@@ -384,6 +384,7 @@ exports.handleChatMessage = async (req, res) => {
       session_uuid: session.session_uuid,
       intent: aiResult.intent,
       show_buyer_filter: Boolean(aiResult.show_buyer_filter),
+      show_seller_wizard: Boolean(aiResult.show_seller_wizard),
       profile: aiResult.extracted_profile,
       requirements: aiResult.extracted_requirements,
       is_qualified: aiResult.is_qualified,
@@ -404,7 +405,7 @@ exports.handleChatMessage = async (req, res) => {
 exports.handleAction = async (req, res) => {
   try {
     const { action, payload, session_uuid, guest_uuid } = req.body;
-    const userId = req.userId || null;
+    const userId = req.userId || payload?.user_id || req.body?.user_id || null;
     const finalGuestUuid = guest_uuid || req.headers["x-guest-uuid"] || null;
 
     const session = await RexSessionModel.findOrCreateSession({
@@ -712,7 +713,7 @@ exports.handleAction = async (req, res) => {
       try {
         const propInsertId = await Property.create({
           seller_name: effectiveName,
-          seller_id: sellerEntityId || userId || null,
+          seller_id: sellerEntityId || payload?.seller_id || (userId ? Number(userId) : null) || null,
           property_type_name: "Residential",
           property_subtype_name: "Apartment",
           unit_type: bhk || (parsedBedrooms ? `${parsedBedrooms} BHK` : "Apartment"),
@@ -743,10 +744,40 @@ exports.handleAction = async (req, res) => {
         console.warn("Property creation notice:", pErr.message);
       }
 
+      // 1. Append message history (merging any messages sent in payload)
+      let history = Array.isArray(session.message_history) ? [...session.message_history] : [];
+      if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
+        for (const m of payload.messages) {
+          if (!history.some((h) => h.id === m.id)) {
+            history.push({
+              id: m.id || `msg_${Date.now()}`,
+              sender: m.sender || "user",
+              text: m.text || "",
+              suggestions: m.suggestions || undefined,
+              properties: m.properties || undefined,
+              sellerConfirmedCard: m.sellerConfirmedCard || undefined,
+              sellerWizardCard: m.sellerWizardCard || undefined,
+              buyerFilterCard: m.buyerFilterCard || undefined,
+              timestamp: m.timestamp || new Date().toISOString(),
+            });
+          }
+        }
+      } else {
+        history.push({
+          id: `seller_sub_${Date.now()}`,
+          sender: "bot",
+          text: `Your property at ${society_name || "Society"}, ${locality || "Pune"} (${bhk || "Apartment"}) has been submitted for review. Our team will assign a dedicated Property Executive for your property shortly.`,
+          sellerConfirmedCard: { data: payload },
+          suggestions: ["List Another Property", "Check Listing Status", "Get Free Property Valuation", "Talk to Property Executive"],
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       await RexSessionModel.updateSession(session.session_uuid, {
         leadId: leadId || session.lead_id,
         currentIntent: "seller",
         isQualified: 1,
+        messageHistory: history.slice(-60),
         extractedProfile: {
           ...currentProfile,
           role: "seller",
@@ -767,10 +798,35 @@ exports.handleAction = async (req, res) => {
         },
       });
 
+      // 2. Create or link Property Conversation in Human Desk for Executive & Seller
+      let conversation = null;
+      if (userId && createdPropertyId) {
+        try {
+          let assignedExecId = 1;
+          const [pCheck] = await db.execute(`SELECT assigned_to FROM my_properties WHERE id = ?`, [createdPropertyId]);
+          if (pCheck.length > 0 && pCheck[0].assigned_to) {
+            assignedExecId = pCheck[0].assigned_to;
+          }
+
+          const convResult = await ChatModel.createOrGetAtomic({
+            userId,
+            propertyId: createdPropertyId,
+            executiveId: assignedExecId,
+            leadId,
+            initialMessage: `New Seller Listing: ${bhk || "Apartment"} in ${society_name || "Society"}, ${locality || "Pune"} (Expected: ${expected_price || "₹" + parsedPrice}). Submitted for executive review.`,
+            senderType: "user",
+          });
+          conversation = convResult.conversation;
+        } catch (convErr) {
+          console.warn("Seller property conversation atomic init notice:", convErr.message);
+        }
+      }
+
       return res.status(200).json({
         success: true,
         session_uuid: session.session_uuid,
         property_id: createdPropertyId,
+        conversation_id: conversation?.id || null,
         lead_id: leadId,
         message: "Seller property submitted successfully for review",
       });

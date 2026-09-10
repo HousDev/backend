@@ -119,6 +119,19 @@ const createSeller = async (req, res) => {
            WHERE id IN (${ids.map(() => "?").join(",")})`,
           [sellerId, seller.name, seller.assigned_to, ...ids]
         );
+
+        if (seller.assigned_to) {
+          try {
+            await conn.query(
+              `UPDATE property_conversations
+               SET executive_id = ?
+               WHERE property_id IN (${ids.map(() => "?").join(",")})`,
+              [seller.assigned_to, ...ids]
+            );
+          } catch (pcErr) {
+            console.warn("Could not sync conversation executive_id:", pcErr.message);
+          }
+        }
       }
     }
 
@@ -583,6 +596,33 @@ const updateSeller = async (req, res) => {
            WHERE id IN (${propertyIds.map(() => "?").join(",")})`,
           [id, seller.name, seller.assigned_to, ...propertyIds]
         );
+
+        if (seller.assigned_to) {
+          try {
+            await conn.query(
+              `UPDATE property_conversations
+               SET executive_id = ?
+               WHERE property_id IN (${propertyIds.map(() => "?").join(",")})`,
+              [seller.assigned_to, ...propertyIds]
+            );
+          } catch (pcErr) {
+            console.warn("Could not sync conversation executive_id:", pcErr.message);
+          }
+        }
+      }
+    }
+
+    if (seller.assigned_to) {
+      try {
+        await conn.query(
+          `UPDATE property_conversations pc
+           JOIN my_properties mp ON pc.property_id = mp.id
+           SET pc.executive_id = ?
+           WHERE mp.seller_id = ?`,
+          [seller.assigned_to, id]
+        );
+      } catch (pcSyncErr) {
+        console.warn("Could not sync seller property conversation executive_id:", pcSyncErr.message);
       }
     }
 
