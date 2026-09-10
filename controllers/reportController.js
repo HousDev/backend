@@ -750,11 +750,11 @@ exports.getLeadReport = async (req, res) => {
     // 4. Follow-up Insights SQL
     const followupSql = `
       SELECT 
-        SUM(CASE WHEN DATE(f.scheduled_date) = CURDATE() AND (f.completed_date IS NULL OR LOWER(COALESCE(f.status,'')) != 'completed') THEN 1 ELSE 0 END) AS followup_today,
-        SUM(CASE WHEN DATE(f.scheduled_date) < CURDATE() AND (f.completed_date IS NULL OR LOWER(COALESCE(f.status,'')) != 'completed') THEN 1 ELSE 0 END) AS overdue_followup,
+        SUM(CASE WHEN DATE(f.scheduled_date) = CURDATE() AND (f.is_complete = 0 OR f.is_complete IS NULL) THEN 1 ELSE 0 END) AS followup_today,
+        SUM(CASE WHEN DATE(f.scheduled_date) < CURDATE() AND (f.is_complete = 0 OR f.is_complete IS NULL) THEN 1 ELSE 0 END) AS overdue_followup,
         SUM(CASE WHEN DATE(f.scheduled_date) > CURDATE() THEN 1 ELSE 0 END) AS upcoming_followup
-      FROM followups f
-      INNER JOIN client_leads l ON f.lead_id = l.id
+      FROM fu_follow_ups f
+      INNER JOIN client_leads l ON (f.entity_id = l.id OR f.entity_id = l.lead_number) AND f.entity_code = 'LEAD'
       WHERE ${whereClause}
     `;
 
@@ -1130,11 +1130,11 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
         SELECT 
           created_by AS user_id,
           COUNT(*) AS followups_assigned,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('completed', 'done') THEN 1 ELSE 0 END) AS followups_completed,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('pending', 'scheduled', 'open') THEN 1 ELSE 0 END) AS followups_pending,
-          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('pending', 'scheduled', 'open') AND scheduled_date < NOW() THEN 1 ELSE 0 END) AS followups_overdue
-        FROM followups
-        WHERE ${leadDateSql} AND created_by IS NOT NULL
+          SUM(CASE WHEN is_complete = 1 THEN 1 ELSE 0 END) AS followups_completed,
+          SUM(CASE WHEN is_complete = 0 OR is_complete IS NULL THEN 1 ELSE 0 END) AS followups_pending,
+          SUM(CASE WHEN (is_complete = 0 OR is_complete IS NULL) AND scheduled_date < CURDATE() THEN 1 ELSE 0 END) AS followups_overdue
+        FROM fu_follow_ups
+        WHERE entity_code = 'LEAD' AND ${leadDateSql} AND created_by IS NOT NULL
         GROUP BY created_by
       `, dateArgs).catch((err) => {
         console.error("Error in followupRows query:", err);
@@ -1791,12 +1791,12 @@ exports.getBuyerReport = async (req, res) => {
     // 9. Follow-up Insights
     const followupSql = `
       SELECT 
-        SUM(CASE WHEN DATE(bf.schedule_date) = CURDATE() AND (bf.completed_date IS NULL) THEN 1 ELSE 0 END) AS today_followups,
-        SUM(CASE WHEN DATE(bf.schedule_date) < CURDATE() AND (bf.completed_date IS NULL) THEN 1 ELSE 0 END) AS overdue_followups,
-        SUM(CASE WHEN DATE(bf.schedule_date) > CURDATE() AND (bf.completed_date IS NULL) THEN 1 ELSE 0 END) AS upcoming_followups,
+        SUM(CASE WHEN DATE(bf.scheduled_date) = CURDATE() AND (bf.is_complete = 0 OR bf.is_complete IS NULL) THEN 1 ELSE 0 END) AS today_followups,
+        SUM(CASE WHEN DATE(bf.scheduled_date) < CURDATE() AND (bf.is_complete = 0 OR bf.is_complete IS NULL) THEN 1 ELSE 0 END) AS overdue_followups,
+        SUM(CASE WHEN DATE(bf.scheduled_date) > CURDATE() AND (bf.is_complete = 0 OR bf.is_complete IS NULL) THEN 1 ELSE 0 END) AS upcoming_followups,
         SUM(CASE WHEN bf.id IS NULL THEN 1 ELSE 0 END) AS no_followup_buyers
       FROM buyers b
-      LEFT JOIN buyer_followups bf ON b.id = bf.buyer_id
+      LEFT JOIN fu_follow_ups bf ON b.id = bf.entity_id AND bf.entity_code = 'BUYER'
       WHERE ${whereClause}
     `;
 
@@ -1813,7 +1813,7 @@ exports.getBuyerReport = async (req, res) => {
         CONCAT_WS(' ', u.first_name, u.last_name) AS assigned_agent_name,
         (SELECT COUNT(*) FROM property_visits pv WHERE pv.buyer_id = b.id) AS visit_count,
         (SELECT COUNT(*) FROM buyer_saved_properties bsp WHERE bsp.buyer_id = b.id) AS saved_count,
-        (SELECT MAX(created_at) FROM buyer_followups bf WHERE bf.buyer_id = b.id) AS last_activity
+        (SELECT MAX(created_at) FROM fu_follow_ups bf WHERE bf.entity_id = b.id AND bf.entity_code = 'BUYER') AS last_activity
       FROM buyers b
       LEFT JOIN users u ON b.assigned_executive = u.id
       WHERE ${whereClause}
@@ -2187,7 +2187,7 @@ exports.getSellerReport = async (req, res) => {
     }
     if (followupStatus && followupStatus !== "all") {
       whereConditions.push(
-        "EXISTS (SELECT 1 FROM seller_followups sf WHERE sf.seller_id = s.id AND LOWER(COALESCE(sf.status, '')) = ?)"
+        "EXISTS (SELECT 1 FROM fu_follow_ups sf WHERE sf.entity_id = s.id AND sf.entity_code = 'SELLER' AND LOWER(COALESCE(sf.status_code, '')) = ?)"
       );
       queryParams.push(followupStatus.toLowerCase().trim());
     }
@@ -2285,23 +2285,23 @@ exports.getSellerReport = async (req, res) => {
     const followupsSummarySql = `
       SELECT
         COUNT(*) AS total_followups,
-        SUM(CASE WHEN LOWER(COALESCE(sf.status, '')) IN ('completed', 'done') THEN 1 ELSE 0 END) AS completed_count,
-        SUM(CASE WHEN LOWER(COALESCE(sf.status, '')) IN ('pending', 'scheduled') THEN 1 ELSE 0 END) AS pending_count,
-        SUM(CASE WHEN LOWER(COALESCE(sf.status, '')) = 'missed' THEN 1 ELSE 0 END) AS missed_count,
-        SUM(CASE WHEN LOWER(COALESCE(sf.status, '')) = 'pending' AND COALESCE(sf.followup_date, sf.schedule_date) < CURDATE() THEN 1 ELSE 0 END) AS overdue_count
-      FROM seller_followups sf
-      JOIN sellers s ON sf.seller_id = s.id
+        SUM(CASE WHEN sf.is_complete = 1 OR LOWER(COALESCE(sf.status_code, '')) IN ('completed', 'done') THEN 1 ELSE 0 END) AS completed_count,
+        SUM(CASE WHEN (sf.is_complete = 0 OR sf.is_complete IS NULL) AND LOWER(COALESCE(sf.status_code, '')) IN ('pending', 'scheduled') THEN 1 ELSE 0 END) AS pending_count,
+        SUM(CASE WHEN LOWER(COALESCE(sf.status_code, '')) = 'missed' THEN 1 ELSE 0 END) AS missed_count,
+        SUM(CASE WHEN (sf.is_complete = 0 OR sf.is_complete IS NULL) AND sf.scheduled_date < CURDATE() THEN 1 ELSE 0 END) AS overdue_count
+      FROM fu_follow_ups sf
+      JOIN sellers s ON sf.entity_id = s.id AND sf.entity_code = 'SELLER'
       WHERE ${whereClause}
     `;
 
     const followupsTypesSql = `
       SELECT
-        COALESCE(NULLIF(TRIM(sf.followup_type), ''), 'Call') AS type_name,
+        COALESCE(NULLIF(TRIM(sf.follow_up_type_code), ''), 'Call') AS type_name,
         COUNT(*) AS count
-      FROM seller_followups sf
-      JOIN sellers s ON sf.seller_id = s.id
+      FROM fu_follow_ups sf
+      JOIN sellers s ON sf.entity_id = s.id AND sf.entity_code = 'SELLER'
       WHERE ${whereClause}
-      GROUP BY COALESCE(NULLIF(TRIM(sf.followup_type), ''), 'Call')
+      GROUP BY COALESCE(NULLIF(TRIM(sf.follow_up_type_code), ''), 'Call')
     `;
 
     const sellersNoFollowupSql = `
@@ -2309,10 +2309,11 @@ exports.getSellerReport = async (req, res) => {
       FROM sellers s
       WHERE ${whereClause}
         AND s.id NOT IN (
-          SELECT DISTINCT seller_id 
-          FROM seller_followups 
-          WHERE LOWER(COALESCE(status, '')) IN ('pending', 'scheduled')
-            AND COALESCE(followup_date, schedule_date) >= CURDATE()
+          SELECT DISTINCT entity_id 
+          FROM fu_follow_ups 
+          WHERE entity_code = 'SELLER'
+            AND (is_complete = 0 OR is_complete IS NULL)
+            AND scheduled_date >= CURDATE()
         )
     `;
 
@@ -4403,11 +4404,7 @@ exports.getActivityReport = async (req, res) => {
       FROM (
         SELECT id, user_id, title AS description, activity_type AS type, status, scheduled_date, created_at FROM activities
         UNION ALL
-        SELECT id, created_by AS user_id, COALESCE(remark, customRemark, next_action, 'Followup') AS description, type, status, scheduled_date, created_at FROM followups
-        UNION ALL
-        SELECT id, created_by AS user_id, COALESCE(remark, custom_remark, next_action, 'Buyer Followup') AS description, followup_type AS type, buyer_lead_status AS status, schedule_date AS scheduled_date, created_at FROM buyer_followups
-        UNION ALL
-        SELECT id, created_by AS user_id, COALESCE(remark, custom_remark, next_action, 'Seller Followup') AS description, followup_type AS type, status, schedule_date AS scheduled_date, created_at FROM seller_followups
+        SELECT id, created_by AS user_id, COALESCE(custom_remark, next_action_code, 'Followup') AS description, follow_up_type_code AS type, status_code AS status, scheduled_date, created_at FROM fu_follow_ups
       ) a
       LEFT JOIN users u ON a.user_id = u.id
       WHERE ${whereClause}
@@ -4437,40 +4434,13 @@ exports.getActivityReport = async (req, res) => {
 
         SELECT 
           f.id, f.created_by AS user_id,
-          CAST(COALESCE(f.remark, f.customRemark, f.next_action, 'Followup Note') AS CHAR CHARACTER SET utf8mb4) AS description,
-          CAST(COALESCE(f.type, 'Followup') AS CHAR CHARACTER SET utf8mb4) AS type,
-          CAST(f.status AS CHAR CHARACTER SET utf8mb4) AS status,
+          CAST(COALESCE(f.custom_remark, f.next_action_code, 'Followup Note') AS CHAR CHARACTER SET utf8mb4) AS description,
+          CAST(COALESCE(f.follow_up_type_code, 'Followup') AS CHAR CHARACTER SET utf8mb4) AS type,
+          CAST(COALESCE(f.status_code, CASE WHEN f.is_complete = 1 THEN 'completed' ELSE 'pending' END) AS CHAR CHARACTER SET utf8mb4) AS status,
           f.scheduled_date, f.created_at,
-          CAST('Client Lead' AS CHAR CHARACTER SET utf8mb4) AS lead_type_tag,
-          CAST(COALESCE(l.name, 'Client Lead') AS CHAR CHARACTER SET utf8mb4) AS target_lead_name
-        FROM followups f
-        LEFT JOIN client_leads l ON f.lead_id = l.id
-
-        UNION ALL
-
-        SELECT 
-          bf.id, bf.created_by AS user_id,
-          CAST(COALESCE(bf.remark, bf.custom_remark, bf.next_action, 'Buyer Followup') AS CHAR CHARACTER SET utf8mb4) AS description,
-          CAST(COALESCE(bf.followup_type, 'Buyer Followup') AS CHAR CHARACTER SET utf8mb4) AS type,
-          CAST(bf.buyer_lead_status AS CHAR CHARACTER SET utf8mb4) AS status,
-          bf.schedule_date AS scheduled_date, bf.created_at,
-          CAST('Buyer Lead' AS CHAR CHARACTER SET utf8mb4) AS lead_type_tag,
-          CAST(COALESCE(b.name, 'Buyer Lead') AS CHAR CHARACTER SET utf8mb4) AS target_lead_name
-        FROM buyer_followups bf
-        LEFT JOIN buyers b ON bf.buyer_id = b.id
-
-        UNION ALL
-
-        SELECT 
-          sf.id, sf.created_by AS user_id,
-          CAST(COALESCE(sf.remark, sf.custom_remark, sf.next_action, 'Seller Followup') AS CHAR CHARACTER SET utf8mb4) AS description,
-          CAST(COALESCE(sf.followup_type, 'Seller Followup') AS CHAR CHARACTER SET utf8mb4) AS type,
-          CAST(sf.status AS CHAR CHARACTER SET utf8mb4) AS status,
-          sf.schedule_date AS scheduled_date, sf.created_at,
-          CAST('Seller Lead' AS CHAR CHARACTER SET utf8mb4) AS lead_type_tag,
-          CAST(COALESCE(s.name, 'Seller Lead') AS CHAR CHARACTER SET utf8mb4) AS target_lead_name
-        FROM seller_followups sf
-        LEFT JOIN sellers s ON sf.seller_id = s.id
+          CAST(CONCAT(COALESCE(f.entity_code, 'LEAD'), ' Followup') AS CHAR CHARACTER SET utf8mb4) AS lead_type_tag,
+          CAST(COALESCE(f.entity_name, 'Customer') AS CHAR CHARACTER SET utf8mb4) AS target_lead_name
+        FROM fu_follow_ups f
       ) a
       LEFT JOIN users u ON a.user_id = u.id
       WHERE ${whereClause}
@@ -4613,13 +4583,14 @@ exports.getActivityReport = async (req, res) => {
         GROUP BY user_id
       ) act_cnt ON act_cnt.user_id = u.id
 
-      -- Followups (General)
+      -- Followups (General / Lead)
       LEFT JOIN (
         SELECT created_by,
           COUNT(id) AS cnt,
-          SUM(CASE WHEN scheduled_date < NOW() AND LOWER(COALESCE(status, '')) IN ('pending', 'scheduled', 'open') THEN 1 ELSE 0 END) AS overdue,
+          SUM(CASE WHEN scheduled_date < CURDATE() AND (is_complete = 0 OR is_complete IS NULL) THEN 1 ELSE 0 END) AS overdue,
           MAX(created_at) AS last_flw
-        FROM followups
+        FROM fu_follow_ups
+        WHERE entity_code = 'LEAD'
         GROUP BY created_by
       ) followup_cnt ON followup_cnt.created_by = u.id
 
@@ -4627,9 +4598,10 @@ exports.getActivityReport = async (req, res) => {
       LEFT JOIN (
         SELECT created_by,
           COUNT(id) AS cnt,
-          SUM(CASE WHEN schedule_date < NOW() AND LOWER(COALESCE(buyer_lead_status, '')) IN ('pending', 'scheduled', 'open') THEN 1 ELSE 0 END) AS overdue,
+          SUM(CASE WHEN scheduled_date < CURDATE() AND (is_complete = 0 OR is_complete IS NULL) THEN 1 ELSE 0 END) AS overdue,
           MAX(created_at) AS last_flw
-        FROM buyer_followups
+        FROM fu_follow_ups
+        WHERE entity_code = 'BUYER'
         GROUP BY created_by
       ) buyer_flw_cnt ON buyer_flw_cnt.created_by = u.id
 
@@ -4637,9 +4609,10 @@ exports.getActivityReport = async (req, res) => {
       LEFT JOIN (
         SELECT created_by,
           COUNT(id) AS cnt,
-          SUM(CASE WHEN schedule_date < NOW() AND LOWER(COALESCE(status, '')) IN ('pending', 'scheduled', 'open') THEN 1 ELSE 0 END) AS overdue,
+          SUM(CASE WHEN scheduled_date < CURDATE() AND (is_complete = 0 OR is_complete IS NULL) THEN 1 ELSE 0 END) AS overdue,
           MAX(created_at) AS last_flw
-        FROM seller_followups
+        FROM fu_follow_ups
+        WHERE entity_code = 'SELLER'
         GROUP BY created_by
       ) seller_flw_cnt ON seller_flw_cnt.created_by = u.id
 

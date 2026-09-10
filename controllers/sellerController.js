@@ -236,7 +236,9 @@ const getSellers = async (_req, res) => {
     ] = await Promise.all([
       getTableRows("seller_cosellers", "cosellers", "id DESC"),
       getTableRows("seller_activities", "activities", "activity_date DESC, created_at DESC, id DESC"),
-      getTableRows("seller_followups", "followups", "followup_date DESC, id DESC"),
+      pool.query(
+        `SELECT f.*, f.entity_id AS seller_id FROM fu_follow_ups f WHERE f.entity_code = 'SELLER' ORDER BY f.scheduled_date DESC, f.id DESC`
+      ).then(([rows]) => rows).catch(() => []),
       getTableRows("seller_documents", "documents", "id DESC"),
       getTableRows("my_properties", null, "id DESC"),
     ]);
@@ -400,14 +402,14 @@ const getSellerById = async (req, res) => {
       [id]
     );
 
-    // 4) Followups (return all fields so edit modal pre-fills completely)
+    // 4) Followups (from fu_follow_ups for SELLER)
     const [followups] = await pool.query(
       `SELECT *
-       FROM seller_followups
-       WHERE seller_id = ?
-       ORDER BY COALESCE(schedule_date, followup_date, created_at) DESC, id DESC`,
+       FROM fu_follow_ups
+       WHERE entity_code = 'SELLER' AND entity_id = ?
+       ORDER BY COALESCE(scheduled_date, created_at) DESC, id DESC`,
       [id]
-    );
+    ).catch(() => [[]]);
 
     // 5) Documents
     const [documents] = await pool.query(
@@ -431,7 +433,7 @@ const getSellerById = async (req, res) => {
     const [[metrics]] = await pool.query(
       `SELECT
           (SELECT COUNT(*) FROM seller_activities WHERE seller_id = ?) AS activities_count,
-          (SELECT COUNT(*) FROM seller_followups  WHERE seller_id = ?) AS followups_count,
+          (SELECT COUNT(*) FROM fu_follow_ups WHERE entity_code = 'SELLER' AND entity_id = ?) AS followups_count,
           (SELECT COUNT(*) FROM seller_documents  WHERE seller_id = ?) AS documents_count,
           (SELECT MAX(activity_date) FROM seller_activities WHERE seller_id = ?) AS last_activity_date
        `,

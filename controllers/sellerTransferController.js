@@ -252,10 +252,9 @@ async function transferToSeller(req, res) {
       );
     }
 
-    // 4) Insert seller_followups (bulk) – parity with buyer richness
+    // 4) Insert into fu_follow_ups for SELLER
     if (Array.isArray(seller_followups) && seller_followups.length > 0) {
-      const rows = seller_followups.map((f) => {
-        // Prefer explicit schedule; otherwise allow explicit followup_date/time; else NULL (no fake 1970 defaults)
+      for (const f of seller_followups) {
         const scheduledSrc =
           f.scheduled_date ?? f.scheduledDate ?? f.scheduled_at ?? f.scheduledAt ?? null;
         const completedSrc =
@@ -266,7 +265,6 @@ async function transferToSeller(req, res) {
         const completedDt = completedSrc ? new Date(completedSrc) : null;
         const hasValidCompleted = completedDt && !Number.isNaN(completedDt.getTime());
 
-        // Respect provided date/time strings if already SQL-like
         const finalDateSql = hasValidScheduled
           ? toSqlDate(scheduledDt)
           : (toSqlDate(f.followup_date) || null);
@@ -282,64 +280,40 @@ async function transferToSeller(req, res) {
           asIntOrNull(createdBy) ??
           null;
 
-        const createdByForRow =
-          asIntOrNull(f.created_by) ?? asIntOrNull(createdBy) ?? null;
-        const updatedByForRow =
-          asIntOrNull(f.updated_by) ?? asIntOrNull(createdBy) ?? null;
+        const newFuId = `fu_s_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const customRemark = f.custom_remark ?? f.customRemark ?? f.remark ?? f.notes ?? null;
+        const sellerName = sellerRow.name || lead.name || 'Seller';
+        const sellerPhone = sellerRow.phone || lead.phone || null;
 
-        // Merge notes from remark/customRemark if notes not provided
-        const notesNormalized =
-          f.notes ??
-          f.remark ??
-          f.custom_remark ??
-          f.customRemark ??
-          null;
-
-        return {
-          // Existing columns (keep names)
-          followup_id: f.followup_id ?? f.id ?? null,        // VARCHAR(36) recommended
-          lead_id: String(lead.id),                           // align with buyer flow (UUID-safe)
-          seller_id: sellerId,
-          followup_type: f.followup_type ?? f.type ?? "other",
-          followup_date: finalDateSql,
-          followup_time: finalTimeSql,
-          status: f.status ?? null,
-          priority: f.priority ?? "Medium",
-          assigned_to: assignedExec,
-          reminder: f.reminder != null ? (f.reminder ? 1 : 0) : 0,
-          notes: notesNormalized,
-
-          // Rich parity (additive; safe if columns exist)
-          seller_lead_stage: f.seller_lead_stage ?? f.stage ?? null,
-          seller_lead_status: f.seller_lead_status ?? f.status ?? null,
-          remark: f.remark ?? null,
-          custom_remark: f.custom_remark ?? f.customRemark ?? null,
-          next_action: f.next_action ?? f.nextAction ?? null,
-          completed_date: hasValidCompleted ? toSqlDateTime(completedDt) : null,
-          schedule_date: hasValidScheduled ? toSqlDate(scheduledDt) : (toSqlDate(f.schedule_date) || null),
-
-          transferred_from_lead:
-            f.transferred_from_lead != null ? (f.transferred_from_lead ? 1 : 0) : 1,
-          transferred_at: toSqlDateTime(f.transferred_at) ?? now,
-          transferred_by: asIntOrNull(f.transferred_by) ?? asIntOrNull(createdBy) ?? null,
-          transfer_type: f.transfer_type ?? "lead_transfer",
-
-          assigned_executive: assignedExec,
-          created_by: createdByForRow,
-          updated_by: updatedByForRow,
-          created_at: toSqlDateTime(f.created_at) ?? now,
-          updated_at: toSqlDateTime(f.updated_at) ?? now,
-        };
-      });
-
-      // filter out rows that somehow have neither date nor time if your DB requires one
-      const cols = Object.keys(rows[0]);
-      const placeholders = rows.map(() => `(${cols.map(() => "?").join(",")})`).join(",");
-      const values = [];
-      rows.forEach((r) => cols.forEach((c) => values.push(r[c])));
-
-      const fSql = `INSERT INTO seller_followups (${cols.join(",")}) VALUES ${placeholders}`;
-      await conn.query(fSql, values);
+        await conn.query(`
+          INSERT INTO fu_follow_ups (
+            id, entity_code, entity_id, entity_name, entity_phone, entity_ref,
+            follow_up_type_code, stage_code, status_code, priority_code,
+            scheduled_date, scheduled_time, is_complete, completed_at,
+            custom_remark, next_action_code, assigned_to, created_by, created_at, updated_at
+          ) VALUES (?, 'SELLER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          newFuId,
+          sellerId,
+          sellerName,
+          sellerPhone,
+          sellerPhone ? `${sellerName} (${sellerPhone})` : sellerName,
+          (f.followup_type ?? f.type ?? "CALL").toUpperCase(),
+          f.seller_lead_stage ?? f.stage ?? null,
+          f.seller_lead_status ?? f.status ?? null,
+          (f.priority ?? "MEDIUM").toUpperCase(),
+          finalDateSql,
+          finalTimeSql,
+          hasValidCompleted ? 1 : 0,
+          hasValidCompleted ? toSqlDateTime(completedDt) : null,
+          customRemark,
+          f.next_action ?? f.nextAction ?? null,
+          assignedExec,
+          asIntOrNull(f.created_by) ?? asIntOrNull(createdBy) ?? null,
+          toSqlDateTime(f.created_at) ?? now,
+          now,
+        ]).catch((err) => console.warn("[sellerTransfer] fu_follow_ups insert note:", err.message));
+      }
     }
 
     // 5) Update client_leads (soft hide, mark transferred)

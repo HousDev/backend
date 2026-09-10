@@ -139,11 +139,11 @@ async function transferToBuyer(req, res) {
       return res.status(404).json({ error: "Lead not found" });
     }
 
-    // 3) load followups for this lead
+    // 3) load followups for this lead from fu_follow_ups
     const [followupRows] = await conn.query(
-      "SELECT * FROM followups WHERE lead_id = ?",
-      [leadId]
-    );
+      "SELECT * FROM fu_follow_ups WHERE entity_code = 'LEAD' AND (entity_id = ? OR entity_id = ?)",
+      [leadId, lead.lead_number || leadId]
+    ).catch(() => [[]]);
     const followups = Array.isArray(followupRows) ? followupRows : [];
 
     // 4) prepare buyer payload (merge lead fields + overrides from form)
@@ -259,64 +259,40 @@ async function transferToBuyer(req, res) {
 // compute default exec (prefer overrides, then lead)
 const defaultExecForFollowups =
   asIntOrNull(overrides.assigned_executive ?? lead.assigned_executive) ?? null;
-    // 6) map followups -> buyer_followups (prepare array of rows)
-    const buyerFollowupsToInsert = (followups || []).map((fu) => {
-      const scheduleDateTime =
-        fu.scheduled_date ??
-        fu.scheduledDate ??
-        fu.scheduled_at ??
-        fu.scheduledAt ??
-        fu.assigned_executive ??
-        null;
-      const completedDate =
-        fu.completed_date ?? fu.completedDate ?? fu.completed_at ?? null;
- const assignedExec =
-    asIntOrNull(fu.assigned_executive) ??
-    defaultExecForFollowups ??
-    asIntOrNull(createdBy) ??
-    null;
-      return {
-        buyer_id: createdBuyerId,
-        lead_id: fu.lead_id ?? lead.id ?? null,
-        followup_id: fu.id ?? null,
-        followup_type: fu.type ?? fu.followup_type ?? "other",
-        buyer_lead_stage: fu.stage ?? null,
-        buyer_lead_status: fu.status ?? null,
-        remark: fu.remark ?? null,
-        custom_remark: fu.custom_remark ?? fu.customRemark ?? null,
-        next_action: fu.next_action ?? fu.nextAction ?? null,
-        completed_date: toSqlDateTime(completedDate) ?? null,
-        schedule_date: toSqlDate(scheduleDateTime) ?? null,
-        schedule_time: toSqlTime(scheduleDateTime) ?? null,
-        priority: fu.priority ?? "Medium",
-        created_by:
-          asIntOrNull(fu.created_by) ?? asIntOrNull(createdBy) ?? null,
-        updated_by:
-          asIntOrNull(fu.updated_by) ?? asIntOrNull(createdBy) ?? null,
-        created_at: toSqlDateTime(fu.created_at) ?? nowSql,
-        assigned_executive:assignedExec,
-        updated_at: toSqlDateTime(fu.updated_at) ?? nowSql,
-        transferred_from_lead: 1, // mark that this followup row came from a lead transfer
-        transferred_at: nowSql,
-        transferred_by: asIntOrNull(createdBy) ?? null,
-        transfer_type: "lead_transfer",
-      };
-    });
 
-    if (buyerFollowupsToInsert.length > 0) {
-      // Build multi-row insert
-      const columns = Object.keys(buyerFollowupsToInsert[0]);
-      const valuePlaceholders = buyerFollowupsToInsert
-        .map(() => `(${columns.map(() => "?").join(", ")})`)
-        .join(", ");
-      const values = [];
-      buyerFollowupsToInsert.forEach((row) => {
-        columns.forEach((c) => values.push(row[c]));
-      });
-      const insertFollowupsSql = `INSERT INTO buyer_followups (${columns.join(
-        ", "
-      )}) VALUES ${valuePlaceholders}`;
-      await conn.query(insertFollowupsSql, values);
+    // 6) map lead followups -> fu_follow_ups for BUYER
+    if (Array.isArray(followups) && followups.length > 0) {
+      for (const fu of followups) {
+        const newFuId = `fu_b_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        await conn.query(`
+          INSERT INTO fu_follow_ups (
+            id, entity_code, entity_id, entity_name, entity_phone, entity_ref,
+            follow_up_type_code, stage_code, status_code, priority_code,
+            scheduled_date, scheduled_time, is_complete, completed_at,
+            custom_remark, next_action_code, assigned_to, created_by, created_at, updated_at
+          ) VALUES (?, 'BUYER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          newFuId,
+          createdBuyerId,
+          buyerPayload.name || lead.name || 'Buyer',
+          buyerPayload.phone || lead.phone || null,
+          buyerPayload.name ? `${buyerPayload.name} (${buyerPayload.phone || ''})` : null,
+          fu.follow_up_type_code || 'CALL',
+          buyerPayload.buyer_lead_stage || fu.stage_code || null,
+          buyerPayload.buyer_lead_status || fu.status_code || null,
+          fu.priority_code || 'MEDIUM',
+          fu.scheduled_date || null,
+          fu.scheduled_time || null,
+          fu.is_complete ? 1 : 0,
+          fu.completed_at || null,
+          fu.custom_remark || null,
+          fu.next_action_code || null,
+          defaultExecForFollowups ?? fu.assigned_to ?? asIntOrNull(createdBy) ?? null,
+          asIntOrNull(fu.created_by) ?? asIntOrNull(createdBy) ?? null,
+          toSqlDateTime(fu.created_at) ?? nowSql,
+          nowSql,
+        ]).catch((err) => console.warn("[buyerTransfer] fu_follow_ups insert note:", err.message));
+      }
     }
 
     // 7) mark lead as transferred AND hide it from lists (soft-hide)
@@ -347,20 +323,6 @@ const defaultExecForFollowups =
       asIntOrNull(createdBy) ?? null,
       leadId,
     ]);
-
-    // 8) mark original followups as transferred / not-listed (keep history)
-    if (followups && followups.length > 0) {
-      const followupUpdateSql = `
-        UPDATE followups
-        SET transferred_to_buyer = 1, is_listed = 0, updated_at = ?, updated_by = ?
-        WHERE lead_id = ?
-      `;
-      await conn.query(followupUpdateSql, [
-        nowForSql,
-        asIntOrNull(createdBy) ?? null,
-        leadId,
-      ]);
-    }
 
     // commit & release
     await conn.commit();
