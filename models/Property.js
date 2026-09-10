@@ -194,6 +194,50 @@ class Property {
       phone: property.seller_phone || null,
     };
 
+    // Live unique counts for buyers shortlisted and inquiries from DB
+    let shortlistedCount = 0;
+    let inquiriesCount = 0;
+    try {
+      const [sRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM buyers 
+         WHERE (shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+      );
+      shortlistedCount = Number(sRows[0]?.cnt || 0);
+      if (shortlistedCount === 0) {
+        const [sRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM buyers 
+           WHERE shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+        );
+        shortlistedCount = Number(sRowsId[0]?.cnt || 0);
+      }
+    } catch (e) {}
+
+    try {
+      const [eRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM buyers 
+         WHERE (enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+      );
+      inquiriesCount = Number(eRows[0]?.cnt || 0);
+      if (inquiriesCount === 0) {
+        const [eRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM buyers 
+           WHERE enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+        );
+        inquiriesCount = Number(eRowsId[0]?.cnt || 0);
+      }
+    } catch (e) {}
+
+    property.shortlisted_count = shortlistedCount;
+    property.shortlistedBy = shortlistedCount;
+    property.inquiries_count = inquiriesCount;
+    property.direct_inquiries = inquiriesCount;
+
     return property;
   }
 
@@ -209,7 +253,7 @@ class Property {
 
     const [result] = await db.execute(
       `UPDATE my_properties SET
-        seller_name = ?, property_type_name = ?, property_subtype_name = ?,
+        seller_name = ?, seller_id = ?, property_type_name = ?, property_subtype_name = ?,
         unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, balcony = ?, bedrooms = ?, bathrooms = ?, facing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
         floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?, price_type = ?, final_price = ?,
@@ -225,6 +269,7 @@ class Property {
        WHERE id = ?`,
       [
         data.seller_name || null,
+        data.seller_id || null,
         data.property_type_name || null,
         data.property_subtype_name || null,
         data.unit_type || null,
@@ -858,6 +903,275 @@ class Property {
       location: row.location,
       count: Number(row.property_count),
     }));
+  }
+
+  /* =========================
+     SEARCH PUBLIC PROPERTIES (for REX AI & Public Discovery)
+     ========================= */
+  static async searchPublicProperties(filters = {}, limit = 4) {
+    const {
+      city = null,
+      locations = [],
+      propertyType = null,
+      propertySubtype = null,
+      unitType = null,
+      bedrooms = null,
+      budgetMin = null,
+      budgetMax = null,
+    } = filters;
+
+    const conditions = [
+      "p.is_public = 1",
+      "(p.is_sold = 0 OR p.is_sold IS NULL)",
+      "(p.status = 'Available' OR p.status = 'Active' OR p.status IS NULL)"
+    ];
+    const params = [];
+
+    if (city && typeof city === "string" && city.trim()) {
+      conditions.push("LOWER(TRIM(p.city_name)) = ?");
+      params.push(city.trim().toLowerCase());
+    }
+
+    if (Array.isArray(locations) && locations.length > 0) {
+      const validLocs = locations.map(l => String(l).trim()).filter(Boolean);
+      if (validLocs.length > 0) {
+        const locConditions = validLocs.map(() => "LOWER(p.location_name) LIKE ?").join(" OR ");
+        conditions.push(`(${locConditions})`);
+        validLocs.forEach(loc => params.push(`%${loc.toLowerCase()}%`));
+      }
+    }
+
+    if (propertyType && typeof propertyType === "string" && propertyType.trim()) {
+      conditions.push("LOWER(p.property_type_name) LIKE ?");
+      params.push(`%${propertyType.trim().toLowerCase()}%`);
+    }
+
+    if (propertySubtype && typeof propertySubtype === "string" && propertySubtype.trim()) {
+      conditions.push("LOWER(p.property_subtype_name) LIKE ?");
+      params.push(`%${propertySubtype.trim().toLowerCase()}%`);
+    }
+
+    if (bedrooms !== null && bedrooms !== undefined && Number(bedrooms) > 0) {
+      conditions.push("(p.bedrooms = ? OR p.unit_type LIKE ?)");
+      params.push(Number(bedrooms), `%${bedrooms}%`);
+    } else if (unitType && typeof unitType === "string" && unitType.trim()) {
+      conditions.push("p.unit_type LIKE ?");
+      params.push(`%${unitType.trim()}%`);
+    }
+
+    if (budgetMax !== null && budgetMax !== undefined && Number(budgetMax) > 0) {
+      conditions.push("((p.final_price IS NOT NULL AND p.final_price <= ?) OR (p.budget IS NOT NULL AND p.budget <= ?) OR (p.final_price IS NULL AND p.budget IS NULL))");
+      params.push(Number(budgetMax) * 1.15, Number(budgetMax) * 1.15); // 15% upper flexibility
+    }
+
+    if (budgetMin !== null && budgetMin !== undefined && Number(budgetMin) > 0) {
+      conditions.push("((p.final_price IS NOT NULL AND p.final_price >= ?) OR (p.budget IS NOT NULL AND p.budget >= ?))");
+      params.push(Number(budgetMin) * 0.85, Number(budgetMin) * 0.85);
+    }
+
+    const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const fetchLimit = Math.min(Number(limit) || 4, 10);
+    params.push(fetchLimit);
+
+    const sql = `
+      SELECT
+        p.id,
+        p.slug,
+        COALESCE(
+          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.society_name), ''),
+          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_type_name, 'in', p.location_name), ''),
+          p.society_name,
+          p.property_type_name,
+          'Property'
+        ) AS title,
+        p.property_type_name,
+        p.property_subtype_name,
+        p.unit_type,
+        p.bedrooms,
+        p.bathrooms,
+        p.carpet_area,
+        p.builtup_area,
+        p.city_name,
+        p.location_name,
+        p.society_name,
+        COALESCE(p.final_price, p.budget, 0) AS price,
+        p.photos,
+        p.assigned_to,
+        p.is_featured,
+        p.is_premium
+      FROM my_properties p
+      ${whereSql}
+      ORDER BY p.is_featured DESC, p.is_premium DESC, p.updated_at DESC
+      LIMIT ?
+    `;
+
+    try {
+      const [rows] = await db.query(sql, params);
+      return (rows || []).map((row) => ({
+        ...row,
+        photos: safeJsonParse(row.photos, []),
+      }));
+    } catch (err) {
+      console.error("Property.searchPublicProperties error:", err);
+      return [];
+    }
+  }
+
+  /* =========================
+     PAGINATED SEARCH FOR REX AI (Max 5 items per batch + Load More cursor)
+     ========================= */
+  static async searchPublicPropertiesPaginated(filters = {}, limit = 5, offset = 0) {
+    const {
+      city = null,
+      locations = [],
+      propertyType = null,
+      propertySubtype = null,
+      unitType = null,
+      bedrooms = null,
+      budgetMin = null,
+      budgetMax = null,
+    } = filters;
+
+    const conditions = [
+      "p.is_public = 1",
+      "(p.is_sold = 0 OR p.is_sold IS NULL)",
+      "(p.status = 'Available' OR p.status = 'Active' OR p.status IS NULL)"
+    ];
+    const countParams = [];
+
+    if (city && typeof city === "string" && city.trim()) {
+      conditions.push("LOWER(TRIM(p.city_name)) = ?");
+      countParams.push(city.trim().toLowerCase());
+    }
+
+    if (Array.isArray(locations) && locations.length > 0) {
+      const validLocs = locations.map(l => String(l).trim()).filter(Boolean);
+      if (validLocs.length > 0) {
+        const locConditions = validLocs.map(() => "LOWER(p.location_name) LIKE ?").join(" OR ");
+        conditions.push(`(${locConditions})`);
+        validLocs.forEach(loc => countParams.push(`%${loc.toLowerCase()}%`));
+      }
+    }
+
+    if (propertyType && typeof propertyType === "string" && propertyType.trim()) {
+      conditions.push("LOWER(p.property_type_name) LIKE ?");
+      countParams.push(`%${propertyType.trim().toLowerCase()}%`);
+    }
+
+    if (propertySubtype && typeof propertySubtype === "string" && propertySubtype.trim()) {
+      conditions.push("LOWER(p.property_subtype_name) LIKE ?");
+      countParams.push(`%${propertySubtype.trim().toLowerCase()}%`);
+    }
+
+    if (unitType && typeof unitType === "string" && unitType.trim() && unitType.trim().toLowerCase() !== "any bhk") {
+      const cleanUt = unitType.trim();
+      const numMatch = cleanUt.match(/(\d+(?:\.\d+)?)/);
+      if (numMatch) {
+        const bhkNum = parseFloat(numMatch[1]);
+        if (Number.isInteger(bhkNum)) {
+          conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.bedrooms = ?)");
+          countParams.push(`%${bhkNum} BHK%`, `%${bhkNum}BHK%`, bhkNum);
+        } else {
+          // Precise match for half-BHKs (1.5, 2.5, 3.5) - do NOT loosely match 2 or 3 BHK
+          conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+          countParams.push(`%${bhkNum} BHK%`, `%${bhkNum}BHK%`, `%${bhkNum}%`);
+        }
+      } else {
+        conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(`%${cleanUt}%`, `%${cleanUt.replace(/\s+/g, "")}%`);
+      }
+    } else if (bedrooms !== null && bedrooms !== undefined && Number(bedrooms) > 0) {
+      const numBed = Number(bedrooms);
+      if (Number.isInteger(numBed)) {
+        conditions.push("(p.bedrooms = ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(numBed, `%${numBed} BHK%`, `%${numBed}BHK%`);
+      } else {
+        conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(`%${numBed} BHK%`, `%${numBed}BHK%`, `%${numBed}%`);
+      }
+    }
+
+    if (budgetMax !== null && budgetMax !== undefined && Number(budgetMax) > 0) {
+      conditions.push("((p.final_price IS NOT NULL AND p.final_price <= ?) OR (p.budget IS NOT NULL AND p.budget <= ?) OR (p.final_price IS NULL AND p.budget IS NULL))");
+      countParams.push(Number(budgetMax), Number(budgetMax));
+    }
+
+    if (budgetMin !== null && budgetMin !== undefined && Number(budgetMin) > 0) {
+      conditions.push("((p.final_price IS NOT NULL AND p.final_price >= ?) OR (p.budget IS NOT NULL AND p.budget >= ?))");
+      countParams.push(Number(budgetMin), Number(budgetMin));
+    }
+
+    const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const parsedLimit = Math.max(1, Math.min(Number(limit) || 5, 20));
+    const parsedOffset = Math.max(0, Number(offset) || 0);
+
+    const countSql = `SELECT COUNT(*) AS total FROM my_properties p ${whereSql}`;
+    const dataSql = `
+      SELECT
+        p.id,
+        p.slug,
+        COALESCE(
+          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''),
+          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_type_name, 'in', p.location_name), ''),
+          p.property_type_name,
+          'Property'
+        ) AS title,
+        p.property_type_name,
+        p.property_subtype_name,
+        p.unit_type,
+        p.bedrooms,
+        p.bathrooms,
+        p.carpet_area,
+        p.builtup_area,
+        p.city_name,
+        p.location_name,
+        p.society_name,
+        COALESCE(p.final_price, p.budget, 0) AS price,
+        p.photos,
+        p.assigned_to,
+        p.is_featured,
+        p.is_premium
+      FROM my_properties p
+      ${whereSql}
+      ORDER BY p.is_featured DESC, p.is_premium DESC, p.updated_at DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    try {
+      const [countRows] = await db.query(countSql, countParams);
+      const total = countRows?.[0]?.total ? Number(countRows[0].total) : 0;
+
+      const dataParams = [...countParams, parsedLimit, parsedOffset];
+      const [rows] = await db.query(dataSql, dataParams);
+
+      const properties = (rows || []).map((row) => ({
+        ...row,
+        photos: safeJsonParse(row.photos, []),
+      }));
+
+      const loadedSoFar = parsedOffset + properties.length;
+      const remaining = Math.max(0, total - loadedSoFar);
+      const hasMore = remaining > 0;
+
+      return {
+        properties,
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore,
+        remaining,
+      };
+    } catch (err) {
+      console.error("Property.searchPublicPropertiesPaginated error:", err);
+      return {
+        properties: [],
+        total: 0,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: false,
+        remaining: 0,
+      };
+    }
   }
 }
 

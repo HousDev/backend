@@ -60,5 +60,6 @@ router.patch("/:id/link-owner", rentalPropertyController.patchPropertyOwner);
 router.get('/similar', rentalPropertyController.getSimilarProperties);
 router.get('/popular-locations', rentalPropertyController.getPopularLocations);
 router.get("/search", rentalPropertyController.searchProperties);
+router.post("/ai-analysis", rentalPropertyController.getRentalAiAnalysis);
 
 module.exports = router;

@@ -309,6 +309,7 @@
 const jwt = require("jsonwebtoken");
 const config = require("../config/auth.config");
 const User = require("../models/User");
+const db = require("../config/database");
 
 // ---------- helpers ----------
 const roleIn = (role, list = []) =>
@@ -431,6 +432,40 @@ const verifyToken = (req, res, next) => {
           message: "User account is inactive!",
           code: "USER_INACTIVE",
         });
+      }
+
+      // If user role is tenant, verify tenant profile is still active in tenants table
+      if (String(user.role || "").toLowerCase() === "tenant") {
+        let tenantExists = false;
+        if (user.email) {
+          try {
+            const [tRows] = await db.query(
+              "SELECT id FROM tenants WHERE LOWER(email) = ? LIMIT 1",
+              [user.email.toLowerCase().trim()]
+            );
+            if (tRows && tRows.length > 0) tenantExists = true;
+          } catch (e) {}
+        }
+        if (!tenantExists && user.phone) {
+          try {
+            const [tRows] = await db.query(
+              "SELECT id FROM tenants WHERE phone = ? LIMIT 1",
+              [user.phone.trim()]
+            );
+            if (tRows && tRows.length > 0) tenantExists = true;
+          } catch (e) {}
+        }
+        if (!tenantExists) {
+          userCache.delete(decoded.id);
+          try {
+            await User.remove(user.id);
+          } catch (e) {}
+          return res.status(401).send({
+            success: false,
+            message: "Tenant account has been deleted!",
+            code: "USER_NOT_FOUND",
+          });
+        }
       }
 
       // 🔥 Normalize permissions (again safe) and attach

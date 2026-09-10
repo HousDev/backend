@@ -193,10 +193,18 @@ const getSellers = async (_req, res) => {
       SELECT
         s.*,
 
-        c.id   AS created_by_id,
-        CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
-        c.email AS created_by_email,
-        c.phone AS created_by_phone,
+        COALESCE(c.id, adm.id)   AS created_by_id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', c.salutation, c.first_name, c.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', adm.salutation, adm.first_name, adm.last_name)), '')
+        ) AS created_by_name,
+        COALESCE(c.email, adm.email) AS created_by_email,
+        COALESCE(c.phone, adm.phone) AS created_by_phone,
+
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', c.salutation, c.first_name, c.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', adm.salutation, adm.first_name, adm.last_name)), '')
+        ) AS assigned_by_name,
 
         u.id   AS updated_by_id,
         CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS updated_by_name,
@@ -212,6 +220,7 @@ const getSellers = async (_req, res) => {
       LEFT JOIN users c ON s.created_by = c.id
       LEFT JOIN users u ON s.updated_by = u.id
       LEFT JOIN users a ON s.assigned_to = a.id
+      LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
       ORDER BY s.id DESC
     `;
     const [sellers] = await pool.query(sellersSql);
@@ -314,10 +323,18 @@ const getSellerById = async (req, res) => {
       SELECT
         s.*,
 
-        c.id   AS created_by_id,
-        CONCAT_WS(' ', c.salutation, c.first_name, c.last_name) AS created_by_name,
-        c.email AS created_by_email,
-        c.phone AS created_by_phone,
+        COALESCE(c.id, adm.id)   AS created_by_id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', c.salutation, c.first_name, c.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', adm.salutation, adm.first_name, adm.last_name)), '')
+        ) AS created_by_name,
+        COALESCE(c.email, adm.email) AS created_by_email,
+        COALESCE(c.phone, adm.phone) AS created_by_phone,
+
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', c.salutation, c.first_name, c.last_name)), ''),
+          NULLIF(TRIM(CONCAT_WS(' ', adm.salutation, adm.first_name, adm.last_name)), '')
+        ) AS assigned_by_name,
 
         u.id   AS updated_by_id,
         CONCAT_WS(' ', u.salutation, u.first_name, u.last_name) AS updated_by_name,
@@ -333,6 +350,7 @@ const getSellerById = async (req, res) => {
       LEFT JOIN users c ON s.created_by = c.id
       LEFT JOIN users u ON s.updated_by = u.id
       LEFT JOIN users a ON s.assigned_to = a.id
+      LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
       WHERE s.id = ?
       LIMIT 1
     `;

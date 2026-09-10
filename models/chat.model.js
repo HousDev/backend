@@ -17,26 +17,35 @@ class ChatModel {
   }
 
   /**
-   * Find conversation by user_id and property_id
+   * Find conversation by user_id and property_id (latest non-archived)
    */
   static async findByUserAndProperty(userId, propertyId) {
     const [rows] = await db.execute(
       `SELECT c.*,
-              p.title AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
+              p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.property_type_name,
+              p.property_subtype_name,
+              p.unit_type,
               p.photos AS property_photos,
               p.assigned_to AS property_assigned_to,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
+              u.role AS user_role,
+              COALESCE(u.avatar, NULL) AS user_avatar,
+              e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
               e.last_name AS executive_last_name,
               e.email AS executive_email,
-              e.phone AS executive_phone
+              e.phone AS executive_phone,
+              e.role AS executive_role,
+              COALESCE(e.avatar, NULL) AS executive_avatar
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
@@ -63,21 +72,39 @@ class ChatModel {
 
     const [rows] = await db.execute(
       `SELECT c.*,
-              p.title AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
+              p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.property_type_name,
+              p.property_subtype_name,
+              p.unit_type,
+              p.furnishing AS property_furnishing,
+              p.carpet_area AS property_carpet_area,
+              p.builtup_area AS property_builtup_area,
+              p.floor AS property_floor,
+              p.total_floors AS property_total_floors,
+              p.bedrooms AS property_bedrooms,
+              p.bathrooms AS property_bathrooms,
+              p.balcony AS property_balcony,
+              p.facing AS property_facing,
               p.photos AS property_photos,
               p.assigned_to AS property_assigned_to,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
+              u.role AS user_role,
+              COALESCE(u.avatar, NULL) AS user_avatar,
+              e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
               e.last_name AS executive_last_name,
               e.email AS executive_email,
-              e.phone AS executive_phone
+              e.phone AS executive_phone,
+              e.role AS executive_role,
+              COALESCE(e.avatar, NULL) AS executive_avatar
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
@@ -95,10 +122,9 @@ class ChatModel {
   }
 
   /**
-   * Create a new conversation and optional initial message inside a transaction
+   * Atomic Create or Retrieve Conversation (Protected against simultaneous race conditions)
    */
-  static async createConversation({
-    conversationUuid = null,
+  static async createOrGetAtomic({
     userId,
     propertyId,
     executiveId,
@@ -107,12 +133,63 @@ class ChatModel {
     initialMessageUuid = null,
     senderType = "user",
   }) {
-    const uuid = conversationUuid || uuidv4();
     const conn = await db.getConnection();
 
     try {
       await conn.beginTransaction();
 
+      // 1. Check existing non-archived conversation inside transaction with row locking
+      const [existingRows] = await conn.execute(
+        `SELECT id, status FROM property_conversations
+         WHERE user_id = ? AND property_id = ? AND status != 'archived'
+         ORDER BY created_at DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [userId, propertyId]
+      );
+
+      if (existingRows && existingRows.length > 0) {
+        const existing = existingRows[0];
+
+        if (existing.status === "active") {
+          await conn.commit();
+          conn.release();
+          const conv = await this.findById(existing.id);
+          return { conversation: conv, isNew: false, reopened: false };
+        }
+
+        if (existing.status === "closed") {
+          // Reopen closed conversation with system notice
+          const reopenNotice = "Inquiry reopened by user.";
+          const msgUuid = uuidv4();
+
+          await conn.execute(
+            `UPDATE property_conversations
+             SET status = 'active',
+                 last_message_text = ?,
+                 last_message_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [reopenNotice, existing.id]
+          );
+
+          await conn.execute(
+            `INSERT INTO property_chat_messages (
+               message_uuid, conversation_id, sender_id, sender_type,
+               message_type, message_text, is_delivered, is_read, created_at
+             ) VALUES (?, ?, ?, 'system', 'system', ?, 1, 1, NOW())`,
+            [msgUuid, existing.id, userId, reopenNotice]
+          );
+
+          await conn.commit();
+          conn.release();
+          const conv = await this.findById(existing.id);
+          return { conversation: conv, isNew: false, reopened: true };
+        }
+      }
+
+      // 2. Create new conversation
+      const uuid = uuidv4();
       let lastMessageText = null;
       let lastMessageAt = null;
       let unreadExecutiveCount = 0;
@@ -122,6 +199,8 @@ class ChatModel {
         lastMessageAt = new Date();
         unreadExecutiveCount = 1;
       }
+
+      const parsedLeadId = leadId ? parseInt(leadId, 10) || null : null;
 
       const [insertResult] = await conn.execute(
         `INSERT INTO property_conversations (
@@ -134,7 +213,7 @@ class ChatModel {
           userId,
           propertyId,
           executiveId,
-          leadId || null,
+          parsedLeadId,
           lastMessageText,
           lastMessageAt,
           unreadExecutiveCount,
@@ -157,47 +236,8 @@ class ChatModel {
       await conn.commit();
       conn.release();
 
-      return await this.findById(conversationId);
-    } catch (err) {
-      await conn.rollback();
-      conn.release();
-      throw err;
-    }
-  }
-
-  /**
-   * Reopen a closed conversation with a system timeline message
-   */
-  static async reopenConversation(conversationId, reopenedByUserId, senderType = "user") {
-    const conn = await db.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      const reopenNotice = "Inquiry reopened by user.";
-      const msgUuid = uuidv4();
-
-      await conn.execute(
-        `UPDATE property_conversations
-         SET status = 'active',
-             last_message_text = ?,
-             last_message_at = NOW(),
-             updated_at = NOW()
-         WHERE id = ?`,
-        [reopenNotice, conversationId]
-      );
-
-      await conn.execute(
-        `INSERT INTO property_chat_messages (
-           message_uuid, conversation_id, sender_id, sender_type,
-           message_type, message_text, is_delivered, is_read, created_at
-         ) VALUES (?, ?, ?, 'system', 'system', ?, 1, 1, NOW())`,
-        [msgUuid, conversationId, reopenedByUserId, reopenNotice]
-      );
-
-      await conn.commit();
-      conn.release();
-
-      return await this.findById(conversationId);
+      const conv = await this.findById(conversationId);
+      return { conversation: conv, isNew: true, reopened: false };
     } catch (err) {
       await conn.rollback();
       conn.release();
@@ -253,26 +293,43 @@ class ChatModel {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
     const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
     const parsedOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
     const [rows] = await db.execute(
       `SELECT c.*,
-              p.title AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
+              p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.property_type_name,
+              p.property_subtype_name,
+              p.unit_type,
+              p.furnishing AS property_furnishing,
+              p.carpet_area AS property_carpet_area,
+              p.builtup_area AS property_builtup_area,
+              p.floor AS property_floor,
+              p.total_floors AS property_total_floors,
+              p.bedrooms AS property_bedrooms,
+              p.bathrooms AS property_bathrooms,
+              p.balcony AS property_balcony,
+              p.facing AS property_facing,
               p.photos AS property_photos,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
+              u.role AS user_role,
+              COALESCE(u.avatar, NULL) AS user_avatar,
+              e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
               e.last_name AS executive_last_name,
               e.email AS executive_email,
-              e.phone AS executive_phone
+              e.phone AS executive_phone,
+              e.role AS executive_role,
+              COALESCE(e.avatar, NULL) AS executive_avatar
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
@@ -318,7 +375,6 @@ class ChatModel {
       params
     );
 
-    // Return in chronological order
     const ordered = rows.reverse();
     return ordered.map((row) => {
       row.metadata_json = this.safeJsonParse(row.metadata_json, null);
@@ -432,7 +488,6 @@ class ChatModel {
       await conn.rollback();
       conn.release();
 
-      // Handle duplicate key error in race condition
       if (err.code === "ER_DUP_ENTRY") {
         const raceExisting = await this.findMessageByUuid(uuid);
         if (raceExisting) {
@@ -447,9 +502,16 @@ class ChatModel {
    * Mark messages in conversation as read and reset corresponding unread count
    */
   static async markMessagesAsRead(conversationId, readerId, readerRole = "user") {
-    const isExecutiveOrAdmin = ["executive", "agent", "manager", "team leader", "admin", "super_admin"].includes(
-      String(readerRole).toLowerCase()
-    );
+    const lower = String(readerRole || "").toLowerCase();
+    const isExecutiveOrAdmin =
+      lower.includes("exec") ||
+      lower.includes("agent") ||
+      lower.includes("manager") ||
+      lower.includes("leader") ||
+      lower.includes("admin") ||
+      lower.includes("sales") ||
+      lower.includes("presales") ||
+      lower.includes("marketing");
 
     const conn = await db.getConnection();
     try {

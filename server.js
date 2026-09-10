@@ -8,11 +8,13 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
-// const path = require("path");   //for local
-
+const path = require("path");
 const fs = require("fs");
-//---SERVER CONFIG---
-const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
+
+// UPLOAD ROOT CONFIG (Works seamlessly in local dev & server)
+const UPLOAD_ROOT = process.env.UPLOAD_ROOT 
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.join(__dirname, "uploads");
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
 //USE FOR LOCAL DEV (overrides .env for easier testing)
@@ -25,7 +27,7 @@ const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 // Routes
 const masterRoutes = require("./routes/masterRoutes");
 const leadRoutes = require("./routes/lead.routes");
-const remarkRoutes = require("./routes/connectedRemarkRoutes");
+// const remarkRoutes = require("./routes/connectedRemarkRoutes");
 const propertyRoutes = require("./routes/property.routes");
 const rentalPropertyRoutes = require("./routes/rentalProperty.routes");
 const propertyStatusRoutes = require("./routes/propertyStatus.routes");
@@ -39,7 +41,7 @@ const viewsRoutes = require("./routes/views.routes");
 const blogRoutes = require("./routes/blog.routes");
 const contactRoutes = require("./routes/contactRoutes");
 const variableRoutes = require("./routes/variableRoutes");
-const buyerFollowupRoutes = require("./routes/buyerFollowupRoutes");
+const followUpRoutes = require("./routes/followupRoutes");
 const documentsTemplateRoutes = require("./routes/documentsTemplateRoutes");
 const documentsGeneratedRoutes = require("./routes/documentsGeneratedRoutes");
 const receiptRoutes = require("./routes/propertyPaymentReceipt.routes");
@@ -80,13 +82,40 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 
 // CORS
+const allowedOrigins = [
+  "https://resaleexpert.in",
+  "https://www.resaleexpert.in",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:3000",
+  "http://localhost:8080",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:3000",
+];
+if (process.env.CORS_ORIGIN) {
+  allowedOrigins.push(process.env.CORS_ORIGIN);
+}
+
 const corsOptions = {
-  // origin: process.env.CORS_ORIGIN || "http://localhost:5173",  // for local use
-  origin: process.env.CORS_ORIGIN || "https://resaleexpert.in",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some((o) => origin && origin.startsWith(o))) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-access-token", "ngrok-skip-browser-warning"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-access-token",
+    "x-guest-uuid",
+    "x-client-id",
+    "ngrok-skip-browser-warning",
+  ],
   exposedHeaders: ["Content-Disposition"],
 };
 app.use(cors(corsOptions));
@@ -132,9 +161,10 @@ app.use("/api/activities", require("./routes/activity.routes"));
 app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/dashboard", require("./routes/dashboard.routes"));
 app.use("/api/masters", masterRoutes);
-app.use("/api/automation", require("./routes/automationMaster.routes"));
-app.use("/api/connected-remarks", remarkRoutes);
-app.use("/api/followups", require("./routes/followupRoutes"));
+app.use("/api/followup-masters", require("./routes/followUpMaster.routes"));
+// app.use("/api/automation", require("./routes/automationMaster.routes"));
+// app.use("/api/connected-remarks", remarkRoutes);
+app.use("/api/followups", followUpRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/rental-properties", rentalPropertyRoutes);
 app.use("/buy/projects", propertyRoutes);
@@ -151,6 +181,7 @@ app.use("/api/templates", templateRoutes);
 app.use("/api/contacts", require("./routes/contacts.routes"));
 app.use("/api/messages", require("./routes/messages.routes"));
 app.use("/api/chat", require("./routes/chat.routes"));
+app.use("/api/rex", require("./routes/rex.routes"));
 app.use("/api/templates", require("./routes/templates.routes"));
 
 app.use("/api/campaigns", require("./routes/campaigns"));
@@ -172,13 +203,11 @@ app.use("/api/rbac", rbacRoutes);
 app.use("/api/backup", backupRoutes);
 
 app.use("/api/google-sheets", googleSheetsRoutes);
-// for use for loacal
-// app.use(
-//   '/uploads',
-//   helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
-// );
-
-// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use(
+  "/uploads",
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" }),
+  express.static(UPLOAD_ROOT)
+);
 
 app.use(
   helmet({
@@ -247,9 +276,10 @@ app.use("/api/tenants", require("./routes/tenant.routes"));
 app.use("/api/tenant-followups", require("./routes/tenantFollowupRoutes"));
 app.use("/api/tenant-visits", require("./routes/tenantVisitRoutes"));
 app.use("/api/tenant-activities", require("./routes/tenantActivityRoutes"));
+app.use("/api/tenant-bookings", require("./routes/tenantBookingRoutes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
-app.use("/api/sellerfollowups", require("./routes/sellerFollowupRoutes"));
+app.use("/api/sellerfollowups", followUpRoutes);
 
 app.use("/api/email", emailRoutes);
 
@@ -270,7 +300,7 @@ app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
-app.use("/api/buyer-followups", buyerFollowupRoutes);
+app.use("/api/buyer-followups", followUpRoutes);
 app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);
@@ -305,11 +335,108 @@ const io = new Server(server, {
 
 global.io = io;
 
-io.on('connection', (socket) => {
-  const { userId } = socket.handshake.query || {};
-  if (!userId) return;
+const jwt = require('jsonwebtoken');
+const authConfig = require('./config/auth.config');
 
-  socket.join(`user:${userId}`);
+function getSocketAuthenticatedUser(socket, data) {
+  let token =
+    socket.handshake?.auth?.token ||
+    socket.handshake?.headers?.authorization ||
+    socket.handshake?.query?.token ||
+    data?.token;
+
+  if (token && typeof token === 'string' && token.startsWith('Bearer ')) {
+    token = token.slice(7);
+  }
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, authConfig.secret);
+      if (decoded && decoded.id) {
+        return { userId: Number(decoded.id), role: decoded.role || 'user', isJwt: true };
+      }
+    } catch (e) {
+      // Invalid JWT token
+    }
+  }
+
+  // Fallback for existing socket connections
+  const queryUserId = socket.handshake?.query?.userId;
+  if (queryUserId) {
+    return { userId: Number(queryUserId), role: 'user', isJwt: false };
+  }
+
+  return null;
+}
+
+// In-Memory Presence Tracking (No DB persistence)
+const onlineUsers = new Map(); // userId (number) -> Set<socketId>
+const lastSeenUsers = new Map(); // userId (number) -> ISO string
+
+io.on('connection', (socket) => {
+  const authUser = getSocketAuthenticatedUser(socket, null);
+  const rawUserId = authUser?.userId || socket.handshake.query?.userId;
+  const socketUserId = rawUserId ? Number(rawUserId) : null;
+
+  if (socketUserId) {
+    socket.join(`user:${socketUserId}`);
+
+    // Track in onlineUsers map
+    if (!onlineUsers.has(socketUserId)) {
+      onlineUsers.set(socketUserId, new Set());
+    }
+    onlineUsers.get(socketUserId).add(socket.id);
+
+    // Broadcast online status
+    io.emit('user:presence', {
+      userId: socketUserId,
+      status: 'online',
+    });
+  }
+
+  socket.on('disconnect', () => {
+    if (socketUserId && onlineUsers.has(socketUserId)) {
+      const userSockets = onlineUsers.get(socketUserId);
+      userSockets.delete(socket.id);
+
+      if (userSockets.size === 0) {
+        onlineUsers.delete(socketUserId);
+        const lastSeen = new Date().toISOString();
+        lastSeenUsers.set(socketUserId, lastSeen);
+
+        io.emit('user:presence', {
+          userId: socketUserId,
+          status: 'offline',
+          lastSeen,
+        });
+      }
+    }
+  });
+
+  socket.on('user:get_presence', (data, callback) => {
+    try {
+      const targetUserIds = Array.isArray(data?.userIds) ? data.userIds.map(Number) : [];
+      const result = {};
+
+      for (const uid of targetUserIds) {
+        if (!uid) continue;
+        const isOnline = onlineUsers.has(uid) && onlineUsers.get(uid).size > 0;
+        result[uid] = {
+          userId: uid,
+          status: isOnline ? 'online' : 'offline',
+          lastSeen: isOnline ? null : lastSeenUsers.get(uid) || null,
+        };
+      }
+
+      if (typeof callback === 'function') {
+        callback(result);
+      } else {
+        socket.emit('user:presence_batch', result);
+      }
+    } catch (err) {
+      console.error('Socket user:get_presence error:', err);
+    }
+  });
 
   socket.on('join_contact_room', (contactId) => {
     socket.join(`contact:${contactId}`);
@@ -323,8 +450,11 @@ io.on('connection', (socket) => {
   socket.on('chat:join_room', async (data) => {
     try {
       const conversationId = typeof data === 'object' ? data.conversationId : data;
-      const sUserId = socket.handshake.query?.userId;
-      if (!sUserId || !conversationId) return;
+      const user = getSocketAuthenticatedUser(socket, typeof data === 'object' ? data : null);
+      if (!user || !conversationId) {
+        socket.emit('chat:error', { message: 'Authentication required for chat' });
+        return;
+      }
 
       const ChatModel = require('./models/chat.model');
       const conv = await ChatModel.findById(conversationId);
@@ -333,12 +463,24 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const isOwner = Number(conv.user_id) === Number(sUserId);
-      const isExec = Number(conv.executive_id) === Number(sUserId);
+      const isOwner = Number(conv.user_id) === Number(user.userId);
+      const isExec = Number(conv.executive_id) === Number(user.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(user.role || '').toLowerCase());
 
-      if (isOwner || isExec) {
+      if (isOwner || isExec || isAdmin) {
         socket.join(`conversation:${conv.id}`);
         socket.emit('chat:room_joined', { conversationId: conv.id });
+
+        // Send presence of opposite party
+        const otherUserId = isOwner ? Number(conv.executive_id) : Number(conv.user_id);
+        if (otherUserId) {
+          const isOnline = onlineUsers.has(otherUserId) && onlineUsers.get(otherUserId).size > 0;
+          socket.emit('user:presence', {
+            userId: otherUserId,
+            status: isOnline ? 'online' : 'offline',
+            lastSeen: isOnline ? null : lastSeenUsers.get(otherUserId) || null,
+          });
+        }
       } else {
         socket.emit('chat:error', { message: 'Unauthorized to join this conversation' });
       }
@@ -355,27 +497,140 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('chat:send_message', async (data) => {
+  // Typing Start / Stop (Ephemeral in-memory broadcast)
+  socket.on('chat:typing_start', async (data) => {
     try {
-      const { conversationId, messageText, messageType, messageUuid } = data || {};
-      const sUserId = socket.handshake.query?.userId;
-      if (!sUserId || !conversationId || !messageText || !messageText.trim()) return;
+      const { conversationId } = data || {};
+      const user = getSocketAuthenticatedUser(socket, data);
+      if (!user || !conversationId) return;
 
       const ChatModel = require('./models/chat.model');
       const conv = await ChatModel.findById(conversationId);
       if (!conv) return;
 
-      const isOwner = Number(conv.user_id) === Number(sUserId);
-      const isExec = Number(conv.executive_id) === Number(sUserId);
-      if (!isOwner && !isExec) {
+      const isOwner = Number(conv.user_id) === Number(user.userId);
+      const isExec = Number(conv.executive_id) === Number(user.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(user.role || '').toLowerCase());
+
+      if (!isOwner && !isExec && !isAdmin) return;
+
+      // Broadcast typing to conversation room (excluding sender)
+      socket.to(`conversation:${conv.id}`).emit('chat:typing', {
+        conversationId: conv.id,
+        senderId: Number(user.userId),
+        senderRole: user.role || 'user',
+        typing: true,
+      });
+    } catch (err) {
+      console.error('Socket chat:typing_start error:', err);
+    }
+  });
+
+  socket.on('chat:typing_stop', async (data) => {
+    try {
+      const { conversationId } = data || {};
+      const user = getSocketAuthenticatedUser(socket, data);
+      if (!user || !conversationId) return;
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) return;
+
+      const isOwner = Number(conv.user_id) === Number(user.userId);
+      const isExec = Number(conv.executive_id) === Number(user.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(user.role || '').toLowerCase());
+
+      if (!isOwner && !isExec && !isAdmin) return;
+
+      // Broadcast stop typing to conversation room (excluding sender)
+      socket.to(`conversation:${conv.id}`).emit('chat:typing', {
+        conversationId: conv.id,
+        senderId: Number(user.userId),
+        senderRole: user.role || 'user',
+        typing: false,
+      });
+    } catch (err) {
+      console.error('Socket chat:typing_stop error:', err);
+    }
+  });
+
+  // Message Delivered Acknowledgement
+  socket.on('chat:message_delivered', async (data) => {
+    try {
+      const { conversationId, messageId, messageUuid } = data || {};
+      const user = getSocketAuthenticatedUser(socket, data);
+      if (!user || !conversationId) return;
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) return;
+
+      const isOwner = Number(conv.user_id) === Number(user.userId);
+      const isExec = Number(conv.executive_id) === Number(user.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(user.role || '').toLowerCase());
+
+      if (!isOwner && !isExec && !isAdmin) return;
+
+      const db = require('./config/database');
+      if (messageId) {
+        await db.execute(
+          `UPDATE property_chat_messages
+           SET is_delivered = 1
+           WHERE id = ? AND conversation_id = ? AND sender_id != ? AND is_delivered = 0`,
+          [messageId, conv.id, user.userId]
+        ).catch(() => {});
+      } else if (messageUuid) {
+        await db.execute(
+          `UPDATE property_chat_messages
+           SET is_delivered = 1
+           WHERE message_uuid = ? AND conversation_id = ? AND sender_id != ? AND is_delivered = 0`,
+          [messageUuid, conv.id, user.userId]
+        ).catch(() => {});
+      }
+
+      io.to(`conversation:${conv.id}`).emit('chat:message_delivered', {
+        conversationId: conv.id,
+        messageId: messageId || null,
+        messageUuid: messageUuid || null,
+        deliveredAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Socket chat:message_delivered error:', err);
+    }
+  });
+
+  socket.on('chat:send_message', async (data) => {
+    try {
+      const { conversationId, messageText, messageType, messageUuid } = data || {};
+      const authUser = getSocketAuthenticatedUser(socket, data);
+      if (!authUser || !conversationId || !messageText || !messageText.trim()) {
+        socket.emit('chat:error', { message: 'Authentication and valid message text required' });
+        return;
+      }
+
+      const ChatModel = require('./models/chat.model');
+      const conv = await ChatModel.findById(conversationId);
+      if (!conv) {
+        socket.emit('chat:error', { message: 'Conversation not found' });
+        return;
+      }
+
+      const isOwner = Number(conv.user_id) === Number(authUser.userId);
+      const isExec = Number(conv.executive_id) === Number(authUser.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(authUser.role || '').toLowerCase());
+
+      if (!isOwner && !isExec && !isAdmin) {
         socket.emit('chat:error', { message: 'Unauthorized to send message in this conversation' });
         return;
       }
 
-      const senderType = isExec ? 'executive' : 'user';
+      let senderType = 'user';
+      if (isAdmin) senderType = 'admin';
+      else if (isExec) senderType = 'executive';
+
       const { message, isDuplicate } = await ChatModel.createMessage({
         conversationId: conv.id,
-        senderId: Number(sUserId),
+        senderId: Number(authUser.userId),
         senderType,
         messageType: messageType || 'text',
         messageText: messageText.trim(),
@@ -384,6 +639,13 @@ io.on('connection', (socket) => {
 
       if (!isDuplicate) {
         io.to(`conversation:${conv.id}`).emit('chat:new_message', message);
+        if (conv.executive_id) {
+          io.to(`user:${conv.executive_id}`).emit('chat:new_message', message);
+        }
+        if (conv.user_id) {
+          io.to(`user:${conv.user_id}`).emit('chat:new_message', message);
+        }
+
         if (senderType === 'user') {
           io.to(`user:${conv.executive_id}`).emit('chat:unread_count_update', {
             conversationId: conv.id,
@@ -404,26 +666,28 @@ io.on('connection', (socket) => {
   socket.on('chat:read_receipt', async (data) => {
     try {
       const { conversationId } = data || {};
-      const sUserId = socket.handshake.query?.userId;
-      if (!sUserId || !conversationId) return;
+      const authUser = getSocketAuthenticatedUser(socket, data);
+      if (!authUser || !conversationId) return;
 
       const ChatModel = require('./models/chat.model');
       const conv = await ChatModel.findById(conversationId);
       if (!conv) return;
 
-      const isOwner = Number(conv.user_id) === Number(sUserId);
-      const isExec = Number(conv.executive_id) === Number(sUserId);
-      if (!isOwner && !isExec) return;
+      const isOwner = Number(conv.user_id) === Number(authUser.userId);
+      const isExec = Number(conv.executive_id) === Number(authUser.userId);
+      const isAdmin = ['admin', 'super_admin'].includes(String(authUser.role || '').toLowerCase());
 
-      const role = isExec ? 'executive' : 'user';
-      await ChatModel.markMessagesAsRead(conv.id, Number(sUserId), role);
+      if (!isOwner && !isExec && !isAdmin) return;
+
+      const role = isExec || isAdmin ? 'executive' : 'user';
+      await ChatModel.markMessagesAsRead(conv.id, Number(authUser.userId), role);
 
       io.to(`conversation:${conv.id}`).emit('chat:messages_read', {
         conversationId: conv.id,
-        readBy: Number(sUserId),
+        readBy: Number(authUser.userId),
         readAt: new Date().toISOString(),
       });
-      io.to(`user:${sUserId}`).emit('chat:unread_count_update', {
+      io.to(`user:${authUser.userId}`).emit('chat:unread_count_update', {
         conversationId: conv.id,
         unreadCount: 0,
       });

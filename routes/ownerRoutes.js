@@ -9,7 +9,9 @@ const {
   updateLeadField,
   bulkUpdateLeadField,
   bulkImport,
-  bulkHardDeleteOwners
+  bulkHardDeleteOwners,
+  getOrCreateOwnerCredentials,
+  updateOwnerPassword,
 } = require("../controllers/ownerController");
 
 const router = express.Router();
@@ -24,5 +26,8 @@ router.post("/bulk/assign-executive", bulkAssignExecutive);
 router.post("/bulk/lead-field", bulkUpdateLeadField);
 router.post("/:id/lead-field", updateLeadField);
 router.post("/hard-delete", bulkHardDeleteOwners);
+router.get("/:id/credentials", getOrCreateOwnerCredentials);
+router.post("/:id/credentials", getOrCreateOwnerCredentials);
+router.put("/:id/password", updateOwnerPassword);
 
 module.exports = router;

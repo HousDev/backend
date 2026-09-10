@@ -861,11 +861,17 @@ exports.exportUsersByTab = async (req, res) => {
         
       case 'buyer-accounts':
       case 'seller-accounts':
-        // Fetch users with role buyer or seller
-        const role = tabType === 'buyer-accounts' ? 'buyer' : 'seller';
+      case 'tenant-accounts':
+      case 'owner-accounts':
+        // Fetch users with role buyer, seller, tenant or owner
+        let accountRole = 'buyer';
+        if (tabType === 'seller-accounts') accountRole = 'seller';
+        else if (tabType === 'tenant-accounts') accountRole = 'tenant';
+        else if (tabType === 'owner-accounts') accountRole = 'owner';
+
         const [accountUsers] = await db.query(
           "SELECT id, username, salutation, first_name, last_name, email, phone, role, is_active, dob, created_at, last_login FROM users WHERE role = ?",
-          [role]
+          [accountRole]
         );
         users = accountUsers.map(u => ({
           'ID': u.id,
@@ -884,9 +890,9 @@ exports.exportUsersByTab = async (req, res) => {
         break;
         
       default: // 'all' or team members
-        // Fetch all users
+        // Fetch team members excluding client/customer roles
         const [allUsers] = await db.query(
-          "SELECT id, username, salutation, first_name, last_name, email, phone, role, department, designation, is_active, dob, blood_group, created_at, last_login FROM users"
+          "SELECT id, username, salutation, first_name, last_name, email, phone, role, department, designation, is_active, dob, blood_group, created_at, last_login FROM users WHERE LOWER(role) NOT IN ('buyer', 'seller', 'owner', 'tenant')"
         );
         users = allUsers.map(u => ({
           'ID': u.id,

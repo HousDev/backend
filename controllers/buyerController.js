@@ -103,11 +103,20 @@ exports.getAllBuyers = async (req, res) => {
         u2.first_name  AS assigned_user_first_name,
         u2.last_name   AS assigned_user_last_name,
         u2.email       AS assigned_user_email,
-        u2.phone       AS assigned_user_phone
+        u2.phone       AS assigned_user_phone,
+
+        -- admin fallback
+        adm.id         AS adm_id,
+        adm.salutation AS adm_salutation,
+        adm.first_name AS adm_first_name,
+        adm.last_name  AS adm_last_name,
+        adm.email      AS adm_email,
+        adm.phone      AS adm_phone
 
       FROM buyers b
       LEFT JOIN users u1 ON u1.id = b.created_by
       LEFT JOIN users u2 ON u2.id = b.assigned_executive
+      LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
       ORDER BY b.created_at DESC
     `);
 
@@ -124,18 +133,26 @@ exports.getAllBuyers = async (req, res) => {
       if (seenIds.has(buyer.id)) continue;
       seenIds.add(buyer.id);
 
+      const admName = makeName(buyer.adm_salutation, buyer.adm_first_name, buyer.adm_last_name);
+      const rawCreatorName = makeName(
+        buyer.created_user_salutation,
+        buyer.created_user_first_name,
+        buyer.created_user_last_name
+      );
+
       const created_by_user = buyer.created_user_id
         ? {
             id: buyer.created_user_id,
-            name: makeName(
-              buyer.created_user_salutation,
-              buyer.created_user_first_name,
-              buyer.created_user_last_name
-            ),
+            name: rawCreatorName,
             email: buyer.created_user_email || null,
             phone: buyer.created_user_phone || null,
           }
-        : null;
+        : (buyer.adm_id ? {
+            id: buyer.adm_id,
+            name: admName,
+            email: buyer.adm_email || null,
+            phone: buyer.adm_phone || null,
+          } : null);
 
       const assigned_executive_user = buyer.assigned_user_id
         ? {
@@ -149,6 +166,8 @@ exports.getAllBuyers = async (req, res) => {
             phone: buyer.assigned_user_phone || null,
           }
         : null;
+
+      const creatorName = rawCreatorName || admName;
 
       safeBuyers.push({
         ...buyer,
@@ -167,6 +186,10 @@ exports.getAllBuyers = async (req, res) => {
 
         created_by_user,
         assigned_executive_user,
+        assigned_executive_name: assigned_executive_user?.name || makeName(buyer.assigned_user_salutation, buyer.assigned_user_first_name, buyer.assigned_user_last_name) || null,
+        assigned_to_name: assigned_executive_user?.name || makeName(buyer.assigned_user_salutation, buyer.assigned_user_first_name, buyer.assigned_user_last_name) || null,
+        created_by_name: creatorName,
+        assigned_by_name: creatorName,
       });
     }
 
@@ -206,11 +229,20 @@ exports.getBuyerById = async (req, res) => {
         u2.first_name  AS assigned_user_first_name,
         u2.last_name   AS assigned_user_last_name,
         u2.email       AS assigned_user_email,
-        u2.phone       AS assigned_user_phone
+        u2.phone       AS assigned_user_phone,
+
+        -- admin fallback
+        adm.id         AS adm_id,
+        adm.salutation AS adm_salutation,
+        adm.first_name AS adm_first_name,
+        adm.last_name  AS adm_last_name,
+        adm.email      AS adm_email,
+        adm.phone      AS adm_phone
 
       FROM buyers b
       LEFT JOIN users u1 ON u1.id = b.created_by
       LEFT JOIN users u2 ON u2.id = b.assigned_executive
+      LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
       WHERE b.id = ?
       LIMIT 1
     `, [id]);
@@ -226,18 +258,26 @@ exports.getBuyerById = async (req, res) => {
         .replace(/\s+/g, " ")
         .trim() || null;
 
+    const admName = makeName(buyer.adm_salutation, buyer.adm_first_name, buyer.adm_last_name);
+    const rawCreatorName = makeName(
+      buyer.created_user_salutation,
+      buyer.created_user_first_name,
+      buyer.created_user_last_name
+    );
+
     const created_by_user = buyer.created_user_id
       ? {
           id: buyer.created_user_id,
-          name: makeName(
-            buyer.created_user_salutation,
-            buyer.created_user_first_name,
-            buyer.created_user_last_name
-          ),
+          name: rawCreatorName,
           email: buyer.created_user_email || null,
           phone: buyer.created_user_phone || null,
         }
-      : null;
+      : (buyer.adm_id ? {
+          id: buyer.adm_id,
+          name: admName,
+          email: buyer.adm_email || null,
+          phone: buyer.adm_phone || null,
+        } : null);
 
     const assigned_executive_user = buyer.assigned_user_id
       ? {
@@ -251,6 +291,8 @@ exports.getBuyerById = async (req, res) => {
           phone: buyer.assigned_user_phone || null,
         }
       : null;
+
+    const creatorName = rawCreatorName || admName;
 
     const safeBuyer = {
       ...buyer,
@@ -268,6 +310,10 @@ exports.getBuyerById = async (req, res) => {
 
       created_by_user,
       assigned_executive_user,
+      assigned_executive_name: assigned_executive_user?.name || makeName(buyer.assigned_user_salutation, buyer.assigned_user_first_name, buyer.assigned_user_last_name) || null,
+      assigned_to_name: assigned_executive_user?.name || makeName(buyer.assigned_user_salutation, buyer.assigned_user_first_name, buyer.assigned_user_last_name) || null,
+      created_by_name: creatorName,
+      assigned_by_name: creatorName,
     };
 
     res.status(200).json(safeBuyer);

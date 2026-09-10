@@ -80,7 +80,7 @@ const ensureBuyerOrSellerProfile = async (user) => {
         user.seller_id = existing[0].id;
       } else {
         const [sRes] = await db.query(
-          "INSERT INTO sellers (salutation, name, phone, email, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', NOW(), NOW())",
+          "INSERT INTO sellers (salutation, name, phone, email, source, status, stage, created_at, updated_at) VALUES (?, ?, ?, ?, 'Website Registration', 'uncontacted', 'uncontacted', NOW(), NOW())",
           [user.salutation || 'Mr.', safeName, user.phone || null, user.email]
         );
         user.seller_id = sRes.insertId;
@@ -183,10 +183,10 @@ exports.signup = async (req, res) => {
 
     // Save user in database
     const data = await User.create(user);
-    
+
     // Generate JWT token
     const token = jwt.sign(
-      { 
+      {
         id: data.id,
         username: data.username,
         email: data.email,
@@ -275,7 +275,7 @@ exports.signin = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { 
+      {
         id: user.id,
         username: user.username,
         email: user.email,
@@ -294,12 +294,12 @@ exports.signin = async (req, res) => {
       // Close any previously unclosed sessions for this user/email
       await LoginLog.closePreviousSessions(user.id, user.email);
 
-      const rawIp = req.headers['cf-connecting-ip'] || 
-                    req.headers['x-real-ip'] || 
-                    req.headers['x-forwarded-for'] || 
-                    req.socket?.remoteAddress || 
-                    req.ip || 
-                    '127.0.0.1';
+      const rawIp = req.headers['cf-connecting-ip'] ||
+        req.headers['x-real-ip'] ||
+        req.headers['x-forwarded-for'] ||
+        req.socket?.remoteAddress ||
+        req.ip ||
+        '127.0.0.1';
       let ip = String(rawIp).split(',')[0].trim();
       if (ip === '::1') {
         ip = '127.0.0.1 (IPv6 ::1)';
@@ -362,7 +362,7 @@ exports.signin = async (req, res) => {
 exports.refreshToken = async (req, res) => {
   try {
     const token = req.headers['x-access-token'] || req.headers['authorization'];
-    
+
     if (!token) {
       return res.status(403).send({
         success: false,
@@ -392,7 +392,7 @@ exports.refreshToken = async (req, res) => {
 
       // Generate new token
       const newToken = jwt.sign(
-        { 
+        {
           id: user.id,
           username: user.username,
           email: user.email,
@@ -455,7 +455,7 @@ exports.forgotPassword = async (req, res) => {
     // 2. Store it in the database with expiration
     // 3. Send email with reset link
     // For this demo, we'll just return success
-    
+
     res.send({
       success: true,
       message: 'If the email exists in our system, you will receive password reset instructions.'
@@ -472,7 +472,7 @@ exports.forgotPassword = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-    
+
     if (!token || !newPassword) {
       return res.status(400).send({
         success: false,
@@ -492,7 +492,7 @@ exports.resetPassword = async (req, res) => {
     // 2. Check if it's not expired
     // 3. Update the user's password
     // 4. Invalidate the reset token
-    
+
     res.send({
       success: true,
       message: 'Password reset functionality would be implemented here.'
@@ -540,8 +540,52 @@ exports.me = async (req, res) => {
     }
     const user = req.user ? { ...req.user } : await User.findById(userId);
     if (!user) {
-      return res.status(404).send({ success: false, message: 'User not found' });
+      return res.status(401).send({ success: false, message: 'User not found', code: 'USER_NOT_FOUND' });
     }
+    if (!user.is_active) {
+      return res.status(401).send({ success: false, message: 'User account is inactive', code: 'USER_INACTIVE' });
+    }
+
+    // If role is tenant, verify that their tenant record still exists in tenants table
+    if (String(user.role || '').toLowerCase() === 'tenant') {
+      let tenantExists = false;
+      if (user.email) {
+        try {
+          const [tRows] = await db.query(
+            "SELECT id FROM tenants WHERE LOWER(email) = ? LIMIT 1",
+            [user.email.toLowerCase().trim()]
+          );
+          if (tRows && tRows.length > 0) {
+            tenantExists = true;
+          }
+        } catch (e) { }
+      }
+
+      if (!tenantExists && user.phone) {
+        try {
+          const [tRows] = await db.query(
+            "SELECT id FROM tenants WHERE phone = ? LIMIT 1",
+            [user.phone.trim()]
+          );
+          if (tRows && tRows.length > 0) {
+            tenantExists = true;
+          }
+        } catch (e) { }
+      }
+
+      if (!tenantExists) {
+        // Tenant record was deleted by admin from tenants table!
+        try {
+          await User.remove(user.id);
+        } catch (e) { }
+        return res.status(401).send({
+          success: false,
+          message: 'Tenant account profile has been deleted.',
+          code: 'USER_NOT_FOUND'
+        });
+      }
+    }
+
     delete user.password;
     res.send({
       success: true,
@@ -1181,6 +1225,228 @@ exports.googleAuth = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Error authenticating with Google.',
+    });
+  }
+};
+
+/* =========================================================================
+   4. IN-CHAT CONVERSATIONAL OTP (REX AI Chat & Support Stream)
+========================================================================= */
+const inChatOtpStore = new Map();
+
+exports.sendInChatOtp = async (req, res) => {
+  try {
+    const { email, first_name, last_name, phone, role } = req.body;
+
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid email address is required to receive your verification code.',
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const existingUser = await User.findByEmail(normalizedEmail);
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+
+    inChatOtpStore.set(normalizedEmail, {
+      otp,
+      expiresAt,
+      attempts: 0,
+      isExisting: !!existingUser,
+      formData: {
+        first_name: first_name || existingUser?.first_name || '',
+        last_name: last_name || existingUser?.last_name || '',
+        phone: phone || existingUser?.phone || '',
+        role: role || existingUser?.role || 'buyer',
+        email: normalizedEmail,
+      },
+    });
+
+    const displayName = first_name || existingUser?.first_name || 'Client';
+
+    try {
+      const emailPayload = await getDynamicOtpEmail({
+        name: displayName,
+        otpCode: otp,
+        companyName: 'Resale Expert',
+      });
+
+      await sendMail({
+        to: normalizedEmail,
+        subject: emailPayload.subject || `Your Verification Code: ${otp} - Resale Expert`,
+        html: emailPayload.html,
+      });
+    } catch (mailErr) {
+      console.error('Error sending in-chat OTP email:', mailErr);
+      return res.status(500).json({
+        success: false,
+        message: `Failed to send verification code. Please ensure mail service is configured. Error: ${mailErr.message}`,
+      });
+    }
+
+    res.json({
+      success: true,
+      is_existing_user: !!existingUser,
+      email: normalizedEmail,
+      message: `A 6-digit verification code has been sent to ${normalizedEmail}.`,
+    });
+  } catch (error) {
+    console.error('sendInChatOtp error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error sending verification code.',
+    });
+  }
+};
+
+exports.verifyInChatOtp = async (req, res) => {
+  try {
+    const { email, otp, first_name, last_name, phone, role, session_uuid } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and 6-digit OTP code are required.',
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const otpRecord = inChatOtpStore.get(normalizedEmail);
+
+    if (!otpRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active verification code found for this email. Please request a new code.',
+      });
+    }
+
+    if (Date.now() > otpRecord.expiresAt) {
+      inChatOtpStore.delete(normalizedEmail);
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new code.',
+      });
+    }
+
+    if (otpRecord.attempts >= 5) {
+      inChatOtpStore.delete(normalizedEmail);
+      return res.status(400).json({
+        success: false,
+        message: 'Too many incorrect attempts. Please request a new code.',
+      });
+    }
+
+    if (String(otpRecord.otp).trim() !== String(otp).trim()) {
+      otpRecord.attempts += 1;
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code. Please check your email and try again.',
+      });
+    }
+
+    inChatOtpStore.delete(normalizedEmail);
+
+    let user = await User.findByEmail(normalizedEmail);
+    const resolvedRole = (role || otpRecord.formData?.role || 'buyer').toLowerCase().trim();
+    const resolvedFirstName = (first_name || otpRecord.formData?.first_name || 'Client').trim();
+    const resolvedLastName = (last_name || otpRecord.formData?.last_name || '').trim();
+    const resolvedPhone = (phone || otpRecord.formData?.phone || '').trim();
+
+    if (!user) {
+      const generatedUsername = generateUsername(resolvedFirstName || normalizedEmail.split('@')[0]);
+      const randomPassword = `RexPass_${Math.random().toString(36).substring(2, 10)}!`;
+      const hashedPassword = bcrypt.hashSync(randomPassword, 8);
+
+      const [insertRes] = await db.query(
+        `INSERT INTO users (username, email, password, first_name, last_name, phone, role, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+        [
+          generatedUsername,
+          normalizedEmail,
+          hashedPassword,
+          resolvedFirstName,
+          resolvedLastName,
+          resolvedPhone || null,
+          resolvedRole,
+        ]
+      );
+
+      user = await User.findById(insertRes.insertId);
+    } else {
+      const updates = [];
+      const vals = [];
+      if (resolvedPhone && !user.phone) {
+        updates.push("phone = ?");
+        vals.push(resolvedPhone);
+      }
+      if (resolvedFirstName && (!user.first_name || user.first_name === 'Guest')) {
+        updates.push("first_name = ?");
+        vals.push(resolvedFirstName);
+      }
+      if (resolvedLastName && !user.last_name) {
+        updates.push("last_name = ?");
+        vals.push(resolvedLastName);
+      }
+      if (updates.length > 0) {
+        vals.push(user.id);
+        await db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, vals);
+        user = await User.findById(user.id);
+      }
+    }
+
+    await ensureBuyerOrSellerProfile(user);
+
+    if (session_uuid) {
+      try {
+        const safeFullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'Client';
+        await db.query(
+          `UPDATE rex_agent_sessions 
+           SET user_id = ?, 
+               client_name = ?, 
+               client_email = ?, 
+               client_phone = ?,
+               user_intent = ?
+           WHERE session_uuid = ?`,
+          [user.id, safeFullName, user.email, user.phone || null, user.role || 'buyer', session_uuid]
+        );
+      } catch (sessErr) {
+        console.warn("Session linkage note:", sessErr.message);
+      }
+    }
+
+    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        session_id: sessionId,
+      },
+      config.secret,
+      { expiresIn: config.jwtExpiration || 86400 }
+    );
+
+    await User.updateLastLogin(user.id);
+
+    delete user.password;
+
+    res.json({
+      success: true,
+      message: `Welcome ${user.first_name || ''}! You are logged in successfully.`,
+      user,
+      accessToken: token,
+      session_id: sessionId,
+    });
+  } catch (error) {
+    console.error('verifyInChatOtp error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error verifying code and logging in.',
     });
   }
 };
