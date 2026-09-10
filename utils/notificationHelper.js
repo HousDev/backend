@@ -6,7 +6,6 @@ function emitToUser(userId, event, payload) {
     return;
   }
   global.io.to(`user:${userId}`).emit(event, payload);
-  console.log(`🔌 Emitted socket event "${event}" to user:${userId}`);
 }
 
 async function sendAssignmentNotification({ userId, type, itemId, itemName, message, link }) {
@@ -14,34 +13,37 @@ async function sendAssignmentNotification({ userId, type, itemId, itemName, mess
 
   try {
     const db = require("../config/database");
-    let leadId = itemId;
 
-    // Check if itemId is a valid lead_id in client_leads
+    const [userRows] = await db.execute("SELECT id FROM users WHERE id = ? LIMIT 1", [userId]).catch(() => [[]]);
+    if (!userRows || userRows.length === 0) {
+      console.warn(`[Notification] Skipping notification for unknown userId=${userId}`);
+      return;
+    }
+
+    let leadId = itemId;
     if (leadId) {
-      const [rows] = await db.execute("SELECT id FROM client_leads WHERE id = ? LIMIT 1", [leadId]).catch(() => [[]]);
-      if (!rows || rows.length === 0) {
-        // Fallback to any valid lead_id to satisfy NOT NULL foreign key constraint
-        const [firstLead] = await db.execute("SELECT id FROM client_leads LIMIT 1").catch(() => [[]]);
-        leadId = firstLead && firstLead[0] ? firstLead[0].id : null;
+      const [leadRows] = await db.execute("SELECT id FROM client_leads WHERE id = ? LIMIT 1", [leadId]).catch(() => [[]]);
+      if (!leadRows || leadRows.length === 0) {
+        console.warn(`[Notification] Skipping notification for invalid leadId=${leadId} type=${type}`);
+        return;
       }
     } else {
-      const [firstLead] = await db.execute("SELECT id FROM client_leads LIMIT 1").catch(() => [[]]);
-      leadId = firstLead && firstLead[0] ? firstLead[0].id : null;
+      console.warn(`[Notification] Skipping notification because itemId is missing type=${type}`);
+      return;
     }
 
     let id = null;
-    if (leadId) {
-      try {
-        id = await NotificationModel.create({
-          leadId,
-          userId,
-          message,
-          type,
-          link
-        });
-      } catch (dbErr) {
-        console.error("❌ Database insertion failed for notification:", dbErr.message);
-      }
+    try {
+      id = await NotificationModel.create({
+        leadId,
+        userId,
+        message,
+        type,
+        link,
+      });
+    } catch (dbErr) {
+      console.error("❌ Database insertion failed for notification:", dbErr.message);
+      return;
     }
 
     emitToUser(userId, "notification:new", {
@@ -52,10 +54,8 @@ async function sendAssignmentNotification({ userId, type, itemId, itemName, mess
       type,
       link,
       is_read: 0,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     });
-
-    console.log(`🔔 Notification processed and pushed to user:${userId} for ${type} (Item ID: ${itemId})`);
   } catch (err) {
     console.error("❌ Error sending assignment notification:", err);
   }

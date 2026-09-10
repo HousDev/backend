@@ -2,6 +2,24 @@ const db = require("../config/database"); // mysql2/promise pool instance
 
 // ✅ Create Notification
 exports.create = async ({ leadId, userId, message, type, link }) => {
+  if (!leadId || !userId) {
+    return null;
+  }
+
+  const [userRows] = await db.execute(
+    `SELECT id FROM users WHERE id = ? LIMIT 1`,
+    [userId],
+  ).catch(() => [[]]);
+
+  const [leadRows] = await db.execute(
+    `SELECT id FROM client_leads WHERE id = ? LIMIT 1`,
+    [leadId],
+  ).catch(() => [[]]);
+
+  if (!userRows || userRows.length === 0 || !leadRows || leadRows.length === 0) {
+    return null;
+  }
+
   const [result] = await db.query(
     `INSERT INTO client_lead_notification 
       (lead_id, user_id, message, type, link) 

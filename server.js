@@ -58,6 +58,8 @@ const smsRoutes = require("./routes/smsRoutes");
 const buyerSavedPropsRoutes = require("./routes/buyerSavedPropertiesRoutes");
 const blogCommentsRoutes = require("./routes/blogCommentsRoutes");
 
+const emailRoutes = require("./routes/emailRoutes");
+
 const rbacRoutes = require("./routes/rbacRoutes");
 const integrationRoutes = require("./routes/integration.routes");
 
@@ -269,6 +271,7 @@ app.use("/api", require("./routes/buyerTransferRoute"));
 app.use("/api", require("./routes/sellerTransferRoute"));
 app.use("/api/sellers", require("./routes/sellerRoutes"));
 app.use("/api/owners", require("./routes/ownerRoutes"));
+app.use("/api/vendors", require("./routes/vendorRoutes"));
 app.use("/api/tenants", require("./routes/tenant.routes"));
 app.use("/api/tenant-followups", require("./routes/tenantFollowupRoutes"));
 app.use("/api/tenant-visits", require("./routes/tenantVisitRoutes"));
@@ -277,6 +280,8 @@ app.use("/api/tenant-bookings", require("./routes/tenantBookingRoutes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", followUpRoutes);
+
+app.use("/api/email", emailRoutes);
 
 app.use("/api/sellerdocuments", require("./routes/sellerDocuments"));
 app.use("/api/ai", aiRoutes); // <-- new line
