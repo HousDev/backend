@@ -230,6 +230,26 @@ class PropertyVisit {
     };
   }
 
+  static #normalizeTime(timeStr) {
+    if (!timeStr) return null;
+    const trimmed = String(timeStr).trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+      const parts = trimmed.split(":");
+      return `${parts[0].padStart(2, "0")}:${parts[1]}:${parts[2] || "00"}`;
+    }
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (match) {
+      let hours = parseInt(match[1], 10);
+      const minutes = match[2];
+      const seconds = match[3] || "00";
+      const period = match[4].toUpperCase();
+      if (period === "PM" && hours < 12) hours += 12;
+      if (period === "AM" && hours === 12) hours = 0;
+      return `${String(hours).padStart(2, "0")}:${minutes}:${seconds}`;
+    }
+    return trimmed;
+  }
+
   /* ------------------------------- CRUD ------------------------------- */
   static async create(payload) {
     const columns = await this.#getVisitColumns();
@@ -267,19 +287,19 @@ class PropertyVisit {
     // derive live party details into cached columns
     Object.assign(data, await this.#hydrateParties(data));
 
-    // handle date/time split if only datetime given
+    // handle date/time split if only datetime given or format time
     let visit_date = data.visit_date || null;
-    let visit_time = data.visit_time || null;
+    let visit_time = this.#normalizeTime(data.visit_time) || null;
     if ((!visit_date || !visit_time) && data.visit_datetime) {
       const split = this.#splitISOToDateTime(data.visit_datetime);
       visit_date = visit_date || split.date;
-      visit_time = visit_time || split.time;
+      visit_time = visit_time || this.#normalizeTime(split.time);
     }
     if (!visit_date || !visit_time) {
       throw new Error("visit_date & visit_time (or visit_datetime) are required");
     }
 
-    // keep only columns that exist in your table
+    // keep only columns that exist in your table and exclude generated visit_datetime
     const cols = allowed.filter(c => columns.has(c)).filter(c => c !== "visit_datetime");
     const placeholders = cols.map(() => "?").join(", ");
     const params = cols.map(c => {

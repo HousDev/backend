@@ -611,3 +611,76 @@ exports.reassignExecutive = async (req, res) => {
     });
   }
 };
+
+/**
+ * POST /api/chat/conversations/:conversationId/smart-replies
+ * Generate dynamic AI suggestions based on conversation history and property context
+ */
+exports.getSmartReplies = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { last_message } = req.body || {};
+
+    const conversation = await ChatModel.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: "Conversation not found" });
+    }
+
+    const messages = await ChatModel.getMessages(conversationId, { limit: 8 });
+
+    const clientMsg =
+      last_message ||
+      messages
+        .slice()
+        .reverse()
+        .find((m) => m.sender_type === "user")?.message_text ||
+      "";
+
+    const rexAiService = require("../services/rexAiService");
+    const suggestions = await rexAiService.generateExecutiveSmartReplies({
+      clientName: `${conversation.user_first_name || "Customer"} ${conversation.user_last_name || ""}`.trim(),
+      clientFirst: conversation.user_first_name || "there",
+      propertyTitle: conversation.property_title || "this property",
+      propertyLocation: conversation.property_location || "Pune",
+      propertyPrice: conversation.property_price
+        ? `₹${Number(conversation.property_price).toLocaleString("en-IN")}`
+        : "",
+      lastClientMessage: clientMsg,
+      conversationHistory: messages,
+    });
+
+    return res.status(200).json({
+      success: true,
+      suggestions,
+    });
+  } catch (error) {
+    console.error("Error in getSmartReplies:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate AI suggestions",
+    });
+  }
+};
+
+/**
+ * GET /api/chat/executives
+ * Get list of available active executives and agents
+ */
+exports.getAvailableExecutives = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT id, first_name, last_name, email, phone, role, avatar FROM users WHERE role IN ('executive', 'admin', 'agent', 'staff', 'sales') AND is_active = 1 ORDER BY first_name ASC`
+    );
+    return res.status(200).json({
+      success: true,
+      executives: rows,
+    });
+  } catch (error) {
+    console.error("Error in getAvailableExecutives:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch executives",
+    });
+  }
+};
+
