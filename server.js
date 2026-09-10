@@ -280,6 +280,10 @@ app.use("/api/tenant-bookings", require("./routes/tenantBookingRoutes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", followUpRoutes);
+app.use("/api/seller-followups", followUpRoutes);
+app.use("/api/buyerfollowups", followUpRoutes);
+app.use("/api/buyer-followups", followUpRoutes);
+app.use("/api/followups", followUpRoutes);
 
 app.use("/api/email", emailRoutes);
 
