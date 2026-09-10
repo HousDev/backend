@@ -2,8 +2,6 @@ const cron = require("node-cron");
 const db = require("../config/database");
 const mailer = require("../utils/mailer");
 const whatsapp = require("../integrations/whatsapp");
-
-const db = require('../config/database');
 const { sendAssignmentNotification } = require('../utils/notificationHelper');
 const { updateEntityPriorityScore } = require('../utils/leadScoring');
 
