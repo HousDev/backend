@@ -5,6 +5,23 @@ const db = require('../config/database');
 const { sendAssignmentNotification } = require('../utils/notificationHelper');
 const { updateEntityPriorityScore } = require('../utils/leadScoring');
 
+async function tableHasColumn(tableName, columnName) {
+  try {
+    const [rows] = await db.execute(
+      `SELECT 1
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND COLUMN_NAME = ?
+       LIMIT 1`,
+      [tableName, columnName],
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
 function startAutomationMasterCron() {
   console.log('🔄 [CRON] Follow-up Automation Master Engine active (Polling SLA & Escalations every 2 mins)');
 
@@ -26,14 +43,17 @@ function startAutomationMasterCron() {
  */
 async function processClientLeadReminders() {
   try {
+    const hasReminderSent = await tableHasColumn('followups', 'reminder_sent');
+
     const sql = `
       SELECT f.*, l.name AS lead_name, l.phone AS lead_phone, l.assigned_executive
       FROM followups f
       JOIN client_leads l ON f.lead_id = l.id
       WHERE (f.completed_date IS NULL)
-        AND (f.reminder_sent = 0 OR f.reminder_sent IS NULL)
+        ${hasReminderSent ? 'AND (f.reminder_sent = 0 OR f.reminder_sent IS NULL)' : ''}
         AND (DATE(f.scheduled_date) <= CURDATE() OR f.scheduled_date IS NULL)
     `;
+
     const [rows] = await db.execute(sql);
     for (const row of rows) {
       const executiveId = row.assigned_executive || row.created_by;
@@ -48,8 +68,10 @@ async function processClientLeadReminders() {
           link: `/leads/${row.lead_id}`,
         });
       }
-      await db.execute('UPDATE followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      console.log(`🔔 [SLA Reminder Pushed] Lead ${row.lead_name} follow-up reminder sent to Executive #${executiveId}`);
+
+      if (hasReminderSent) {
+        await db.execute('UPDATE followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
+      }
     }
   } catch (err) {
     console.error('Error processing client lead reminders:', err.message);
@@ -58,12 +80,13 @@ async function processClientLeadReminders() {
 
 async function processBuyerReminders() {
   try {
+    const hasReminderSent = await tableHasColumn('buyer_followups', 'reminder_sent');
     const sql = `
       SELECT bf.*, b.name AS buyer_name, b.assigned_executive AS buyer_exec, b.created_by AS buyer_creator
       FROM buyer_followups bf
       JOIN buyers b ON bf.buyer_id = b.id
       WHERE (bf.completed_date IS NULL)
-        AND (bf.reminder_sent = 0 OR bf.reminder_sent IS NULL)
+        ${hasReminderSent ? 'AND (bf.reminder_sent = 0 OR bf.reminder_sent IS NULL)' : ''}
         AND (DATE(bf.schedule_date) <= CURDATE() OR bf.schedule_date IS NULL)
     `;
     const [rows] = await db.execute(sql);
@@ -80,8 +103,9 @@ async function processBuyerReminders() {
           link: `/buyers/${row.buyer_id}`,
         });
       }
-      await db.execute('UPDATE buyer_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      console.log(`🔔 [SLA Reminder Pushed] Buyer ${row.buyer_name} follow-up reminder sent to Executive #${executiveId}`);
+      if (hasReminderSent) {
+        await db.execute('UPDATE buyer_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
+      }
     }
   } catch (err) {
     console.error('Error processing buyer reminders:', err.message);
@@ -90,12 +114,13 @@ async function processBuyerReminders() {
 
 async function processSellerReminders() {
   try {
+    const hasReminderSent = await tableHasColumn('seller_followups', 'reminder_sent');
     const sql = `
       SELECT sf.*, s.name AS seller_name, s.assigned_to AS seller_exec, s.created_by AS seller_creator
       FROM seller_followups sf
       JOIN sellers s ON sf.seller_id = s.id
       WHERE (sf.completed_date IS NULL)
-        AND (sf.reminder_sent = 0 OR sf.reminder_sent IS NULL)
+        ${hasReminderSent ? 'AND (sf.reminder_sent = 0 OR sf.reminder_sent IS NULL)' : ''}
         AND (DATE(sf.schedule_date) <= CURDATE() OR sf.schedule_date IS NULL)
     `;
     const [rows] = await db.execute(sql);
@@ -112,8 +137,9 @@ async function processSellerReminders() {
           link: `/sellers/${row.seller_id}`,
         });
       }
-      await db.execute('UPDATE seller_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      console.log(`🔔 [SLA Reminder Pushed] Seller ${row.seller_name} follow-up reminder sent to Executive #${executiveId}`);
+      if (hasReminderSent) {
+        await db.execute('UPDATE seller_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
+      }
     }
   } catch (err) {
     console.error('Error processing seller reminders:', err.message);
