@@ -111,6 +111,7 @@ class FollowUpModel {
         ai_metadata: aiMetadata,
         ai_processed_at: aiProcessedAt,
         assigned_to: assignedTo,
+        assigned_by: data.assigned_by || data.assignedBy || null,
         due_date: dueDate,
         due_time: dueTime,
         created_by: createdBy,
@@ -207,6 +208,12 @@ class FollowUpModel {
     const asgnLast = row.assigned_last_name || "";
     const asgnName = row.assigned_to_name || (asgnFirst || asgnLast ? `${asgnFirst} ${asgnLast}`.trim() : null);
 
+    const asgnByFirst = row.assigned_by_first_name || "";
+    const asgnByLast = row.assigned_by_last_name || "";
+    const asgnByName = (row.assigned_by_name && row.assigned_by_name.trim().length > 0 && row.assigned_by_name !== "System" && !row.assigned_by_name.toLowerCase().includes("system"))
+      ? row.assigned_by_name.trim()
+      : (asgnByFirst || asgnByLast ? `${asgnByFirst} ${asgnByLast}`.trim() : (row.entity_creator_name ? row.entity_creator_name.trim() : null));
+
     return {
       ...row,
       id: row.id,
@@ -264,8 +271,8 @@ class FollowUpModel {
       assigned_to_name: asgnName,
       assignedToName: asgnName,
       assignedExecutiveName: asgnName,
-      assigned_by_name: fullName,
-      assignedByName: fullName,
+      assigned_by_name: asgnByName,
+      assignedByName: asgnByName,
     };
   }
 
@@ -300,6 +307,10 @@ class FollowUpModel {
       if (existingCols.includes("assigned_to")) {
         selectExtra += `, u_asgn.first_name AS assigned_first_name, u_asgn.last_name AS assigned_last_name`;
         joins += ` LEFT JOIN users u_asgn ON u_asgn.id = f.assigned_to`;
+      }
+      if (existingCols.includes("assigned_by")) {
+        selectExtra += `, u_asgn_by.first_name AS assigned_by_first_name, u_asgn_by.last_name AS assigned_by_last_name, CONCAT(COALESCE(u_asgn_by.first_name, ''), ' ', COALESCE(u_asgn_by.last_name, '')) AS assigned_by_name`;
+        joins += ` LEFT JOIN users u_asgn_by ON u_asgn_by.id = f.assigned_by`;
       }
 
       const sql = `SELECT f.* ${selectExtra} FROM \`fu_follow_ups\` f ${joins} WHERE f.id = ?`;
@@ -368,6 +379,30 @@ class FollowUpModel {
         selectExtra += `, u_asgn.first_name AS assigned_first_name, u_asgn.last_name AS assigned_last_name`;
         joins += ` LEFT JOIN users u_asgn ON u_asgn.id = f.assigned_to`;
       }
+      if (existingCols.includes("assigned_by")) {
+        selectExtra += `, u_asgn_by.first_name AS assigned_by_first_name, u_asgn_by.last_name AS assigned_by_last_name, CONCAT(COALESCE(u_asgn_by.first_name, ''), ' ', COALESCE(u_asgn_by.last_name, '')) AS assigned_by_name`;
+        joins += ` LEFT JOIN users u_asgn_by ON u_asgn_by.id = f.assigned_by`;
+      }
+
+      // Parent entity creator joins for BUYER, SELLER, LEAD + primary admin fallback
+      joins += `
+        LEFT JOIN buyers b_ent ON (f.entity_code = 'BUYER' OR f.entity_code = 'BUYER_LEAD') AND (b_ent.id = f.entity_id)
+        LEFT JOIN users b_creator ON b_creator.id = b_ent.created_by
+        LEFT JOIN sellers s_ent ON (f.entity_code = 'SELLER' OR f.entity_code = 'SELLER_LEAD') AND (s_ent.id = f.entity_id)
+        LEFT JOIN users s_creator ON s_creator.id = s_ent.created_by
+        LEFT JOIN client_leads l_ent ON (f.entity_code = 'LEAD' OR f.entity_code = 'CLIENT_LEAD') AND (l_ent.id = f.entity_id OR l_ent.lead_number = f.entity_id)
+        LEFT JOIN users l_creator ON l_creator.id = l_ent.created_by
+        LEFT JOIN (SELECT id, salutation, first_name, last_name FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
+      `;
+
+      selectExtra += `,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(COALESCE(b_creator.first_name, ''), ' ', COALESCE(b_creator.last_name, ''))), ''),
+          NULLIF(TRIM(CONCAT(COALESCE(s_creator.first_name, ''), ' ', COALESCE(s_creator.last_name, ''))), ''),
+          NULLIF(TRIM(CONCAT(COALESCE(l_creator.first_name, ''), ' ', COALESCE(l_creator.last_name, ''))), ''),
+          NULLIF(TRIM(CONCAT(COALESCE(adm.first_name, ''), ' ', COALESCE(adm.last_name, ''))), '')
+        ) AS entity_creator_name
+      `;
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
       const sql = `
@@ -399,7 +434,7 @@ class FollowUpModel {
         "sequence_step", "is_complete", "completed_at", "terminal", "custom_remark",
         "auto_remark", "project", "site_location", "participants", "message_template",
         "rule_snapshot", "ai_generated", "ai_action_type", "ai_metadata",
-        "ai_processed_at", "assigned_to", "due_date", "due_time", "created_by", "updated_by"
+        "ai_processed_at", "assigned_to", "assigned_by", "due_date", "due_time", "created_by", "updated_by"
       ];
 
       const existingCols = await this.getExistingColumns();

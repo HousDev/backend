@@ -267,8 +267,9 @@ class Lead {
        LEFT JOIN users ae ON l.assigned_executive = ae.id
        LEFT JOIN users cu ON l.created_by = cu.id
        LEFT JOIN users uu ON l.updated_by = uu.id
-       WHERE l.id = ?`,
-      [id]
+       WHERE l.id = ? OR l.lead_number = ?
+       LIMIT 1`,
+      [id, id]
     );
 
     if (!rows.length) return null;
