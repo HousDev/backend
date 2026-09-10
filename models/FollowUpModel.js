@@ -333,9 +333,8 @@ class FollowUpModel {
       let params = [];
 
       if (filters.entityCode || filters.entity_code) {
-        const code = String(filters.entityCode || filters.entity_code).toUpperCase();
-        conditions.push("(f.entity_code = ? OR f.entity_code = ? OR f.entity_code LIKE ?)");
-        params.push(code, `${code}_LEAD`, `${code}%`);
+        conditions.push("f.entity_code = ?");
+        params.push(filters.entityCode || filters.entity_code);
       }
 
       if (filters.entityId || filters.entity_id || filters.leadId || filters.buyerId || filters.sellerId) {
