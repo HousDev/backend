@@ -551,9 +551,30 @@ const updateProperty = async (req, res) => {
         ? existingDocFromBody
         : current.ownership_doc_path || null;
 
+    const newSellerName = req.body.seller_name !== undefined ? req.body.seller_name : (req.body.seller !== undefined ? req.body.seller : undefined);
+    const finalSellerName = newSellerName !== undefined ? (newSellerName || null) : (current.seller_name || null);
+    const newSellerId = req.body.seller_id !== undefined ? req.body.seller_id : (req.body.owner_id !== undefined ? req.body.owner_id : undefined);
+    let finalSellerId = newSellerId !== undefined ? (newSellerId ? Number(newSellerId) : null) : (current.seller_id || null);
+
+    if (!finalSellerId && finalSellerName) {
+      try {
+        const cleanName = finalSellerName.replace(/^(Mr\.?|Mrs\.?|Ms\.?|Miss\.?|Dr\.?)\s+/i, '').trim();
+        const [foundSellers] = await db.query(
+          `SELECT id, name FROM sellers WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [finalSellerName, `%${cleanName}%`]
+        );
+        if (foundSellers && foundSellers.length > 0) {
+          finalSellerId = foundSellers[0].id;
+        }
+      } catch (err) {
+        console.warn("Could not lookup seller_id by seller_name in updateProperty:", err);
+      }
+    }
+
     // 7) Build payload (normalize)
     const propertyData = {
-      seller_name: req.body.seller_name || req.body.seller || null,
+      seller_name: finalSellerName,
+      seller_id: finalSellerId,
       property_type_name:
         req.body.propertyType || req.body.property_type_name || null,
       property_subtype_name:

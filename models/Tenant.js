@@ -110,6 +110,18 @@ const Tenant = {
       status: data.status || 'Active Search',
       rental_property_id: intOrNull(data.rental_property_id || data.rentalPropertyId),
       assigned_to: intOrNull(data.assigned_to),
+      occupation_type: data.occupation_type || null,
+      company_name: data.company_name || null,
+      designation: data.designation || null,
+      monthly_income: data.monthly_income ? Number(data.monthly_income) : null,
+      office_location: data.office_location || null,
+      food_preference: data.food_preference || 'Any',
+      has_pets: data.has_pets || 'No',
+      smoking_habits: data.smoking_habits || 'No',
+      marital_status: data.marital_status || 'Single',
+      family_members_count: data.family_members_count ? Number(data.family_members_count) : 1,
+      vehicle_type: data.vehicle_type || 'None',
+      expected_stay_duration: data.expected_stay_duration || '11 Months',
       created_at: normalizeToMysqlDatetime(data.created_at ?? new Date()),
       updated_at: normalizeToMysqlDatetime(data.updated_at ?? new Date()),
     };
@@ -144,12 +156,27 @@ const Tenant = {
       preferred_bhk: (v) => v || null,
       tenant_type: (v) => v || null,
       move_in_date: (v) => toDateOnly(v),
+      shortlisted_properties: (v) => v ? (typeof v === 'string' ? v : JSON.stringify(v)) : null,
+      enquired_properties: (v) => v ? (typeof v === 'string' ? v : JSON.stringify(v)) : null,
+      preferred_visit_time: (v) => v || null,
       current_address: (v) => v || null,
       notes: (v) => v || null,
       status: (v) => v || 'Active Search',
       rental_property_id: (v) => intOrNull(v),
       rentalPropertyId: (v) => intOrNull(v),
       assigned_to: (v) => intOrNull(v),
+      occupation_type: (v) => v || null,
+      company_name: (v) => v || null,
+      designation: (v) => v || null,
+      monthly_income: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : null,
+      office_location: (v) => v || null,
+      food_preference: (v) => v || 'Any',
+      has_pets: (v) => v || 'No',
+      smoking_habits: (v) => v || 'No',
+      marital_status: (v) => v || 'Single',
+      family_members_count: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : 1,
+      vehicle_type: (v) => v || 'None',
+      expected_stay_duration: (v) => v || '11 Months',
     };
 
     const fields = [];
@@ -171,6 +198,309 @@ const Tenant = {
     const sql = `UPDATE tenants SET ${fields.join(", ")} WHERE id = ?`;
     const [result] = await runQuery(conn, sql, params);
     return result ? result.affectedRows : 0;
+  },
+
+  /**
+   * Dynamically calculate profile completion percentage & list missing fields
+   */
+  calculateProfileCompletion(tenant = {}) {
+    if (!tenant) return { percent: 0, missingFields: [] };
+    const checks = [
+      { key: 'name', label: 'Full Name', weight: 10 },
+      { key: 'phone', label: 'Phone Number', weight: 10 },
+      { key: 'email', label: 'Email Address', weight: 10 },
+      { key: 'tenant_type', label: 'Tenant Type (Family/Bachelor)', weight: 10 },
+      { key: 'occupation_type', label: 'Occupation', weight: 10 },
+      { key: 'monthly_income', label: 'Monthly Income', weight: 10 },
+      { key: 'budget_max', label: 'Budget Range', weight: 10 },
+      { key: 'preferred_bhk', label: 'Preferred BHK', weight: 10 },
+      { key: 'preferred_location', label: 'Preferred Location', weight: 10 },
+      { key: 'food_preference', label: 'Food Preference', weight: 5 },
+      { key: 'move_in_date', label: 'Move-in Date', weight: 5 },
+    ];
+
+    let totalScore = 0;
+    const missing = [];
+    for (const c of checks) {
+      const val = tenant[c.key];
+      const isFilled = val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '0';
+      if (isFilled) {
+        totalScore += c.weight;
+      } else {
+        missing.push({ field: c.key, label: c.label });
+      }
+    }
+    return {
+      percent: Math.min(100, Math.round(totalScore)),
+      missingFields: missing,
+      isComplete: totalScore >= 70,
+    };
+  },
+
+  /**
+   * Multi-dimensional match percentage formula (0-100%)
+   */
+  calculateMatchScore(tenant = {}, property = {}) {
+    if (!tenant || !property) return 50;
+    let score = 0;
+
+    // 1. Rent vs Budget (25%)
+    const rent = Number(property.expected_rent || property.monthly_rent || property.rent || property.price || 0);
+    const budgetMin = Number(tenant.budget_min || 0);
+    const budgetMax = Number(tenant.budget_max || 0);
+    if (rent > 0 && budgetMax > 0) {
+      if (rent <= budgetMax && (budgetMin === 0 || rent >= budgetMin * 0.8)) {
+        score += 25;
+      } else if (rent <= budgetMax * 1.15) {
+        score += 15;
+      } else {
+        score += 5;
+      }
+    } else {
+      score += 15; // default reasonable mid
+    }
+
+    // 2. Tenant Type (20%)
+    const propPref = String(property.preferred_tenant || property.tenant_type || '').toLowerCase();
+    const tenType = String(tenant.tenant_type || '').toLowerCase();
+    if (!propPref || propPref.includes('any') || propPref.includes('all')) {
+      score += 20;
+    } else if (tenType && (propPref.includes(tenType) || tenType.includes(propPref))) {
+      score += 20;
+    } else if (tenType.includes('family') && propPref.includes('family')) {
+      score += 20;
+    } else if (tenType.includes('bachelor') && propPref.includes('bachelor')) {
+      score += 20;
+    } else {
+      score += 5;
+    }
+
+    // 3. Location Match (15%)
+    const propLoc = String(property.location_name || property.location || property.society_name || property.address || '').toLowerCase();
+    const tenLoc = String(tenant.preferred_location || '').toLowerCase();
+    if (propLoc && tenLoc) {
+      const locParts = tenLoc.split(/[,;\s]+/).filter(Boolean);
+      const isMatch = locParts.some(p => p.length > 2 && propLoc.includes(p));
+      if (isMatch) score += 15;
+      else score += 7;
+    } else {
+      score += 10;
+    }
+
+    // 4. BHK Match (15%)
+    const propBhk = String(property.bhk || property.unit_type || property.property_subtype_name || '').toLowerCase();
+    const tenBhk = String(tenant.preferred_bhk || '').toLowerCase();
+    if (propBhk && tenBhk) {
+      if (propBhk.includes(tenBhk) || tenBhk.includes(propBhk)) score += 15;
+      else score += 5;
+    } else {
+      score += 10;
+    }
+
+    // 5. Move-in timeline (10%)
+    if (tenant.move_in_date && property.available_from) {
+      const dTen = new Date(tenant.move_in_date).getTime();
+      const dProp = new Date(property.available_from).getTime();
+      const diffDays = Math.abs(dTen - dProp) / (1000 * 3600 * 24);
+      if (diffDays <= 30) score += 10;
+      else if (diffDays <= 60) score += 6;
+      else score += 3;
+    } else {
+      score += 8;
+    }
+
+    // 6. Food Preference (10%)
+    const propFood = String(property.food_preference || property.restrictions || '').toLowerCase();
+    const tenFood = String(tenant.food_preference || '').toLowerCase();
+    if (propFood.includes('veg only') || propFood.includes('pure veg')) {
+      if (tenFood.includes('veg only')) score += 10;
+      else score += 3;
+    } else {
+      score += 10;
+    }
+
+    // 7. Pet policy (5%)
+    const propPet = String(property.pet_friendly || property.pets_allowed || '').toLowerCase();
+    const tenPet = String(tenant.has_pets || '').toLowerCase();
+    if (tenPet === 'yes') {
+      if (propPet === 'yes' || propPet === '1' || propPet === 'true' || propPet.includes('allowed')) score += 5;
+      else score += 1;
+    } else {
+      score += 5;
+    }
+
+    return Math.min(99, Math.max(35, Math.round(score)));
+  },
+
+  // -------------------------------------------------------------
+  // TENANT & OWNER INTEREST MANAGEMENT
+  // -------------------------------------------------------------
+  async createInterest(data, conn = null) {
+    const { rental_property_id, tenant_id, owner_id, sender_type = 'tenant', message = '', match_score = 0 } = data;
+
+    // Check existing active request
+    const [existing] = await runQuery(
+      conn,
+      `SELECT * FROM tenant_owner_interests WHERE rental_property_id = ? AND tenant_id = ? AND status NOT IN ('CANCELLED', 'EXPIRED', 'OWNER_REJECTED', 'TENANT_DECLINED') LIMIT 1`,
+      [rental_property_id, tenant_id]
+    );
+
+    if (existing && existing.length > 0) {
+      return { success: false, isExisting: true, data: existing[0], message: "An active interest request already exists for this property." };
+    }
+
+    const sql = `
+      INSERT INTO tenant_owner_interests (rental_property_id, tenant_id, owner_id, sender_type, status, match_score, message, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'PENDING', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `;
+    const [res] = await runQuery(conn, sql, [rental_property_id, tenant_id, owner_id || null, sender_type, match_score || 0, message || null]);
+    const insertId = res && (res.insertId || (Array.isArray(res) && res[0] && res[0].insertId));
+
+    const [created] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ?`, [insertId]);
+    return { success: true, isExisting: false, data: created[0] || null };
+  },
+
+  async getInterestsForOwner(ownerId, conn = null) {
+    const sql = `
+      SELECT 
+        toi.*,
+        t.name AS tenant_name,
+        t.email AS tenant_email,
+        t.phone AS tenant_phone,
+        t.whatsapp AS tenant_whatsapp,
+        t.tenant_type,
+        t.occupation_type,
+        t.company_name,
+        t.designation,
+        t.monthly_income,
+        t.food_preference,
+        t.has_pets,
+        t.family_members_count,
+        t.budget_min,
+        t.budget_max,
+        t.preferred_bhk,
+        t.move_in_date,
+        rp.property_type_name,
+        rp.unit_type,
+        rp.society_name,
+        rp.location_name,
+        rp.expected_rent,
+        rp.monthly_rent,
+        rp.owner_id
+      FROM tenant_owner_interests toi
+      JOIN tenants t ON toi.tenant_id = t.id
+      JOIN rental_properties rp ON toi.rental_property_id = rp.id
+      WHERE (toi.owner_id = ? OR rp.owner_id = ?)
+      ORDER BY toi.id DESC
+    `;
+    const [rows] = await runQuery(conn, sql, [ownerId, ownerId]);
+    return rows;
+  },
+
+  async getInterestsForTenant(tenantId, conn = null) {
+    const sql = `
+      SELECT 
+        toi.*,
+        rp.property_type_name,
+        rp.property_subtype_name,
+        rp.unit_type,
+        rp.society_name,
+        rp.location_name,
+        rp.address,
+        rp.expected_rent,
+        rp.monthly_rent,
+        rp.photos,
+        o.name AS owner_name,
+        o.phone AS owner_phone,
+        o.email AS owner_email
+      FROM tenant_owner_interests toi
+      JOIN rental_properties rp ON toi.rental_property_id = rp.id
+      LEFT JOIN owners o ON rp.owner_id = o.id
+      WHERE toi.tenant_id = ?
+      ORDER BY toi.id DESC
+    `;
+    const [rows] = await runQuery(conn, sql, [tenantId]);
+    return rows;
+  },
+
+  /**
+   * Owner confirms ONE candidate:
+   * Sets chosen request to OWNER_CONFIRMED.
+   * Automatically sets other active requests on same property to PROPERTY_SELECTED.
+   */
+  async confirmTenantForProperty(interestId, ownerId = null, conn = null) {
+    const [rows] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ? LIMIT 1`, [interestId]);
+    if (!rows || rows.length === 0) return { success: false, message: "Interest request not found" };
+    const current = rows[0];
+
+    // 1. Confirm selected candidate
+    await runQuery(
+      conn,
+      `UPDATE tenant_owner_interests SET status = 'OWNER_CONFIRMED', confirmed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [interestId]
+    );
+
+    // 2. Cascade other active requests for same property to PROPERTY_SELECTED
+    await runQuery(
+      conn,
+      `UPDATE tenant_owner_interests 
+       SET status = 'PROPERTY_SELECTED', updated_at = CURRENT_TIMESTAMP 
+       WHERE rental_property_id = ? AND id != ? AND status IN ('PENDING')`,
+      [current.rental_property_id, interestId]
+    );
+
+    const [updated] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ?`, [interestId]);
+    return { success: true, data: updated[0] };
+  },
+
+  /**
+   * Owner rejects candidate
+   */
+  async rejectTenantForProperty(interestId, notes = '', conn = null) {
+    await runQuery(
+      conn,
+      `UPDATE tenant_owner_interests SET status = 'OWNER_REJECTED', owner_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [notes || null, interestId]
+    );
+    const [updated] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ?`, [interestId]);
+    return { success: true, data: updated[0] };
+  },
+
+  /**
+   * Tenant responds to OWNER_CONFIRMED:
+   * - 'accept': status becomes TENANT_ACCEPTED / BOOKING_PENDING
+   * - 'decline': status becomes TENANT_DECLINED and other candidates on property revert back to PENDING!
+   */
+  async respondToOwnerConfirmation(interestId, tenantId, action = 'accept', conn = null) {
+    const [rows] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ? AND tenant_id = ? LIMIT 1`, [interestId, tenantId]);
+    if (!rows || rows.length === 0) return { success: false, message: "Interest request not found" };
+    const current = rows[0];
+
+    if (action === 'accept') {
+      await runQuery(
+        conn,
+        `UPDATE tenant_owner_interests SET status = 'TENANT_ACCEPTED', tenant_responded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [interestId]
+      );
+    } else {
+      // Tenant declined -> Reopen property for others!
+      await runQuery(
+        conn,
+        `UPDATE tenant_owner_interests SET status = 'TENANT_DECLINED', tenant_responded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [interestId]
+      );
+      // Revert PROPERTY_SELECTED back to PENDING for other candidates
+      await runQuery(
+        conn,
+        `UPDATE tenant_owner_interests 
+         SET status = 'PENDING', updated_at = CURRENT_TIMESTAMP 
+         WHERE rental_property_id = ? AND status = 'PROPERTY_SELECTED'`,
+        [current.rental_property_id]
+      );
+    }
+
+    const [updated] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ?`, [interestId]);
+    return { success: true, data: updated[0] };
   },
 
   async delete(id, conn = null) {

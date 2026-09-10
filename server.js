@@ -273,6 +273,7 @@ app.use("/api/tenants", require("./routes/tenant.routes"));
 app.use("/api/tenant-followups", require("./routes/tenantFollowupRoutes"));
 app.use("/api/tenant-visits", require("./routes/tenantVisitRoutes"));
 app.use("/api/tenant-activities", require("./routes/tenantActivityRoutes"));
+app.use("/api/tenant-bookings", require("./routes/tenantBookingRoutes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
 app.use("/api/sellerfollowups", followUpRoutes);

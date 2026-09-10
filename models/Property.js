@@ -194,6 +194,50 @@ class Property {
       phone: property.seller_phone || null,
     };
 
+    // Live unique counts for buyers shortlisted and inquiries from DB
+    let shortlistedCount = 0;
+    let inquiriesCount = 0;
+    try {
+      const [sRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM buyers 
+         WHERE (shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+      );
+      shortlistedCount = Number(sRows[0]?.cnt || 0);
+      if (shortlistedCount === 0) {
+        const [sRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM buyers 
+           WHERE shortlisted_properties LIKE ? OR shortlisted_properties LIKE ? OR shortlisted_properties LIKE ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+        );
+        shortlistedCount = Number(sRowsId[0]?.cnt || 0);
+      }
+    } catch (e) {}
+
+    try {
+      const [eRows] = await db.execute(
+        `SELECT COUNT(DISTINCT email) AS cnt FROM buyers 
+         WHERE (enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ?)
+           AND email IS NOT NULL AND email != ''`,
+        [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+      );
+      inquiriesCount = Number(eRows[0]?.cnt || 0);
+      if (inquiriesCount === 0) {
+        const [eRowsId] = await db.execute(
+          `SELECT COUNT(DISTINCT id) AS cnt FROM buyers 
+           WHERE enquired_properties LIKE ? OR enquired_properties LIKE ? OR enquired_properties LIKE ?`,
+          [`%"id":${id}%`, `%"id": ${id}%`, `%"id":"${id}"%`]
+        );
+        inquiriesCount = Number(eRowsId[0]?.cnt || 0);
+      }
+    } catch (e) {}
+
+    property.shortlisted_count = shortlistedCount;
+    property.shortlistedBy = shortlistedCount;
+    property.inquiries_count = inquiriesCount;
+    property.direct_inquiries = inquiriesCount;
+
     return property;
   }
 
@@ -209,7 +253,7 @@ class Property {
 
     const [result] = await db.execute(
       `UPDATE my_properties SET
-        seller_name = ?, property_type_name = ?, property_subtype_name = ?,
+        seller_name = ?, seller_id = ?, property_type_name = ?, property_subtype_name = ?,
         unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, balcony = ?, bedrooms = ?, bathrooms = ?, facing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
         floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?, budget = ?, price_type = ?, final_price = ?,
@@ -225,6 +269,7 @@ class Property {
        WHERE id = ?`,
       [
         data.seller_name || null,
+        data.seller_id || null,
         data.property_type_name || null,
         data.property_subtype_name || null,
         data.unit_type || null,
