@@ -8,11 +8,13 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 
 const rateLimit = require("express-rate-limit");
-// const path = require("path");   //for local
-
+const path = require("path");
 const fs = require("fs");
-//---SERVER CONFIG---
-const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
+
+// UPLOAD ROOT CONFIG (Works seamlessly in local dev & server)
+const UPLOAD_ROOT = process.env.UPLOAD_ROOT 
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.join(__dirname, "uploads");
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
 //USE FOR LOCAL DEV (overrides .env for easier testing)
@@ -199,13 +201,11 @@ app.use("/api/rbac", rbacRoutes);
 app.use("/api/backup", backupRoutes);
 
 app.use("/api/google-sheets", googleSheetsRoutes);
-// for use for loacal
-// app.use(
-//   '/uploads',
-//   helmet.crossOriginResourcePolicy({ policy: 'cross-origin' })
-// );
-
-// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use(
+  "/uploads",
+  helmet.crossOriginResourcePolicy({ policy: "cross-origin" }),
+  express.static(UPLOAD_ROOT)
+);
 
 app.use(
   helmet({

@@ -1063,22 +1063,42 @@ class Property {
       countParams.push(`%${propertySubtype.trim().toLowerCase()}%`);
     }
 
-    if (bedrooms !== null && bedrooms !== undefined && Number(bedrooms) > 0) {
-      conditions.push("(p.bedrooms = ? OR p.unit_type LIKE ?)");
-      countParams.push(Number(bedrooms), `%${bedrooms}%`);
-    } else if (unitType && typeof unitType === "string" && unitType.trim()) {
-      conditions.push("p.unit_type LIKE ?");
-      countParams.push(`%${unitType.trim()}%`);
+    if (unitType && typeof unitType === "string" && unitType.trim() && unitType.trim().toLowerCase() !== "any bhk") {
+      const cleanUt = unitType.trim();
+      const numMatch = cleanUt.match(/(\d+(?:\.\d+)?)/);
+      if (numMatch) {
+        const bhkNum = parseFloat(numMatch[1]);
+        if (Number.isInteger(bhkNum)) {
+          conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.bedrooms = ?)");
+          countParams.push(`%${bhkNum} BHK%`, `%${bhkNum}BHK%`, bhkNum);
+        } else {
+          // Precise match for half-BHKs (1.5, 2.5, 3.5) - do NOT loosely match 2 or 3 BHK
+          conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+          countParams.push(`%${bhkNum} BHK%`, `%${bhkNum}BHK%`, `%${bhkNum}%`);
+        }
+      } else {
+        conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(`%${cleanUt}%`, `%${cleanUt.replace(/\s+/g, "")}%`);
+      }
+    } else if (bedrooms !== null && bedrooms !== undefined && Number(bedrooms) > 0) {
+      const numBed = Number(bedrooms);
+      if (Number.isInteger(numBed)) {
+        conditions.push("(p.bedrooms = ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(numBed, `%${numBed} BHK%`, `%${numBed}BHK%`);
+      } else {
+        conditions.push("(p.unit_type LIKE ? OR p.unit_type LIKE ? OR p.unit_type LIKE ?)");
+        countParams.push(`%${numBed} BHK%`, `%${numBed}BHK%`, `%${numBed}%`);
+      }
     }
 
     if (budgetMax !== null && budgetMax !== undefined && Number(budgetMax) > 0) {
       conditions.push("((p.final_price IS NOT NULL AND p.final_price <= ?) OR (p.budget IS NOT NULL AND p.budget <= ?) OR (p.final_price IS NULL AND p.budget IS NULL))");
-      countParams.push(Number(budgetMax) * 1.15, Number(budgetMax) * 1.15);
+      countParams.push(Number(budgetMax), Number(budgetMax));
     }
 
     if (budgetMin !== null && budgetMin !== undefined && Number(budgetMin) > 0) {
       conditions.push("((p.final_price IS NOT NULL AND p.final_price >= ?) OR (p.budget IS NOT NULL AND p.budget >= ?))");
-      countParams.push(Number(budgetMin) * 0.85, Number(budgetMin) * 0.85);
+      countParams.push(Number(budgetMin), Number(budgetMin));
     }
 
     const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -1091,9 +1111,8 @@ class Property {
         p.id,
         p.slug,
         COALESCE(
-          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.society_name), ''),
+          NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''),
           NULLIF(CONCAT_WS(' ', p.unit_type, p.property_type_name, 'in', p.location_name), ''),
-          p.society_name,
           p.property_type_name,
           'Property'
         ) AS title,

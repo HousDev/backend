@@ -22,7 +22,7 @@ class ChatModel {
   static async findByUserAndProperty(userId, propertyId) {
     const [rows] = await db.execute(
       `SELECT c.*,
-              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.society_name), ''), p.society_name, 'Property') AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
               p.city_name AS property_city,
@@ -72,7 +72,7 @@ class ChatModel {
 
     const [rows] = await db.execute(
       `SELECT c.*,
-              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.society_name), ''), p.society_name, 'Property') AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
               p.city_name AS property_city,
@@ -81,6 +81,15 @@ class ChatModel {
               p.property_type_name,
               p.property_subtype_name,
               p.unit_type,
+              p.furnishing AS property_furnishing,
+              p.carpet_area AS property_carpet_area,
+              p.builtup_area AS property_builtup_area,
+              p.floor AS property_floor,
+              p.total_floors AS property_total_floors,
+              p.bedrooms AS property_bedrooms,
+              p.bathrooms AS property_bathrooms,
+              p.balcony AS property_balcony,
+              p.facing AS property_facing,
               p.photos AS property_photos,
               p.assigned_to AS property_assigned_to,
               u.first_name AS user_first_name,
@@ -289,7 +298,7 @@ class ChatModel {
 
     const [rows] = await db.execute(
       `SELECT c.*,
-              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.society_name), ''), p.society_name, 'Property') AS property_title,
+              COALESCE(NULLIF(CONCAT_WS(' ', p.unit_type, p.property_subtype_name, 'in', p.location_name), ''), p.location_name, 'Residential Property') AS property_title,
               p.slug AS property_slug,
               p.final_price AS property_price,
               p.city_name AS property_city,
@@ -298,6 +307,15 @@ class ChatModel {
               p.property_type_name,
               p.property_subtype_name,
               p.unit_type,
+              p.furnishing AS property_furnishing,
+              p.carpet_area AS property_carpet_area,
+              p.builtup_area AS property_builtup_area,
+              p.floor AS property_floor,
+              p.total_floors AS property_total_floors,
+              p.bedrooms AS property_bedrooms,
+              p.bathrooms AS property_bathrooms,
+              p.balcony AS property_balcony,
+              p.facing AS property_facing,
               p.photos AS property_photos,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,

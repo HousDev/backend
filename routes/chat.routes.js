@@ -29,7 +29,9 @@ router.post(
 );
 
 // Read receipts and management
+router.get("/executives", chatController.getAvailableExecutives);
 router.post("/conversations/:conversationId/read", chatController.markAsRead);
 router.post("/conversations/:conversationId/reassign", chatController.reassignExecutive);
+router.post("/conversations/:conversationId/smart-replies", chatController.getSmartReplies);
 
 module.exports = router;
