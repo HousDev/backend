@@ -2,40 +2,7 @@ const cron = require("node-cron");
 const db = require("../config/database");
 const mailer = require("../utils/mailer");
 const whatsapp = require("../integrations/whatsapp");
-const { sendAssignmentNotification } = require('../utils/notificationHelper');
-const { updateEntityPriorityScore } = require('../utils/leadScoring');
 
-async function tableHasColumn(tableName, columnName) {
-  try {
-    const [rows] = await db.execute(
-      `SELECT 1
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = ?
-         AND COLUMN_NAME = ?
-       LIMIT 1`,
-      [tableName, columnName],
-    );
-    return Array.isArray(rows) && rows.length > 0;
-  } catch (err) {
-    return false;
-  }
-}
-
-function startAutomationMasterCron() {
-  console.log('🔄 [CRON] Follow-up Automation Master Engine active (Polling SLA & Escalations every 2 mins)');
-
-  // Poll every 2 minutes for tight 15-min SLA precision
-  setInterval(async () => {
-    try {
-      await processClientLeadReminders();
-      await processBuyerReminders();
-      await processSellerReminders();
-      await processOverdueAndAdminEscalations();
-    } catch (err) {
-      console.error('❌ Error in Automation Master Cron Cycle:', err.message);
-    }
-  }, 2 * 60 * 1000);
 /**
  * Normalizes phone numbers to standard format with country code
  */
@@ -53,37 +20,6 @@ function normalizePhone(rawPhone) {
 /**
  * Resolves recipient contact details from database if not already present
  */
-async function processClientLeadReminders() {
-  try {
-    const hasReminderSent = await tableHasColumn('followups', 'reminder_sent');
-
-    const sql = `
-      SELECT f.*, l.name AS lead_name, l.phone AS lead_phone, l.assigned_executive
-      FROM followups f
-      JOIN client_leads l ON f.lead_id = l.id
-      WHERE (f.completed_date IS NULL)
-        ${hasReminderSent ? 'AND (f.reminder_sent = 0 OR f.reminder_sent IS NULL)' : ''}
-        AND (DATE(f.scheduled_date) <= CURDATE() OR f.scheduled_date IS NULL)
-    `;
-
-    const [rows] = await db.execute(sql);
-    for (const row of rows) {
-      const executiveId = row.assigned_executive || row.created_by;
-      if (executiveId) {
-        const timeFormatted = row.scheduled_date ? new Date(row.scheduled_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today';
-        await sendAssignmentNotification({
-          userId: executiveId,
-          type: 'followup_reminder',
-          itemId: row.lead_id,
-          itemName: row.lead_name,
-          message: `🔔 REMINDER: Follow-up scheduled with Lead "${row.lead_name}" (${timeFormatted})`,
-          link: `/leads/${row.lead_id}`,
-        });
-      }
-
-      if (hasReminderSent) {
-        await db.execute('UPDATE followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      }
 /**
  * Resolves recipient contact details from database if not already present
  */
@@ -117,34 +53,6 @@ async function resolveRecipient(job) {
       }
     }
 
-async function processBuyerReminders() {
-  try {
-    const hasReminderSent = await tableHasColumn('buyer_followups', 'reminder_sent');
-    const sql = `
-      SELECT bf.*, b.name AS buyer_name, b.assigned_executive AS buyer_exec, b.created_by AS buyer_creator
-      FROM buyer_followups bf
-      JOIN buyers b ON bf.buyer_id = b.id
-      WHERE (bf.completed_date IS NULL)
-        ${hasReminderSent ? 'AND (bf.reminder_sent = 0 OR bf.reminder_sent IS NULL)' : ''}
-        AND (DATE(bf.schedule_date) <= CURDATE() OR bf.schedule_date IS NULL)
-    `;
-    const [rows] = await db.execute(sql);
-    for (const row of rows) {
-      const executiveId = row.assigned_executive || row.buyer_exec || row.created_by || row.buyer_creator;
-      if (executiveId) {
-        const timeStr = row.schedule_time || 'Today';
-        await sendAssignmentNotification({
-          userId: executiveId,
-          type: 'buyer_followup_reminder',
-          itemId: row.buyer_id,
-          itemName: row.buyer_name,
-          message: `🔔 REMINDER: Buyer Follow-up for "${row.buyer_name}" scheduled at ${timeStr}`,
-          link: `/buyers/${row.buyer_id}`,
-        });
-      }
-      if (hasReminderSent) {
-        await db.execute('UPDATE buyer_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      }
     if (!email) {
       // Fallback lookup executive from lead or follow-up
       try {
@@ -183,34 +91,6 @@ async function processBuyerReminders() {
     };
   }
 
-async function processSellerReminders() {
-  try {
-    const hasReminderSent = await tableHasColumn('seller_followups', 'reminder_sent');
-    const sql = `
-      SELECT sf.*, s.name AS seller_name, s.assigned_to AS seller_exec, s.created_by AS seller_creator
-      FROM seller_followups sf
-      JOIN sellers s ON sf.seller_id = s.id
-      WHERE (sf.completed_date IS NULL)
-        ${hasReminderSent ? 'AND (sf.reminder_sent = 0 OR sf.reminder_sent IS NULL)' : ''}
-        AND (DATE(sf.schedule_date) <= CURDATE() OR sf.schedule_date IS NULL)
-    `;
-    const [rows] = await db.execute(sql);
-    for (const row of rows) {
-      const executiveId = row.assigned_executive || row.seller_exec || row.created_by || row.seller_creator;
-      if (executiveId) {
-        const timeStr = row.schedule_time || 'Today';
-        await sendAssignmentNotification({
-          userId: executiveId,
-          type: 'seller_followup_reminder',
-          itemId: row.seller_id,
-          itemName: row.seller_name,
-          message: `🔔 REMINDER: Seller Follow-up for "${row.seller_name}" scheduled at ${timeStr}`,
-          link: `/sellers/${row.seller_id}`,
-        });
-      }
-      if (hasReminderSent) {
-        await db.execute('UPDATE seller_followups SET reminder_sent = 1 WHERE id = ?', [row.id]).catch(() => {});
-      }
   // Otherwise, this job is for the Customer (Lead / Buyer / Seller)
   const entityCode = (job.entity_code || "").toUpperCase();
   const entityId = job.entity_id;
