@@ -21,7 +21,11 @@ const {
   ownerConfirmTenant,
   ownerRejectTenant,
   tenantRespondToConfirmation,
+  uploadTenantPhoto,
+  uploadTenantIdProof,
 } = require("../controllers/tenantController");
+
+const { uploadTenant, attachPublicUrls, handleUploadErrors } = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -31,7 +35,6 @@ router.post("/public/verify-otp", verifyTenantOtp);
 router.post("/public/verify-and-register", verifyAndRegisterTenant);
 router.post("/public/report-issue", reportPropertyIssue);
 router.post("/public/update-password", updateTenantPassword);
-// Get owner details for already-logged-in tenant (no OTP needed)
 router.get("/public/owner-details/:property_id", getOwnerDetailsForTenant);
 router.post("/public/owner-details", getOwnerDetailsForTenant);
 
@@ -39,13 +42,29 @@ router.post("/public/owner-details", getOwnerDetailsForTenant);
 router.get("/completeness/:tenantId", getTenantProfileCompleteness);
 router.get("/match/:tenantId/:propertyId", calculateTenantPropertyMatch);
 
-// Tenant & Owner Interest Workflow (Two-Way Requests)
+// Tenant & Owner Interest Workflow
 router.post("/interests/send", sendTenantInterest);
 router.get("/interests/tenant/:tenantId", getTenantInterests);
 router.get("/interests/owner/:ownerId", getOwnerInterests);
 router.post("/interests/:id/owner-confirm", ownerConfirmTenant);
 router.post("/interests/:id/owner-reject", ownerRejectTenant);
 router.post("/interests/:id/tenant-respond", tenantRespondToConfirmation);
+
+// File Uploads — Profile Photo & ID Proof
+router.post(
+  "/upload-photo/:id",
+  uploadTenant.single("profile_photo"),
+  attachPublicUrls,
+  handleUploadErrors,
+  uploadTenantPhoto
+);
+router.post(
+  "/upload-id-proof/:id",
+  uploadTenant.single("id_proof_document"),
+  attachPublicUrls,
+  handleUploadErrors,
+  uploadTenantIdProof
+);
 
 // CRM Admin / Tenant Management Routes
 router.post("/createTenant", createTenant);

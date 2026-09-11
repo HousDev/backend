@@ -48,11 +48,11 @@ const getTenantById = async (req, res) => {
       try {
         const [rows] = await db.query(
           `SELECT t.id FROM tenants t
-           LEFT JOIN users u ON u.email = t.email
-           WHERE t.id = ? OR u.id = ? OR t.email = ? OR t.tenant_id = ? LIMIT 1`,
+           LEFT JOIN users u ON (LOWER(u.email) = LOWER(t.email) OR u.phone = t.phone)
+           WHERE t.id = ? OR u.id = ? OR LOWER(t.email) = LOWER(?) OR t.tenant_id = ? LIMIT 1`,
           [requestedId, requestedId, requestedId, requestedId]
         );
-        if (rows && rows.length > 0) {
+        if (rows && rows.length > 0 && rows[0].id) {
           tenant = await Tenant.getById(rows[0].id);
         }
       } catch (e) {
@@ -63,21 +63,38 @@ const getTenantById = async (req, res) => {
     if (!tenant) {
       try {
         const [uRows] = await db.query(
-          `SELECT * FROM users WHERE id = ? OR email = ? LIMIT 1`,
-          [requestedId, requestedId]
+          `SELECT * FROM users WHERE id = ? OR LOWER(email) = LOWER(?) OR phone = ? LIMIT 1`,
+          [requestedId, requestedId, requestedId]
         );
         if (uRows && uRows.length > 0) {
           const u = uRows[0];
-          tenant = {
-            id: u.id,
-            tenant_id: `TEN${String(u.id).padStart(4, '0')}`,
-            name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant',
-            email: u.email,
-            phone: u.phone,
-            whatsapp: u.whatsapp || u.phone,
-            status: 'Active Search',
-            username: u.username
-          };
+          // Check if there is already a tenant by user email
+          const [tRows] = await db.query(
+            `SELECT id FROM tenants WHERE LOWER(email) = LOWER(?) OR phone = ? LIMIT 1`,
+            [u.email, u.phone]
+          );
+          if (tRows && tRows.length > 0) {
+            tenant = await Tenant.getById(tRows[0].id);
+          } else {
+            // Auto-create tenant entry in tenants table so preferences can be stored and persisted
+            const created = await Tenant.create({
+              name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant',
+              email: u.email,
+              phone: u.phone,
+              whatsapp: u.whatsapp || u.phone,
+              status: 'Active Search',
+            });
+            tenant = created || {
+              id: u.id,
+              tenant_id: `TEN${String(u.id).padStart(4, '0')}`,
+              name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant',
+              email: u.email,
+              phone: u.phone,
+              whatsapp: u.whatsapp || u.phone,
+              status: 'Active Search',
+              username: u.username
+            };
+          }
         }
       } catch (e) {
         console.warn("User fallback error:", e.message);
@@ -137,26 +154,57 @@ const updateTenant = async (req, res) => {
     let existingTenant = null;
 
     try {
-      existingTenant = await Tenant.getById(tenantId);
+      if (tenantId) {
+        existingTenant = await Tenant.getById(tenantId);
+      }
     } catch (e) {}
 
     if (!existingTenant) {
       try {
         const [rows] = await db.query(
           `SELECT t.id FROM tenants t
-           LEFT JOIN users u ON (BINARY u.email = BINARY t.email)
-           WHERE t.id = ? OR u.id = ? OR BINARY t.email = BINARY ? LIMIT 1`,
-          [rawId, rawId, rawId]
+           LEFT JOIN users u ON (LOWER(u.email) = LOWER(t.email) OR u.phone = t.phone)
+           WHERE t.id = ? OR u.id = ? OR LOWER(t.email) = LOWER(?) OR LOWER(t.phone) = LOWER(?) LIMIT 1`,
+          [rawId, rawId, rawId, rawId]
         );
-        if (rows && rows.length > 0) {
+        if (rows && rows.length > 0 && rows[0].id) {
           tenantId = rows[0].id;
           existingTenant = await Tenant.getById(tenantId);
         }
       } catch (e) {}
     }
 
+    // If still no existing tenant in tenants table, check users table and auto-create tenant entry
+    if (!existingTenant) {
+      try {
+        const [uRows] = await db.query(
+          `SELECT * FROM users WHERE id = ? OR LOWER(email) = LOWER(?) OR phone = ? LIMIT 1`,
+          [rawId, rawId, rawId]
+        );
+        if (uRows && uRows.length > 0) {
+          const u = uRows[0];
+          existingTenant = await Tenant.create({
+            name: body.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Tenant',
+            email: body.email || u.email,
+            phone: body.phone || u.phone,
+            whatsapp: body.whatsapp || u.whatsapp || u.phone,
+            ...body,
+          });
+          tenantId = existingTenant?.id;
+        }
+      } catch (createErr) {
+        console.warn("Auto tenant creation during update error:", createErr.message);
+      }
+    }
+
     if (!existingTenant && !tenantId) {
-      return res.status(404).json({ success: false, message: "Tenant record not found" });
+      // Last resort fallback creation if name & phone are in body
+      if (body.name || body.email || body.phone) {
+        existingTenant = await Tenant.create(body);
+        tenantId = existingTenant?.id;
+      } else {
+        return res.status(404).json({ success: false, message: "Tenant record not found" });
+      }
     }
 
     const actualId = existingTenant?.id || tenantId;
@@ -1141,6 +1189,18 @@ const sendTenantInterest = async (req, res) => {
       });
     }
 
+    if (global.io) {
+      global.io.emit("owner_interest_received", {
+        owner_id: prop.seller_id || prop.owner_id,
+        tenant_id,
+        tenant_name: tenant.name,
+        rental_property_id,
+        match_score: matchScore,
+        property_title: prop.title || prop.property_name,
+      });
+      global.io.emit("refresh_interests", { owner_id: prop.seller_id || prop.owner_id, tenant_id });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Interest request submitted successfully!",
@@ -1183,6 +1243,15 @@ const ownerConfirmTenant = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ success: false, message: result.message });
     }
+    if (global.io) {
+      global.io.emit("tenant_interest_confirmed", {
+        tenant_id: result.data?.tenant_id,
+        rental_property_id: result.data?.rental_property_id,
+        interest_id: id,
+        message: "Owner accepted your interest request! Please confirm acceptance to finalize lease.",
+      });
+      global.io.emit("refresh_interests", { tenant_id: result.data?.tenant_id });
+    }
     return res.status(200).json({
       success: true,
       message: "Candidate confirmed! Other active requests for this property are now marked PROPERTY_SELECTED.",
@@ -1199,6 +1268,9 @@ const ownerRejectTenant = async (req, res) => {
     const { id } = req.params;
     const { notes } = req.body;
     const result = await Tenant.rejectTenantForProperty(id, notes);
+    if (global.io) {
+      global.io.emit("refresh_interests", { tenant_id: result.data?.tenant_id });
+    }
     return res.status(200).json({
       success: true,
       message: "Candidate request rejected.",
@@ -1221,6 +1293,16 @@ const tenantRespondToConfirmation = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ success: false, message: result.message });
     }
+    if (global.io) {
+      global.io.emit("owner_tenant_responded", {
+        owner_id: result.data?.owner_id,
+        tenant_id,
+        action,
+        rental_property_id: result.data?.rental_property_id,
+        message: action === 'accept' ? "Tenant accepted! Property is now moving to Lease agreement." : "Tenant declined request.",
+      });
+      global.io.emit("refresh_interests", { tenant_id, owner_id: result.data?.owner_id });
+    }
     return res.status(200).json({
       success: true,
       message: action === 'accept' ? "You have accepted the owner's selection! Proceeding to booking." : "You have declined. The property is re-opened for other candidates.",
@@ -1229,6 +1311,39 @@ const tenantRespondToConfirmation = async (req, res) => {
   } catch (err) {
     console.error("tenantRespondToConfirmation error:", err);
     return res.status(500).json({ success: false, message: "Failed to respond to owner confirmation" });
+  }
+};
+
+// ─── Upload Tenant Profile Photo ──────────────────────────────────────────────
+const uploadTenantPhoto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+    const photoUrl = req.file.publicUrl || req.file.path;
+    await Tenant.update(id, { profile_photo: photoUrl });
+    return res.json({ success: true, message: 'Profile photo updated', url: photoUrl });
+  } catch (err) {
+    console.error('uploadTenantPhoto error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to upload photo' });
+  }
+};
+
+// ─── Upload Tenant ID Proof Document ─────────────────────────────────────────
+const uploadTenantIdProof = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+    const docUrl = req.file.publicUrl || req.file.path;
+    const { id_proof_type, id_proof_number } = req.body;
+    await Tenant.update(id, {
+      id_proof_document: docUrl,
+      ...(id_proof_type ? { id_proof_type } : {}),
+      ...(id_proof_number ? { id_proof_number } : {}),
+    });
+    return res.json({ success: true, message: 'ID proof uploaded', url: docUrl });
+  } catch (err) {
+    console.error('uploadTenantIdProof error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to upload ID proof' });
   }
 };
 
@@ -1254,4 +1369,6 @@ module.exports = {
   ownerConfirmTenant,
   ownerRejectTenant,
   tenantRespondToConfirmation,
+  uploadTenantPhoto,
+  uploadTenantIdProof,
 };

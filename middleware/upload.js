@@ -7,7 +7,7 @@ const path = require("path");
 const fs = require("fs");
 
 // ======= CONFIG =======
-// //-----------------SERVER CONFIG-----------------
+//-----------------SERVER CONFIG-----------------
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || "/uploads";
 
@@ -146,6 +146,19 @@ const uploadAvatar = multer({
   fileFilter: avatarFileFilter,
 });
 
+const uploadTenant = multer({
+  storage: makeStorage("tenants"),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'image/jpeg', 'image/png', 'image/jpg', 'image/webp',
+      'application/pdf',
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only JPG/PNG/WEBP/PDF allowed for tenant documents'));
+  },
+});
+
 const uploadBlog = multer({
   storage: makeStorage("blog"),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
@@ -271,6 +284,7 @@ module.exports = {
   uploadSociety, // 🆕 society images
   uploadMedia,
   uploadFile,
+  uploadTenant, // 🆕 tenant profile photo & ID proof
   // helpers/middlewares
   attachPublicUrls,
   handleUploadErrors,

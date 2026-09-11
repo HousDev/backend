@@ -15,8 +15,15 @@ const normalizeToMysqlDatetime = (val) => {
 };
 
 const toDateOnly = (v) => {
-  if (!v) return null;
-  const d = new Date(v);
+  if (!v || v === 'null' || v === 'undefined' || String(v).trim() === '') return null;
+  const str = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) return str.split('T')[0];
+  if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(str)) {
+    const parts = str.split(/[-/]/);
+    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  const d = new Date(str);
   if (Number.isNaN(d.getTime())) return null;
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -98,6 +105,7 @@ const Tenant = {
       email: data.email || null,
       phone: data.phone || null,
       whatsapp: data.whatsapp || null,
+      profile_photo: data.profile_photo || null,
       preferred_location: data.preferred_location || null,
       preferred_locations_coords: data.preferred_locations_coords ? (typeof data.preferred_locations_coords === 'string' ? data.preferred_locations_coords : JSON.stringify(data.preferred_locations_coords)) : null,
       budget_min: data.budget_min || null,
@@ -115,13 +123,17 @@ const Tenant = {
       designation: data.designation || null,
       monthly_income: data.monthly_income ? Number(data.monthly_income) : null,
       office_location: data.office_location || null,
-      food_preference: data.food_preference || 'Any',
-      has_pets: data.has_pets || 'No',
-      smoking_habits: data.smoking_habits || 'No',
-      marital_status: data.marital_status || 'Single',
-      family_members_count: data.family_members_count ? Number(data.family_members_count) : 1,
-      vehicle_type: data.vehicle_type || 'None',
-      expected_stay_duration: data.expected_stay_duration || '11 Months',
+      food_preference: data.food_preference || null,
+      has_pets: data.has_pets || null,
+      smoking_habits: data.smoking_habits || null,
+      marital_status: data.marital_status || null,
+      family_members_count: data.family_members_count ? Number(data.family_members_count) : null,
+      vehicle_type: data.vehicle_type || null,
+      expected_stay_duration: data.expected_stay_duration || null,
+      id_proof_type: data.id_proof_type || null,
+      id_proof_number: data.id_proof_number || null,
+      id_proof_document: data.id_proof_document || null,
+      profile_completion_percentage: data.profile_completion_percentage ? Number(data.profile_completion_percentage) : 0,
       created_at: normalizeToMysqlDatetime(data.created_at ?? new Date()),
       updated_at: normalizeToMysqlDatetime(data.updated_at ?? new Date()),
     };
@@ -144,11 +156,18 @@ const Tenant = {
   },
 
   async update(id, data = {}, conn = null) {
+    const sanitizedData = { ...data };
+    if (sanitizedData.profile_image && !sanitizedData.profile_photo) {
+      sanitizedData.profile_photo = sanitizedData.profile_image;
+    }
+    delete sanitizedData.profile_image;
+
     const fieldMappings = {
       name: (v) => v || null,
       email: (v) => v || null,
       phone: (v) => v || null,
       whatsapp: (v) => v || null,
+      profile_photo: (v) => v || null,
       preferred_location: (v) => v || null,
       preferred_locations_coords: (v) => v ? (typeof v === 'string' ? v : JSON.stringify(v)) : null,
       budget_min: (v) => v || null,
@@ -170,23 +189,27 @@ const Tenant = {
       designation: (v) => v || null,
       monthly_income: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : null,
       office_location: (v) => v || null,
-      food_preference: (v) => v || 'Any',
-      has_pets: (v) => v || 'No',
-      smoking_habits: (v) => v || 'No',
-      marital_status: (v) => v || 'Single',
-      family_members_count: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : 1,
-      vehicle_type: (v) => v || 'None',
-      expected_stay_duration: (v) => v || '11 Months',
+      food_preference: (v) => v || null,
+      has_pets: (v) => v || null,
+      smoking_habits: (v) => v || null,
+      marital_status: (v) => v || null,
+      family_members_count: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : null,
+      vehicle_type: (v) => v || null,
+      expected_stay_duration: (v) => v || null,
+      id_proof_type: (v) => v || null,
+      id_proof_number: (v) => v || null,
+      id_proof_document: (v) => v || null,
+      profile_completion_percentage: (v) => (v !== null && v !== undefined && v !== '') ? Number(v) : null,
     };
 
     const fields = [];
     const params = [];
 
-    Object.keys(data).forEach((key) => {
-      if (data[key] !== undefined && fieldMappings[key]) {
+    Object.keys(sanitizedData).forEach((key) => {
+      if (sanitizedData[key] !== undefined && fieldMappings[key]) {
         const dbCol = key === 'rentalPropertyId' ? 'rental_property_id' : key;
         fields.push(`${dbCol} = ?`);
-        params.push(fieldMappings[key](data[key]));
+        params.push(fieldMappings[key](sanitizedData[key]));
       }
     });
 
@@ -373,18 +396,27 @@ const Tenant = {
         t.company_name,
         t.designation,
         t.monthly_income,
+        t.office_location,
         t.food_preference,
         t.has_pets,
+        t.smoking_habits,
+        t.vehicle_type,
+        t.expected_stay_duration,
         t.family_members_count,
         t.budget_min,
         t.budget_max,
         t.preferred_bhk,
+        t.preferred_location,
+        t.current_address,
         t.move_in_date,
+        t.id_proof_type,
+        t.id_proof_number,
+        t.profile_completion_percentage,
         rp.property_type_name,
         rp.unit_type,
         rp.society_name,
         rp.location_name,
-        rp.expected_rent,
+        rp.monthly_rent AS expected_rent,
         rp.monthly_rent,
         rp.owner_id
       FROM tenant_owner_interests toi
@@ -407,7 +439,7 @@ const Tenant = {
         rp.society_name,
         rp.location_name,
         rp.address,
-        rp.expected_rent,
+        rp.monthly_rent AS expected_rent,
         rp.monthly_rent,
         rp.photos,
         o.name AS owner_name,
@@ -481,6 +513,12 @@ const Tenant = {
         conn,
         `UPDATE tenant_owner_interests SET status = 'TENANT_ACCEPTED', tenant_responded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [interestId]
+      );
+      // Automatically link property to tenant record so it appears in Linked Lease Property tab
+      await runQuery(
+        conn,
+        `UPDATE tenants SET rental_property_id = ?, status = 'Interested', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [current.rental_property_id, tenantId]
       );
     } else {
       // Tenant declined -> Reopen property for others!

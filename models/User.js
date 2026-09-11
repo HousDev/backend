@@ -190,10 +190,13 @@ class User {
   }
 
   static async findByEmail(email) {
+    if (!email) return null;
+    const clean = String(email).trim().replace(/^@/, '');
     try {
-      const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [
-        email,
-      ]);
+      const [rows] = await db.query(
+        "SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?) LIMIT 1",
+        [clean, clean]
+      );
       return rows.length ? rows[0] : null;
     } catch (err) {
       console.error("Error finding user by email:", err);
@@ -202,13 +205,31 @@ class User {
   }
 
   static async findByUsername(username) {
+    if (!username) return null;
+    const clean = String(username).trim().replace(/^@/, '');
     try {
-      const [rows] = await db.query("SELECT * FROM users WHERE username = ?", [
-        username,
-      ]);
+      const [rows] = await db.query(
+        "SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1",
+        [clean, clean]
+      );
       return rows.length ? rows[0] : null;
     } catch (err) {
       console.error("Error finding user by username:", err);
+      throw err;
+    }
+  }
+
+  static async findByIdentifier(identifier) {
+    if (!identifier) return null;
+    const clean = String(identifier).trim().replace(/^@/, '');
+    try {
+      const [rows] = await db.query(
+        "SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1",
+        [clean, clean]
+      );
+      return rows.length ? rows[0] : null;
+    } catch (err) {
+      console.error("Error finding user by identifier:", err);
       throw err;
     }
   }
