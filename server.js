@@ -162,8 +162,6 @@ app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/dashboard", require("./routes/dashboard.routes"));
 app.use("/api/masters", masterRoutes);
 app.use("/api/followup-masters", require("./routes/followUpMaster.routes"));
-// app.use("/api/automation", require("./routes/automationMaster.routes"));
-// app.use("/api/connected-remarks", remarkRoutes);
 app.use("/api/followups", followUpRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/rental-properties", rentalPropertyRoutes);
@@ -279,7 +277,6 @@ app.use("/api/tenant-activities", require("./routes/tenantActivityRoutes"));
 app.use("/api/tenant-bookings", require("./routes/tenantBookingRoutes"));
 app.use("/api/ownerfollowups", require("./routes/ownerFollowupRoutes"));
 app.use("/api/selleractivities", require("./routes/sellerActivities"));
-app.use("/api/sellerfollowups", followUpRoutes);
 
 app.use("/api/email", emailRoutes);
 
@@ -300,7 +297,6 @@ app.use("/api/ai", templateContentRoutes);
 app.use("/api/views", viewsRoutes);
 app.use("/api/blog-posts", blogRoutes);
 app.use("/api/contact", contactRoutes);
-app.use("/api/buyer-followups", followUpRoutes);
 app.use("/api/variables", variableRoutes);
 app.use("/api/doctemplates/", documentsTemplateRoutes);
 app.use("/api/documents-generated", documentsGeneratedRoutes);

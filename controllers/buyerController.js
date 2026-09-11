@@ -124,6 +124,16 @@ exports.getAllBuyers = async (req, res) => {
       String([sal, first, last].filter(Boolean).join(" "))
         .replace(/\s+/g, " ")
         .trim() || null;
+    const [allBuyerFollowups] = await db.execute(
+      `SELECT f.*, f.entity_id AS buyer_id FROM fu_follow_ups f WHERE f.entity_code = 'BUYER' ORDER BY COALESCE(f.scheduled_date, f.created_at) DESC, f.id DESC`
+    ).catch(() => [[]]);
+
+    const folByBuyer = (allBuyerFollowups || []).reduce((acc, r) => {
+      const k = r.buyer_id;
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
+      return acc;
+    }, {});
 
     // ✅ Hard de-dupe by buyer.id (keeps first occurrence respecting ORDER BY)
     const seenIds = new Set();
@@ -168,6 +178,7 @@ exports.getAllBuyers = async (req, res) => {
         : null;
 
       const creatorName = rawCreatorName || admName;
+      const bFollowups = folByBuyer[buyer.id] || [];
 
       safeBuyers.push({
         ...buyer,
@@ -183,6 +194,9 @@ exports.getAllBuyers = async (req, res) => {
             : buyer.financials,
 
         budget: { min: buyer.budget_min, max: buyer.budget_max },
+
+        followups: bFollowups,
+        followups_count: bFollowups.length,
 
         created_by_user,
         assigned_executive_user,
@@ -229,7 +243,8 @@ exports.getBuyerById = async (req, res) => {
         u2.first_name  AS assigned_user_first_name,
         u2.last_name   AS assigned_user_last_name,
         u2.email       AS assigned_user_email,
-        u2.phone       AS assigned_user_phone,
+        u
+        2.phone       AS assigned_user_phone,
 
         -- admin fallback
         adm.id         AS adm_id,
@@ -252,6 +267,15 @@ exports.getBuyerById = async (req, res) => {
     }
 
     const buyer = rows[0];
+
+    // Fetch followups from fu_follow_ups for this buyer
+    const [followups] = await db.execute(
+      `SELECT *
+       FROM fu_follow_ups
+       WHERE entity_code = 'BUYER' AND (entity_id = ? OR (entity_code = 'BUYER' AND lead_id = ?))
+       ORDER BY COALESCE(scheduled_date, created_at) DESC, id DESC`,
+      [id, buyer.lead_id || 0]
+    ).catch(() => [[]]);
 
     const makeName = (sal, first, last) =>
       String([sal, first, last].filter(Boolean).join(" "))
@@ -307,6 +331,9 @@ exports.getBuyerById = async (req, res) => {
           : buyer.financials,
 
       budget: { min: buyer.budget_min, max: buyer.budget_max },
+
+      followups: followups || [],
+      followups_count: (followups || []).length,
 
       created_by_user,
       assigned_executive_user,

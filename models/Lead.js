@@ -150,15 +150,28 @@ class Lead {
        ORDER BY l.created_at DESC`
     );
 
-    return rows.map((row) => ({
-      ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
-        }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
-        }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
-        }`.trim(),
-    }));
+    const [allLeadFollowups] = await db.execute(
+      `SELECT f.*, f.entity_id AS lead_id FROM fu_follow_ups f WHERE f.entity_code = 'LEAD' ORDER BY COALESCE(f.scheduled_date, f.created_at) DESC, f.id DESC`
+    ).catch(() => [[]]);
+
+    const folByLead = (allLeadFollowups || []).reduce((acc, r) => {
+      const k = String(r.lead_id);
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
+      return acc;
+    }, {});
+
+    return rows.map((row) => {
+      const leadFollowups = folByLead[String(row.id)] || folByLead[String(row.lead_number)] || [];
+      return {
+        ...row,
+        followups: leadFollowups,
+        followups_count: leadFollowups.length,
+        assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
+        created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
+        updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
+      };
+    });
   }
 
   // ===========================
@@ -177,15 +190,28 @@ class Lead {
        ORDER BY l.created_at DESC`
     );
 
-    return rows.map((row) => ({
-      ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
-        }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
-        }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
-        }`.trim(),
-    }));
+    const [allLeadFollowups] = await db.execute(
+      `SELECT f.*, f.entity_id AS lead_id FROM fu_follow_ups f WHERE f.entity_code = 'LEAD' ORDER BY COALESCE(f.scheduled_date, f.created_at) DESC, f.id DESC`
+    ).catch(() => [[]]);
+
+    const folByLead = (allLeadFollowups || []).reduce((acc, r) => {
+      const k = String(r.lead_id);
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
+      return acc;
+    }, {});
+
+    return rows.map((row) => {
+      const leadFollowups = folByLead[String(row.id)] || folByLead[String(row.lead_number)] || [];
+      return {
+        ...row,
+        followups: leadFollowups,
+        followups_count: leadFollowups.length,
+        assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
+        created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
+        updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
+      };
+    });
   }
 
   // ===========================
@@ -275,14 +301,22 @@ class Lead {
     if (!rows.length) return null;
 
     const row = rows[0];
+
+    const [followups] = await db.execute(
+      `SELECT *
+       FROM fu_follow_ups
+       WHERE entity_code = 'LEAD' AND (entity_id = ? OR entity_id = ?)
+       ORDER BY COALESCE(scheduled_date, created_at) DESC, id DESC`,
+      [row.id, row.lead_number || '']
+    ).catch(() => [[]]);
+
     return {
       ...row,
-      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""
-        }`.trim(),
-      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""
-        }`.trim(),
-      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""
-        }`.trim(),
+      followups: followups || [],
+      followups_count: (followups || []).length,
+      assigned_executive_name: `${row.assigned_first_name || ""} ${row.assigned_last_name || ""}`.trim(),
+      created_by_name: `${row.created_first_name || ""} ${row.created_last_name || ""}`.trim(),
+      updated_by_name: `${row.updated_first_name || ""} ${row.updated_last_name || ""}`.trim(),
     };
   }
 
