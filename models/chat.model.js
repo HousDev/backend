@@ -28,6 +28,8 @@ class ChatModel {
               p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.is_public AS property_is_public,
+              p.status AS property_status,
               p.property_type_name,
               p.property_subtype_name,
               p.unit_type,
@@ -49,7 +51,7 @@ class ChatModel {
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
-       LEFT JOIN users e ON c.executive_id = e.id
+       LEFT JOIN users e ON COALESCE(p.assigned_to, c.executive_id) = e.id
        WHERE c.user_id = ? AND c.property_id = ? AND c.status != 'archived'
        ORDER BY c.created_at DESC
        LIMIT 1`,
@@ -78,6 +80,8 @@ class ChatModel {
               p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.is_public AS property_is_public,
+              p.status AS property_status,
               p.property_type_name,
               p.property_subtype_name,
               p.unit_type,
@@ -108,7 +112,7 @@ class ChatModel {
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
-       LEFT JOIN users e ON c.executive_id = e.id
+       LEFT JOIN users e ON COALESCE(p.assigned_to, c.executive_id) = e.id
        WHERE ${whereClause}
        LIMIT 1`,
       [id]
@@ -263,8 +267,8 @@ class ChatModel {
 
     if (!isAdmin) {
       if (executiveId) {
-        conditions.push("c.executive_id = ?");
-        params.push(executiveId);
+        conditions.push("(c.executive_id = ? OR p.assigned_to = ?)");
+        params.push(executiveId, executiveId);
       } else if (userId) {
         conditions.push("c.user_id = ?");
         params.push(userId);
@@ -304,6 +308,8 @@ class ChatModel {
               p.city_name AS property_city,
               p.location_name AS property_location,
               p.society_name AS property_society,
+              p.is_public AS property_is_public,
+              p.status AS property_status,
               p.property_type_name,
               p.property_subtype_name,
               p.unit_type,
@@ -333,7 +339,7 @@ class ChatModel {
        FROM property_conversations c
        LEFT JOIN my_properties p ON c.property_id = p.id
        LEFT JOIN users u ON c.user_id = u.id
-       LEFT JOIN users e ON c.executive_id = e.id
+       LEFT JOIN users e ON COALESCE(p.assigned_to, c.executive_id) = e.id
        ${whereClause}
        ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
        LIMIT ${parsedLimit} OFFSET ${parsedOffset}`,

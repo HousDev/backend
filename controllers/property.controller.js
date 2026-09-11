@@ -1584,6 +1584,11 @@ const updateAssignedTo = async (req, res) => {
     if (assigned_to) {
       try {
         const db = require("../config/database");
+        await db.query(
+          "UPDATE property_conversations SET executive_id = ? WHERE property_id = ?",
+          [assigned_to, id]
+        ).catch(console.error);
+
         const [propRows] = await db.query(
           "SELECT title FROM my_properties WHERE id = ?",
           [id]

@@ -116,40 +116,51 @@ class RexSessionModel {
    */
   static async updateSession(sessionUuid, {
     currentIntent = "general",
-    extractedProfile = {},
-    extractedRequirements = {},
-    messageHistory = [],
+    extractedProfile = null,
+    extractedRequirements = null,
+    messageHistory = null,
     isQualified = false,
     leadId = null,
   }) {
     try {
+      const updates = [
+        "current_intent = ?",
+        "is_qualified = ?",
+        "lead_id = COALESCE(?, lead_id)",
+        "updated_at = NOW()",
+      ];
+      const params = [currentIntent, isQualified ? 1 : 0, leadId || null];
+
+      if (extractedProfile !== null) {
+        updates.push("extracted_profile = ?");
+        params.push(JSON.stringify(extractedProfile || {}));
+      }
+
+      if (extractedRequirements !== null) {
+        updates.push("extracted_requirements = ?");
+        params.push(JSON.stringify(extractedRequirements || {}));
+      }
+
+      if (messageHistory !== null) {
+        updates.push("message_history = ?");
+        params.push(JSON.stringify(messageHistory || []));
+      }
+
+      params.push(sessionUuid);
+
       await db.execute(
         `UPDATE rex_agent_sessions
-         SET current_intent = ?,
-             extracted_profile = ?,
-             extracted_requirements = ?,
-             message_history = ?,
-             is_qualified = ?,
-             lead_id = COALESCE(?, lead_id),
-             updated_at = NOW()
+         SET ${updates.join(", ")}
          WHERE session_uuid = ?`,
-        [
-          currentIntent,
-          JSON.stringify(extractedProfile || {}),
-          JSON.stringify(extractedRequirements || {}),
-          JSON.stringify(messageHistory || []),
-          isQualified ? 1 : 0,
-          leadId || null,
-          sessionUuid,
-        ]
+        params
       );
     } catch (err) {
       if (err.code === "ER_NO_SUCH_TABLE") {
         const mem = memorySessionStore.get(sessionUuid) || {};
         mem.current_intent = currentIntent;
-        mem.extracted_profile = extractedProfile;
-        mem.extracted_requirements = extractedRequirements;
-        mem.message_history = messageHistory;
+        if (extractedProfile !== null) mem.extracted_profile = extractedProfile;
+        if (extractedRequirements !== null) mem.extracted_requirements = extractedRequirements;
+        if (messageHistory !== null) mem.message_history = messageHistory;
         mem.is_qualified = isQualified ? 1 : 0;
         if (leadId) mem.lead_id = leadId;
         memorySessionStore.set(sessionUuid, mem);

@@ -456,9 +456,10 @@ class Property {
       `UPDATE my_properties
          SET is_public = ?,
              publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+             status = CASE WHEN ? = 1 AND (status = 'Pending Review' OR status = '' OR status IS NULL) THEN 'Available' ELSE status END,
              updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [isPublic ? 1 : 0, isPublic ? 1 : 0, id],
+      [isPublic ? 1 : 0, isPublic ? 1 : 0, isPublic ? 1 : 0, id],
     );
     return res.affectedRows;
   }

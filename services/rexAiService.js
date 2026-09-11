@@ -51,7 +51,9 @@ CORE BEHAVIOR & RULES:
 2. Multi-Persona Support:
    - BUYER: Looking to buy flats, apartments, villas, plots. When specific criteria are given, extract location, BHK, budget, set transaction_type: "buy", should_search_properties: true, show_buyer_filter: false. When no specific criteria given (e.g. "i want to buy property"), set show_buyer_filter: true, should_search_properties: false.
    - TENANT: Looking for rental properties. Extract location, BHK, rent budget. Set transaction_type: "rent", should_search_properties: true.
-   - SELLER: Looking to sell a property or get property valuation. Guide on valuation, ask for society name/carpet area if needed.
+   - SELLER: Looking to sell a property or list a property for resale.
+     * When user explicitly asks to sell or list a property (e.g. "I want to sell my flat", "list property", "list another property"), set intent: "seller", transaction_type: "sell", show_seller_wizard: true, should_search_properties: false, show_buyer_filter: false.
+     * When user asks for market valuation, active buyers count, listing status, or executive contact, set show_seller_wizard: false, answer their question directly with real estate insights, and provide relevant suggestions (e.g. ["Talk to Property Executive", "Get Free Property Valuation", "Check Active Buyers in My Locality", "List Another Property"]).
    - OWNER (LANDLORD): Looking to rent out their flat. Assist with listing for rent and tenant matching.
    - BROKER / CHANNEL PARTNER: Real estate agent seeking collaboration or client matching. Offer dedicated executive connection.
 
@@ -64,11 +66,18 @@ CORE BEHAVIOR & RULES:
    - Plain text only. Keep sentences concise (1-2 sentences).
    - No asterisks, markdown bolding (**), or emojis in responses.
 
-5. Off-Topic & General Queries:
-   - If the user asks questions unrelated to real estate (e.g., weather, chit-chat, coding, general knowledge), provide a polite, brief 1-sentence answer and courteously redirect them back to assisting with their property search, valuation, or site visits in Pune.
-   - For off-topic queries, set "should_search_properties": false, "show_buyer_filter": false, and provide helpful property-related suggestion pills.
+5. STRICT REAL ESTATE DOMAIN GUARDRAILS (NO GENERAL KNOWLEDGE / NO TRIVIA / NO OFF-TOPIC ANSWERS):
+   - You are exclusively an intelligent Real Estate AI Consultant for "Resale Expert" in Pune, Maharashtra.
+   - You MUST NEVER answer off-topic questions, general knowledge trivia, science, geography, history, biology, blood groups, capitals, coding, math, riddles, sports, or general chit-chat (e.g. "what is the capital of India", "what is universal blood type", "who is the prime minister", "solve 2+2").
+   - If the user asks ANY question outside of real estate, Buying/Selling/Renting homes, site visits, or property valuations in Pune, you MUST POLITELY REFUSE with:
+     "I am REX, your dedicated Real Estate Consultant at Resale Expert. I specialize exclusively in Pune real estate (buying, selling, renting properties, site visits, and property valuations). How can I assist you with your property requirements today?"
+   - For any off-topic query, set "should_search_properties": false, "show_buyer_filter": false, and provide real estate suggestion pills (e.g., ["Find 2 BHK in Wakad", "List My Property", "Schedule Site Visit", "Check Resale Valuation"]).
 
-6. Dynamic Intent & Role Switching (e.g. Buyer -> Seller / Seller -> Buyer):
+6. EXECUTIVE & ADMIN CONTACT INQUIRIES:
+   - If the user asks to connect or contact an executive (e.g. "I want to contact with executive", "talk to executive", "connect with executive"), ask them for their purpose with suggestions: ["🏠 Buy Property", "🏷️ Sell Property", "🔑 Rent Property", "📞 General Admin Support"].
+   - If the user asks for Admin contact, support number, or has a general query, provide the official Admin contact numbers (+91 9637 00 9639 / +91 9146 00 9176, support@resaleexpert.in).
+
+7. Dynamic Intent & Role Switching (e.g. Buyer -> Seller / Seller -> Buyer):
    - A user can switch goals at any moment in the conversation.
    - If a user previously acted as a BUYER but now expresses interest in SELLING or renting out a property:
      - IMMEDIATELY switch their intent and profile role to "seller".
@@ -87,6 +96,7 @@ Respond strictly in valid JSON matching this schema:
   "intent": "buyer" | "seller" | "tenant" | "owner" | "broker" | "general",
   "should_search_properties": boolean,
   "show_buyer_filter": boolean,
+  "show_seller_wizard": boolean,
   "extracted_profile": {
     "name": string | null,
     "phone": string | null,
@@ -391,19 +401,70 @@ function generateRuleBasedResponse(userMessage, currentProfile = {}, currentRequ
   // Formulate short, clean response without asterisks or emojis
   const userNameGreeting = profile.name ? ` ${profile.name}` : "";
 
-  if (intent === "seller") {
+  // Off-topic / general knowledge check (strict refusal)
+  const isOffTopic =
+    lower.includes("capital of") ||
+    lower.includes("blood type") ||
+    lower.includes("blood group") ||
+    lower.includes("universal donor") ||
+    lower.includes("universal recipient") ||
+    lower.includes("prime minister") ||
+    lower.includes("president of") ||
+    lower.includes("tell me a joke") ||
+    lower.includes("write code") ||
+    lower.includes("write python") ||
+    lower.includes("who is elon") ||
+    lower.includes("who won") ||
+    lower.includes("how far is the moon") ||
+    lower.includes("what is 2+") ||
+    lower.includes("universal blood");
+
+  const isExecutiveInquiry =
+    lower.includes("contact with executive") ||
+    lower.includes("contact executive") ||
+    lower.includes("talk to executive") ||
+    lower.includes("talk with executive") ||
+    lower.includes("connect with executive") ||
+    lower.includes("chat with executive") ||
+    lower.includes("speak to executive") ||
+    lower.includes("talk to agent") ||
+    lower.includes("connect with agent");
+
+  const isAdminContactInquiry =
+    lower.includes("admin support") ||
+    lower.includes("admin contact") ||
+    lower.includes("admin number") ||
+    lower.includes("contact admin") ||
+    lower.includes("general query") ||
+    lower.includes("general admin support") ||
+    lower.includes("support number") ||
+    lower.includes("helpline");
+
+  if (isOffTopic) {
+    reply = "I am REX, your dedicated Real Estate AI Consultant at Resale Expert. I specialize exclusively in Pune real estate (buying, selling, renting properties, site visits, and property valuations). How can I assist you with your property requirements today?";
+    suggestions = ["Find 2 BHK in Wakad", "Properties in Hinjewadi", "List My Property", "Get Free Property Valuation"];
+  } else if (isExecutiveInquiry) {
+    reply = "I would be glad to connect you with our team. Could you please let me know the purpose of your request so I can route you to the right specialist?";
+    suggestions = ["🏠 Buy Property", "🏷️ Sell Property", "🔑 Rent Property", "📞 General Admin Support"];
+  } else if (isAdminContactInquiry) {
+    reply = "You can directly reach our Resale Expert Admin & Support team at +91 9637 00 9639 or +91 9146 00 9176 (Email: support@resaleexpert.in). Our office is available Mon–Sun, 9:30 AM – 7:30 PM. How else can I assist you?";
+    suggestions = ["Find 2 BHK in Wakad", "List My Property", "Schedule Site Visit", "Check Resale Valuation"];
+  } else if (intent === "seller") {
     if (lower.includes("valuation") || lower.includes("market rate") || lower.includes("estimate") || lower.includes("price")) {
-      reply = `Our automated Pune valuation model estimates market rates between ₹6,200 – ₹9,800/sq.ft. Please share your society name and carpet area to calculate an exact resale estimate and active buyer count.`;
-      suggestions = ["List My Property", "Check Active Buyers in My Locality", "Talk to Property Executive"];
+      reply = `Our automated Pune valuation model estimates market rates between ₹6,200 – ₹9,800/sq.ft. Typical 1.5 BHK resale range is ₹38L–₹48L, and 2 BHK is ₹55L–₹78L. Our dedicated Property Executive can provide a comprehensive on-site valuation.`;
+      suggestions = ["Talk to Property Executive", "Check Active Buyers in My Locality", "Check Listing Status", "List Another Property"];
     } else if (lower.includes("active buyers") || lower.includes("buyers")) {
-      reply = `We currently have over 380+ active verified buyers seeking 1, 2 & 3 BHK flats across Wakad, Punawale, Hinjewadi, and Baner. Please submit your property details to match directly with buyers.`;
-      suggestions = ["Get Free Property Valuation", "List My Property", "Talk to Property Executive"];
+      reply = `We currently have over 380+ active verified buyers seeking 1, 1.5, 2 & 3 BHK resale flats across Wakad, Punawale, Hinjewadi, and Baner with budgets from ₹38L to ₹1.2 Cr.`;
+      suggestions = ["Talk to Property Executive", "Get Free Property Valuation", "Check Listing Status", "List Another Property"];
+    } else if (lower.includes("status") || lower.includes("listing status")) {
+      reply = `Your property listing is currently Under Review • Executive Assignment in Progress. Our team is verifying your property details and will assign your dedicated Relationship Manager shortly.`;
+      suggestions = ["Talk to Property Executive", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"];
     } else if (lower.includes("executive") || lower.includes("contact") || lower.includes("call")) {
-      reply = `Our dedicated Property Executives provide 100% managed resale: physical inspection, document verification, professional photography, and zero spam calls.`;
-      suggestions = ["Get Free Property Valuation", "List My Property", "Check Active Buyers in My Locality"];
+      reply = `Our dedicated Property Executives provide 100% managed resale: physical inspection, document verification, professional photography, and verified buyer visits. You can reach our team at +91 9637 00 9639 or support@resaleexpert.in.`;
+      suggestions = ["Check Active Buyers in My Locality", "Get Free Property Valuation", "Check Listing Status", "List Another Property"];
     } else {
-      reply = `Resale Expert provides 100% managed resale services with a dedicated executive, verified buyer matching, and zero spam calls. Please provide your society name and configuration:`;
-      suggestions = ["Get Free Property Valuation", "Check Active Buyers in My Locality", "Talk to Property Executive"];
+      reply = `Resale Expert provides 100% managed resale services with a dedicated executive, verified buyer matching, and zero spam calls. Please provide your property details below:`;
+      suggestions = ["Check Active Buyers in My Locality", "Get Free Property Valuation", "Talk to Property Executive"];
     }
   } else if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey") || lower.includes("namaste")) {
     reply = `Hello${userNameGreeting}. How can I assist you with your property search today?`;
@@ -431,6 +492,22 @@ function generateRuleBasedResponse(userMessage, currentProfile = {}, currentRequ
     !reqs.budget_max
   );
 
+  const isExplicitSellOrListRequest =
+    lower.includes("sell") ||
+    lower.includes("list") ||
+    lower.includes("listing") ||
+    lower.includes("bechna");
+
+  const isSellerNonFormInquiry =
+    lower.includes("active buyers") ||
+    lower.includes("valuation") ||
+    lower.includes("market rate") ||
+    lower.includes("status") ||
+    lower.includes("executive") ||
+    lower.includes("contact");
+
+  const show_seller_wizard = Boolean(intent === "seller" && isExplicitSellOrListRequest && !isSellerNonFormInquiry);
+
   const is_qualified = Boolean((profile.phone || profile.email) && (reqs.locations.length > 0 || reqs.budget_max));
 
   return {
@@ -439,6 +516,7 @@ function generateRuleBasedResponse(userMessage, currentProfile = {}, currentRequ
     intent,
     should_search_properties,
     show_buyer_filter,
+    show_seller_wizard,
     extracted_profile: profile,
     extracted_requirements: reqs,
     is_qualified,
@@ -590,43 +668,52 @@ exports.processUserMessage = async ({
 exports.generateExecutiveSmartReplies = async ({
   clientName = "Client",
   clientFirst = "there",
+  clientRole = "buyer",
   propertyTitle = "this property",
   propertyLocation = "Pune",
   propertyPrice = "",
   lastClientMessage = "",
   conversationHistory = [],
 }) => {
+  const isSeller =
+    clientRole === "seller" ||
+    clientRole === "owner" ||
+    String(lastClientMessage || "").toLowerCase().includes("seller") ||
+    String(lastClientMessage || "").toLowerCase().includes("selling");
+
   const openAiConfig = await getOpenAiConfig();
 
   if (openAiConfig && openAiConfig.apiKey) {
     try {
+      const roleDescription = isSeller
+        ? "SELLER / PROPERTY OWNER who listed their property for sale/resale. Suggestions must focus on: 1) Acknowledging listing & dedicated executive assignment, 2) Scheduling physical inspection / verified photoshoot, 3) Document verification (Index II, property tax), 4) Pricing / valuation strategy and active buyer demand."
+        : "BUYER / INQUIRER interested in purchasing or visiting the property. Suggestions must focus on: 1) Scheduling on-site visit slot, 2) Sharing floor plan & price breakdown, 3) Location/landmark directions, 4) Quick 2-minute discovery call.";
+
       const messagesPrompt = [
         {
           role: "system",
-          content: `You are an expert Real Estate Sales AI Assistant for Resale Expert.
-Your task is to generate 3 to 4 short, professional, highly contextual, and high-converting reply options for the Property Executive to send to the buyer/client in response to their latest message.
+          content: `You are an expert Real Estate Sales & Relationship Manager AI Assistant for Resale Expert.
+Your task is to generate 3 to 4 short, professional, highly contextual, and actionable reply options for the Property Executive to send to the client.
 
-Property Context:
-- Property Title: ${propertyTitle}
-- Location: ${propertyLocation}
-- Price: ${propertyPrice || "Market Rate"}
-- Client Name: ${clientName} (${clientFirst})
+Client Role: ${isSeller ? "SELLER" : "BUYER"}
+Property Title: ${propertyTitle}
+Location: ${propertyLocation}
+Price: ${propertyPrice || "Market Rate"}
+Client Name: ${clientName} (${clientFirst})
+
+Role Focus:
+${roleDescription}
 
 Guidelines:
-1. Provide distinct reply angles:
-   - Site Visit / Walkthrough Booking (e.g. asking preferred date/time)
-   - Floor Plan & Detailed Pricing Breakdown
-   - Quick 2-Minute Call Request
-   - Direct helpful answer to their question
-2. Keep each reply natural, warm, and concise (1-2 sentences).
-3. Return ONLY valid JSON with this structure:
+1. Keep each reply natural, warm, respectful, and concise (1-2 sentences).
+2. Return ONLY valid JSON with this structure:
 {
   "suggestions": [
     {
       "id": "reply_1",
-      "label": "Site Visit Slot",
-      "category": "visit",
-      "reply_text": "Hello ${clientFirst}! Would you like to schedule an in-person site visit for ${propertyTitle} this weekend? Let me know which time slot works best for you."
+      "label": "Short Tag (2-3 words)",
+      "category": "${isSeller ? "inspection" : "visit"}",
+      "reply_text": "Complete reply message text formatted ready to send"
     }
   ]
 }`,
@@ -637,54 +724,43 @@ Guidelines:
         })),
         {
           role: "user",
-          content: `Latest Client Message: "${lastClientMessage || `Hi, I am interested in ${propertyTitle}`}". Please generate 4 smart reply suggestions for the sales executive.`,
+          content: `Latest Client Message: "${lastClientMessage || (isSeller ? `New seller listing for ${propertyTitle}` : `Hi, I am interested in ${propertyTitle}`)}". Please generate 4 smart reply suggestions for the property executive.`,
         },
       ];
 
-      const https = require("https");
-      const postData = JSON.stringify({
-        model: openAiConfig.model || "gpt-4o-mini",
-        messages: messagesPrompt,
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-        max_tokens: 500,
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openAiConfig.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: openAiConfig.model || "gpt-4o-mini",
+          messages: messagesPrompt,
+          temperature: 0.7,
+          response_format: { type: "json_object" },
+          max_tokens: 500,
+        }),
+        signal: controller.signal,
       });
 
-      const response = await new Promise((resolve, reject) => {
-        const req = https.request(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${openAiConfig.apiKey}`,
-            },
-          },
-          (res) => {
-            let data = "";
-            res.on("data", (chunk) => (data += chunk));
-            res.on("end", () => {
-              try {
-                resolve(JSON.parse(data));
-              } catch (e) {
-                reject(e);
-              }
-            });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        const contentStr = data.choices?.[0]?.message?.content;
+        if (contentStr) {
+          const parsed = JSON.parse(contentStr);
+          if (Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0) {
+            return parsed.suggestions;
           }
-        );
-        req.on("error", reject);
-        req.write(postData);
-        req.end();
-      });
-
-      if (response?.choices?.[0]?.message?.content) {
-        const parsed = JSON.parse(response.choices[0].message.content);
-        if (Array.isArray(parsed.suggestions) && parsed.suggestions.length > 0) {
-          return parsed.suggestions;
         }
       }
     } catch (llmErr) {
-      console.warn("LLM smart replies fallback:", llmErr.message);
+      console.warn("LLM smart replies fallback notice:", llmErr.message);
     }
   }
 
@@ -692,6 +768,84 @@ Guidelines:
   const cleanMsg = String(lastClientMessage || "").toLowerCase();
   const suggestions = [];
 
+  if (isSeller) {
+    // Seller Context Replies
+    if (
+      cleanMsg.includes("inspect") ||
+      cleanMsg.includes("visit") ||
+      cleanMsg.includes("photo") ||
+      cleanMsg.includes("key") ||
+      cleanMsg.includes("time")
+    ) {
+      suggestions.push({
+        id: "seller_inspect_time",
+        label: "Schedule Inspection Slot",
+        category: "inspection",
+        reply_text: `Hello ${clientFirst}! I would like to schedule a 15-minute physical inspection of ${propertyTitle} for photo verification and keys. When is a convenient time for you?`,
+      });
+    } else if (
+      cleanMsg.includes("doc") ||
+      cleanMsg.includes("index") ||
+      cleanMsg.includes("legal") ||
+      cleanMsg.includes("paper")
+    ) {
+      suggestions.push({
+        id: "seller_docs_req",
+        label: "Request Index II / Docs",
+        category: "verification",
+        reply_text: `Hello ${clientFirst}, please share a soft copy of Index II or property tax receipt so our legal desk can complete verification and publish your property live.`,
+      });
+    } else if (
+      cleanMsg.includes("price") ||
+      cleanMsg.includes("valuation") ||
+      cleanMsg.includes("buyer") ||
+      cleanMsg.includes("demand")
+    ) {
+      suggestions.push({
+        id: "seller_price_strat",
+        label: "Discuss Price & Demand",
+        category: "pricing",
+        reply_text: `Regarding ${propertyTitle} (${propertyPrice || "your expected price"}), we currently have high buyer interest in ${propertyLocation}. Let's discuss pricing strategy and expected timelines.`,
+      });
+    }
+
+    if (suggestions.length < 4) {
+      suggestions.push({
+        id: "seller_welcome_assigned",
+        label: "Acknowledge & Welcome",
+        category: "general",
+        reply_text: `Hello ${clientFirst}! I am your dedicated Property Executive for ${propertyTitle}. I have reviewed your submission and will be assisting you throughout the resale process.`,
+      });
+    }
+    if (suggestions.length < 4) {
+      suggestions.push({
+        id: "seller_schedule_inspection",
+        label: "Schedule Property Inspection",
+        category: "inspection",
+        reply_text: `Hello ${clientFirst}, would you be available for a quick property inspection at ${propertyTitle} this week so we can verify details and start matching active buyers?`,
+      });
+    }
+    if (suggestions.length < 4) {
+      suggestions.push({
+        id: "seller_call_discuss",
+        label: "Request 2-Min Call",
+        category: "call",
+        reply_text: `Hello ${clientFirst}, may I know the best time to call you for a quick 2-minute discussion regarding your property listing at ${propertyTitle}?`,
+      });
+    }
+    if (suggestions.length < 4) {
+      suggestions.push({
+        id: "seller_doc_verify",
+        label: "Document Verification",
+        category: "verification",
+        reply_text: `To mark ${propertyTitle} as 100% Verified and attract serious buyers, please keep your Index II / ownership documents ready for physical or online check.`,
+      });
+    }
+
+    return suggestions.slice(0, 4);
+  }
+
+  // Buyer Context Replies
   if (
     cleanMsg.includes("visit") ||
     cleanMsg.includes("see") ||
@@ -750,7 +904,7 @@ Guidelines:
     });
   }
 
-  // Always include standard high-converting executive options
+  // Always include standard high-converting executive options for buyers
   if (suggestions.length < 4) {
     suggestions.push({
       id: "quick_call",

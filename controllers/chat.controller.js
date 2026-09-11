@@ -187,7 +187,9 @@ exports.getConversationById = async (req, res) => {
 
     // Access control: User must be conversation owner, assigned executive, or admin
     const isOwner = Number(conversation.user_id) === Number(userId);
-    const isAssignedExecutive = Number(conversation.executive_id) === Number(userId);
+    const isAssignedExecutive =
+      Number(conversation.executive_id) === Number(userId) ||
+      Number(conversation.property_assigned_to) === Number(userId);
 
     if (!isAdmin && !isOwner && !isAssignedExecutive) {
       return res.status(403).json({
@@ -229,7 +231,9 @@ exports.getMessages = async (req, res) => {
     }
 
     const isOwner = Number(conversation.user_id) === Number(userId);
-    const isAssignedExecutive = Number(conversation.executive_id) === Number(userId);
+    const isAssignedExecutive =
+      Number(conversation.executive_id) === Number(userId) ||
+      Number(conversation.property_assigned_to) === Number(userId);
 
     if (!isAdmin && !isOwner && !isAssignedExecutive) {
       return res.status(403).json({
@@ -293,7 +297,9 @@ exports.sendMessage = async (req, res) => {
 
     // Access control
     const isOwner = Number(conversation.user_id) === Number(userId);
-    const isAssignedExecutive = Number(conversation.executive_id) === Number(userId);
+    const isAssignedExecutive =
+      Number(conversation.executive_id) === Number(userId) ||
+      Number(conversation.property_assigned_to) === Number(userId);
 
     if (!isAdmin && !isOwner && !isAssignedExecutive) {
       return res.status(403).json({
@@ -637,9 +643,17 @@ exports.getSmartReplies = async (req, res) => {
       "";
 
     const rexAiService = require("../services/rexAiService");
+    const userRoleStr = String(conversation.user_role || "").toLowerCase();
+    const isSeller =
+      userRoleStr === "seller" ||
+      userRoleStr === "owner" ||
+      clientMsg.toLowerCase().includes("seller") ||
+      clientMsg.toLowerCase().includes("selling");
+
     const suggestions = await rexAiService.generateExecutiveSmartReplies({
       clientName: `${conversation.user_first_name || "Customer"} ${conversation.user_last_name || ""}`.trim(),
       clientFirst: conversation.user_first_name || "there",
+      clientRole: isSeller ? "seller" : "buyer",
       propertyTitle: conversation.property_title || "this property",
       propertyLocation: conversation.property_location || "Pune",
       propertyPrice: conversation.property_price
