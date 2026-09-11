@@ -230,10 +230,13 @@ exports.signup = async (req, res) => {
 // User Login
 exports.signin = async (req, res) => {
   try {
-    if (!req.body.username || !req.body.password) {
+    const rawIdentifier = req.body.username || req.body.email || req.body.identifier || '';
+    const cleanIdentifier = String(rawIdentifier).trim().replace(/^@/, '');
+
+    if (!cleanIdentifier || !req.body.password) {
       return res.status(400).send({
         success: false,
-        message: 'Username and password are required!'
+        message: 'Username or Email and password are required!'
       });
     }
 
@@ -245,8 +248,8 @@ exports.signin = async (req, res) => {
       });
     }
 
-    // Find user by username
-    const user = await User.findByUsername(req.body.username);
+    // Find user by username OR email (case-insensitive)
+    const user = await User.findByIdentifier(cleanIdentifier);
 
     if (!user) {
       return res.status(401).send({
@@ -605,7 +608,7 @@ exports.me = async (req, res) => {
 ========================================================================= */
 exports.sendLoginOTP = async (req, res) => {
   try {
-    const identifier = (req.body.email || req.body.emailOrUsername || req.body.username || '').toLowerCase().trim();
+    const identifier = (req.body.email || req.body.emailOrUsername || req.body.username || '').replace(/^@/, '').toLowerCase().trim();
 
     if (!identifier) {
       return res.status(400).json({
@@ -615,10 +618,7 @@ exports.sendLoginOTP = async (req, res) => {
     }
 
     // Lookup user by email or username
-    let user = await User.findByEmail(identifier);
-    if (!user) {
-      user = await User.findByUsername(identifier);
-    }
+    let user = await User.findByIdentifier(identifier);
 
     if (!user) {
       return res.status(404).json({
