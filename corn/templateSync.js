@@ -1,4 +1,4 @@
-const cron = require("node-cron");
+  const cron = require("node-cron");
 const Template = require("../models/template.Model");
 const { getTemplateStatus } = require("../integrations/whatsapp");
 const { syncFromMeta } = require("../controllers/templates.Controller");
