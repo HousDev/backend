@@ -1,4 +1,5 @@
 const Buyer = require("../models/Buyer");
+const FollowUpModel = require("../models/FollowUpModel");
 const db = require("../config/database");
 const { geocodeAddress } = require("../utils/geocoder");
 
@@ -74,7 +75,7 @@ exports.createBuyer = async (req, res) => {
       try {
         const { triggerWelcomeAutomation } = require("../services/automationEngine");
         triggerWelcomeAutomation({ entityType: "buyer", entityData: buyer }).catch((e) => console.warn("Welcome buyer automation warning:", e.message));
-      } catch (e) {}
+      } catch (e) { }
     }
     res.status(201).json(buyer);
   } catch (error) {
@@ -152,29 +153,29 @@ exports.getAllBuyers = async (req, res) => {
 
       const created_by_user = buyer.created_user_id
         ? {
-            id: buyer.created_user_id,
-            name: rawCreatorName,
-            email: buyer.created_user_email || null,
-            phone: buyer.created_user_phone || null,
-          }
+          id: buyer.created_user_id,
+          name: rawCreatorName,
+          email: buyer.created_user_email || null,
+          phone: buyer.created_user_phone || null,
+        }
         : (buyer.adm_id ? {
-            id: buyer.adm_id,
-            name: admName,
-            email: buyer.adm_email || null,
-            phone: buyer.adm_phone || null,
-          } : null);
+          id: buyer.adm_id,
+          name: admName,
+          email: buyer.adm_email || null,
+          phone: buyer.adm_phone || null,
+        } : null);
 
       const assigned_executive_user = buyer.assigned_user_id
         ? {
-            id: buyer.assigned_user_id,
-            name: makeName(
-              buyer.assigned_user_salutation,
-              buyer.assigned_user_first_name,
-              buyer.assigned_user_last_name
-            ),
-            email: buyer.assigned_user_email || null,
-            phone: buyer.assigned_user_phone || null,
-          }
+          id: buyer.assigned_user_id,
+          name: makeName(
+            buyer.assigned_user_salutation,
+            buyer.assigned_user_first_name,
+            buyer.assigned_user_last_name
+          ),
+          email: buyer.assigned_user_email || null,
+          phone: buyer.assigned_user_phone || null,
+        }
         : null;
 
       const creatorName = rawCreatorName || admName;
@@ -269,13 +270,15 @@ exports.getBuyerById = async (req, res) => {
     const buyer = rows[0];
 
     // Fetch followups from fu_follow_ups for this buyer
-    const [followups] = await db.execute(
+    const [rawFollowups] = await db.execute(
       `SELECT *
        FROM fu_follow_ups
        WHERE entity_code = 'BUYER' AND (entity_id = ? OR (entity_code = 'BUYER' AND lead_id = ?))
        ORDER BY COALESCE(scheduled_date, created_at) DESC, id DESC`,
       [id, buyer.lead_id || 0]
     ).catch(() => [[]]);
+
+    const followups = (rawFollowups || []).map((f) => FollowUpModel.formatFollowUp(f));
 
     const makeName = (sal, first, last) =>
       String([sal, first, last].filter(Boolean).join(" "))
@@ -291,29 +294,29 @@ exports.getBuyerById = async (req, res) => {
 
     const created_by_user = buyer.created_user_id
       ? {
-          id: buyer.created_user_id,
-          name: rawCreatorName,
-          email: buyer.created_user_email || null,
-          phone: buyer.created_user_phone || null,
-        }
+        id: buyer.created_user_id,
+        name: rawCreatorName,
+        email: buyer.created_user_email || null,
+        phone: buyer.created_user_phone || null,
+      }
       : (buyer.adm_id ? {
-          id: buyer.adm_id,
-          name: admName,
-          email: buyer.adm_email || null,
-          phone: buyer.adm_phone || null,
-        } : null);
+        id: buyer.adm_id,
+        name: admName,
+        email: buyer.adm_email || null,
+        phone: buyer.adm_phone || null,
+      } : null);
 
     const assigned_executive_user = buyer.assigned_user_id
       ? {
-          id: buyer.assigned_user_id,
-          name: makeName(
-            buyer.assigned_user_salutation,
-            buyer.assigned_user_first_name,
-            buyer.assigned_user_last_name
-          ),
-          email: buyer.assigned_user_email || null,
-          phone: buyer.assigned_user_phone || null,
-        }
+        id: buyer.assigned_user_id,
+        name: makeName(
+          buyer.assigned_user_salutation,
+          buyer.assigned_user_first_name,
+          buyer.assigned_user_last_name
+        ),
+        email: buyer.assigned_user_email || null,
+        phone: buyer.assigned_user_phone || null,
+      }
       : null;
 
     const creatorName = rawCreatorName || admName;
