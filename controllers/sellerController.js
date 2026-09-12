@@ -1,6 +1,7 @@
 // controllers/sellerController.js
 const pool = require("../config/database");
 const Seller = require("../models/SellerModel");
+const FollowUpModel = require("../models/FollowUpModel");
 
 // helpers
 const toIntOrNull = (v) => {
@@ -459,7 +460,7 @@ const getSellerById = async (req, res) => {
         seller,
         cosellers,
         activities,
-        followups,
+        followups: (followups || []).map((f) => FollowUpModel.formatFollowUp(f)),
         documents,
         properties,
         metrics,

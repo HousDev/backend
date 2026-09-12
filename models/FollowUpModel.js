@@ -45,7 +45,29 @@ class FollowUpModel {
     const ruleSnapshot = data.rule_snapshot ? JSON.stringify(data.rule_snapshot) : null;
     const aiGenerated = data.ai_generated ? 1 : 0;
     const aiActionType = data.ai_action_type || null;
-    const aiMetadata = data.ai_metadata ? JSON.stringify(data.ai_metadata) : null;
+
+    let aiMetaObj = {};
+    if (data.ai_metadata || data.aiMetadata) {
+      const rawMeta = data.ai_metadata || data.aiMetadata;
+      if (typeof rawMeta === "string") {
+        try { aiMetaObj = JSON.parse(rawMeta); } catch { aiMetaObj = {}; }
+      } else if (typeof rawMeta === "object" && rawMeta !== null) {
+        aiMetaObj = { ...rawMeta };
+      }
+    }
+    if (project) aiMetaObj.project = project;
+    if (siteLocation) {
+      aiMetaObj.site_location = siteLocation;
+      aiMetaObj.siteLocation = siteLocation;
+    }
+    if (participants) aiMetaObj.participants = participants;
+    if (messageTemplate) {
+      aiMetaObj.message_template = messageTemplate;
+      aiMetaObj.messageTemplate = messageTemplate;
+    }
+    if (data.properties) aiMetaObj.properties = data.properties;
+
+    const aiMetadata = Object.keys(aiMetaObj).length > 0 ? JSON.stringify(aiMetaObj) : null;
     const aiProcessedAt = data.ai_processed_at || null;
     const assignedTo = data.assigned_to || data.assignedTo || null;
     const dueDate = data.due_date || data.dueDate || null;
@@ -60,11 +82,9 @@ class FollowUpModel {
           "SELECT id, lead_number FROM client_leads WHERE id = ? OR lead_number = ? LIMIT 1",
           [entityId, entityId]
         );
-        if (lRows.length > 0) {
+        if (lRows && lRows[0]) {
           leadUuid = lRows[0].id;
-          if (lRows[0].lead_number) {
-            resolvedEntityId = String(lRows[0].lead_number);
-          }
+          resolvedEntityId = lRows[0].lead_number || lRows[0].id;
         }
       } catch (err) {
         console.warn("[FollowUpModel.create] could not resolve lead_number:", err.message);
@@ -198,6 +218,21 @@ class FollowUpModel {
   static formatFollowUp(row) {
     if (!row) return null;
 
+    let meta = {};
+    if (row.ai_metadata) {
+      if (typeof row.ai_metadata === "string") {
+        try { meta = JSON.parse(row.ai_metadata); } catch { meta = {}; }
+      } else if (typeof row.ai_metadata === "object" && row.ai_metadata !== null) {
+        meta = row.ai_metadata;
+      }
+    }
+
+    const project = row.project || meta.project || meta.project_name || (Array.isArray(meta.properties) ? meta.properties.map(p => p.name || p.title || p.project).filter(Boolean).join(', ') : null) || null;
+    const siteLocation = row.site_location || row.siteLocation || meta.site_location || meta.siteLocation || (Array.isArray(meta.properties) ? meta.properties.map(p => p.location || p.locality || p.site_location).filter(Boolean).join(', ') : null) || null;
+    const participants = row.participants || meta.participants || null;
+    const messageTemplate = row.message_template || row.messageTemplate || meta.message_template || meta.messageTemplate || null;
+    const properties = row.properties || meta.properties || null;
+
     const firstName = row.created_by_first_name || "";
     const lastName = row.created_by_last_name || "";
     const fullName = (row.created_by_name && row.created_by_name.trim().length > 0 && row.created_by_name !== "System" && !row.created_by_name.toLowerCase().includes("system"))
@@ -247,6 +282,14 @@ class FollowUpModel {
       remark: row.custom_remark || row.remark || "",
       custom_remark: row.custom_remark || "",
       notes: row.custom_remark || row.notes || "",
+      project,
+      site_location: siteLocation,
+      siteLocation: siteLocation,
+      participants,
+      message_template: messageTemplate,
+      messageTemplate: messageTemplate,
+      properties,
+      ai_metadata: meta,
       priority: row.priority_code || "Medium",
       priority_code: row.priority_code || "MEDIUM",
       scheduledDate: row.scheduled_date || row.scheduledDate || null,
@@ -441,7 +484,41 @@ class FollowUpModel {
       const updates = [];
       const params = [];
 
-      for (const [key, val] of Object.entries(data)) {
+      const cleanData = { ...data };
+      const project = cleanData.project || null;
+      const siteLocation = cleanData.site_location || cleanData.siteLocation || null;
+      const participants = cleanData.participants || null;
+      const messageTemplate = cleanData.message_template || cleanData.messageTemplate || null;
+      const properties = cleanData.properties || null;
+
+      if (!existingCols.includes("project") || !existingCols.includes("site_location") || properties) {
+        let existingMeta = {};
+        if (cleanData.ai_metadata || cleanData.aiMetadata) {
+          const rawMeta = cleanData.ai_metadata || cleanData.aiMetadata;
+          if (typeof rawMeta === "string") {
+            try { existingMeta = JSON.parse(rawMeta); } catch { existingMeta = {}; }
+          } else if (typeof rawMeta === "object" && rawMeta !== null) {
+            existingMeta = { ...rawMeta };
+          }
+        }
+        if (project) existingMeta.project = project;
+        if (siteLocation) {
+          existingMeta.site_location = siteLocation;
+          existingMeta.siteLocation = siteLocation;
+        }
+        if (participants) existingMeta.participants = participants;
+        if (messageTemplate) {
+          existingMeta.message_template = messageTemplate;
+          existingMeta.messageTemplate = messageTemplate;
+        }
+        if (properties) existingMeta.properties = properties;
+
+        if (Object.keys(existingMeta).length > 0) {
+          cleanData.ai_metadata = JSON.stringify(existingMeta);
+        }
+      }
+
+      for (const [key, val] of Object.entries(cleanData)) {
         const snakeKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
         if (allowedFields.includes(snakeKey) && (existingCols.length === 0 || existingCols.includes(snakeKey))) {
           updates.push(`\`${snakeKey}\` = ?`);
