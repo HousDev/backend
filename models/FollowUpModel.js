@@ -94,9 +94,6 @@ class FollowUpModel {
       : null;
     const aiGenerated = data.ai_generated ? 1 : 0;
     const aiActionType = data.ai_action_type || null;
-    const aiMetadata = data.ai_metadata
-      ? JSON.stringify(data.ai_metadata)
-      : null;
 
     let aiMetaObj = {};
     if (data.ai_metadata || data.aiMetadata) {
@@ -750,15 +747,6 @@ class FollowUpModel {
       const updates = [];
       const params = [];
 
-      for (const [key, val] of Object.entries(data)) {
-        const snakeKey = key.replace(
-          /[A-Z]/g,
-          (letter) => `_${letter.toLowerCase()}`,
-        );
-        if (
-          allowedFields.includes(snakeKey) &&
-          (existingCols.length === 0 || existingCols.includes(snakeKey))
-        ) {
       const cleanData = { ...data };
       const project = cleanData.project || null;
       const siteLocation = cleanData.site_location || cleanData.siteLocation || null;
