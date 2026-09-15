@@ -193,6 +193,7 @@ app.use("/api/location", require("./routes/locationRoutes"));
 app.use("/api/broadcasts", require("./routes/broadcasts.routes"));
 app.use("/api/rules", require("./routes/rules.routes"));
 app.use("/api/analytics", require("./routes/analytics.routes"));
+app.use("/api/rent-leases", require("./routes/rentLeaseRoutes"));
 
 // Add this with other routes
 

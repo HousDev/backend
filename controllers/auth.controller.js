@@ -93,7 +93,10 @@ const ensureBuyerOrSellerProfile = async (user) => {
     }
   } else if (role === 'tenant') {
     try {
-      const [existing] = await db.query("SELECT id FROM tenants WHERE email = ? LIMIT 1", [user.email]);
+      const [existing] = await db.query(
+        "SELECT id FROM tenants WHERE (email IS NOT NULL AND email != '' AND LOWER(email) = LOWER(?)) OR (phone IS NOT NULL AND phone != '' AND phone = ?) LIMIT 1",
+        [user.email || '', user.phone || '']
+      );
       if (existing && existing.length > 0) {
         user.tenant_id = existing[0].id;
       } else {
