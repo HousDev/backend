@@ -74,21 +74,21 @@ class Lead {
         created_by, updated_by, priority
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          salutation,
-          name,
-          phone,
-          email,
-          lead_type,
-          lead_source,
-          whatsapp_number,
-          state,
-          city,
-          location,
-          status,
-          assigned_executive, // now null if ""
-          created_by,
-          updated_by,
-          priority, // now null if ""
+          salutation ?? null,
+          name ?? null,
+          phone ?? null,
+          email ?? null,
+          lead_type ?? null,
+          lead_source ?? null,
+          whatsapp_number ?? null,
+          state ?? null,
+          city ?? null,
+          location ?? null,
+          status ?? null,
+          assigned_executive ?? null,
+          created_by ?? null,
+          updated_by ?? null,
+          priority ?? null,
         ]
       );
 
