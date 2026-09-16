@@ -94,6 +94,29 @@ const Tenant = {
   },
 
   async create(data, conn = null) {
+    // Check if tenant with same email or phone already exists to prevent duplicate entries
+    if (data.email || data.phone) {
+      try {
+        const cleanEmail = (data.email || '').trim().toLowerCase();
+        const cleanPhone = (data.phone || '').trim();
+        const [existing] = await runQuery(
+          conn,
+          `SELECT id FROM tenants 
+           WHERE (email IS NOT NULL AND email != '' AND LOWER(email) = ?) 
+              OR (phone IS NOT NULL AND phone != '' AND phone = ?) 
+           ORDER BY id ASC LIMIT 1`,
+          [cleanEmail, cleanPhone]
+        );
+        if (existing && existing.length > 0) {
+          const existingId = existing[0].id;
+          await this.update(existingId, data, conn);
+          return await this.getById(existingId, conn);
+        }
+      } catch (checkErr) {
+        console.warn('Duplicate tenant check warning:', checkErr.message);
+      }
+    }
+
     // Generate Tenant ID (e.g. TEN0001)
     const [maxIdRow] = await runQuery(conn, "SELECT MAX(id) as max_id FROM tenants");
     const nextId = (maxIdRow[0]?.max_id || 0) + 1;
@@ -384,12 +407,47 @@ const Tenant = {
   },
 
   async getInterestsForOwner(ownerId, conn = null) {
+    const cleanId = String(ownerId || '').trim();
+    const rawNumber = Number(cleanId.replace(/\D/g, '')) || 0;
+
+    let ownerIds = [cleanId, rawNumber];
+
+    try {
+      const [uRows] = await runQuery(
+        conn,
+        'SELECT email, phone FROM users WHERE id = ? OR username = ? LIMIT 1',
+        [rawNumber || cleanId, cleanId]
+      );
+      const userEmail = uRows?.[0]?.email || null;
+      const userPhone = uRows?.[0]?.phone || null;
+
+      const [oRows] = await runQuery(
+        conn,
+        `SELECT id FROM owners 
+         WHERE id = ? OR id = ? 
+         ${userEmail ? 'OR LOWER(email) = LOWER(?)' : ''}
+         ${userPhone ? 'OR phone = ?' : ''}`,
+        userEmail && userPhone ? [cleanId, rawNumber, userEmail, userPhone] :
+        userEmail ? [cleanId, rawNumber, userEmail] :
+        userPhone ? [cleanId, rawNumber, userPhone] : [cleanId, rawNumber]
+      );
+      if (oRows && oRows.length > 0) {
+        oRows.forEach(r => {
+          if (r.id) {
+            ownerIds.push(String(r.id), Number(r.id));
+          }
+        });
+      }
+    } catch (_) {}
+
+    ownerIds = Array.from(new Set(ownerIds.filter(Boolean)));
+
     const sql = `
       SELECT 
         toi.*,
-        t.name AS tenant_name,
-        t.email AS tenant_email,
-        t.phone AS tenant_phone,
+        COALESCE(t.name, CONCAT_WS(' ', u.first_name, u.last_name), u.username, CONCAT('Tenant #', toi.tenant_id)) AS tenant_name,
+        COALESCE(t.email, u.email) AS tenant_email,
+        COALESCE(t.phone, u.phone) AS tenant_phone,
         t.whatsapp AS tenant_whatsapp,
         t.tenant_type,
         t.occupation_type,
@@ -418,18 +476,50 @@ const Tenant = {
         rp.location_name,
         rp.monthly_rent AS expected_rent,
         rp.monthly_rent,
-        rp.owner_id
+        COALESCE(rp.owner_id, toi.owner_id) AS owner_id
       FROM tenant_owner_interests toi
-      JOIN tenants t ON toi.tenant_id = t.id
+      LEFT JOIN tenants t ON (toi.tenant_id = t.id OR toi.tenant_id = t.tenant_id)
+      LEFT JOIN users u ON (toi.tenant_id = u.id)
       JOIN rental_properties rp ON toi.rental_property_id = rp.id
-      WHERE (toi.owner_id = ? OR rp.owner_id = ?)
+      WHERE toi.owner_id IN (?) OR rp.owner_id IN (?)
       ORDER BY toi.id DESC
     `;
-    const [rows] = await runQuery(conn, sql, [ownerId, ownerId]);
+    const [rows] = await runQuery(conn, sql, [ownerIds, ownerIds]);
     return rows;
   },
 
   async getInterestsForTenant(tenantId, conn = null) {
+    const cleanId = String(tenantId || '').trim();
+    const rawNumber = Number(cleanId.replace(/\D/g, '')) || 0;
+
+    let tenantEmail = null;
+    let tenantPhone = null;
+    try {
+      // 1. Try finding in tenants table
+      const [tRows] = await runQuery(
+        conn,
+        'SELECT id, email, phone FROM tenants WHERE id = ? OR tenant_id = ? LIMIT 1',
+        [cleanId, cleanId]
+      );
+      if (tRows && tRows[0]) {
+        tenantEmail = tRows[0].email || null;
+        tenantPhone = tRows[0].phone || null;
+      }
+
+      // 2. If not found in tenants table, try finding in users table (since tenantId might be user.id)
+      if (!tenantEmail && !tenantPhone) {
+        const [uRows] = await runQuery(
+          conn,
+          'SELECT id, email, phone FROM users WHERE id = ? OR username = ? LIMIT 1',
+          [rawNumber || cleanId, cleanId]
+        );
+        if (uRows && uRows[0]) {
+          tenantEmail = uRows[0].email || null;
+          tenantPhone = uRows[0].phone || null;
+        }
+      }
+    } catch (_) {}
+
     const sql = `
       SELECT 
         toi.*,
@@ -442,16 +532,20 @@ const Tenant = {
         rp.monthly_rent AS expected_rent,
         rp.monthly_rent,
         rp.photos,
+        COALESCE(toi.owner_id, rp.owner_id) AS owner_id,
         o.name AS owner_name,
         o.phone AS owner_phone,
         o.email AS owner_email
       FROM tenant_owner_interests toi
       JOIN rental_properties rp ON toi.rental_property_id = rp.id
-      LEFT JOIN owners o ON rp.owner_id = o.id
-      WHERE toi.tenant_id = ?
+      LEFT JOIN owners o ON (rp.owner_id = o.id OR toi.owner_id = o.id)
+      LEFT JOIN tenants t ON toi.tenant_id = t.id
+      WHERE toi.tenant_id = ? OR toi.tenant_id = ?
+        OR (? != '' AND t.email IS NOT NULL AND LOWER(t.email) = LOWER(?))
+        OR (? != '' AND t.phone IS NOT NULL AND t.phone = ?)
       ORDER BY toi.id DESC
     `;
-    const [rows] = await runQuery(conn, sql, [tenantId]);
+    const [rows] = await runQuery(conn, sql, [cleanId, rawNumber, tenantEmail || '', tenantEmail || '', tenantPhone || '', tenantPhone || '']);
     return rows;
   },
 
@@ -539,6 +633,11 @@ const Tenant = {
 
     const [updated] = await runQuery(conn, `SELECT * FROM tenant_owner_interests WHERE id = ?`, [interestId]);
     return { success: true, data: updated[0] };
+  },
+
+  async deleteInterest(interestId, conn = null) {
+    const [result] = await runQuery(conn, "DELETE FROM tenant_owner_interests WHERE id = ?", [interestId]);
+    return result.affectedRows;
   },
 
   async delete(id, conn = null) {

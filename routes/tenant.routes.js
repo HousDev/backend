@@ -21,6 +21,7 @@ const {
   ownerConfirmTenant,
   ownerRejectTenant,
   tenantRespondToConfirmation,
+  deleteInterest,
   uploadTenantPhoto,
   uploadTenantIdProof,
 } = require("../controllers/tenantController");
@@ -49,6 +50,7 @@ router.get("/interests/owner/:ownerId", getOwnerInterests);
 router.post("/interests/:id/owner-confirm", ownerConfirmTenant);
 router.post("/interests/:id/owner-reject", ownerRejectTenant);
 router.post("/interests/:id/tenant-respond", tenantRespondToConfirmation);
+router.delete("/interests/:id", deleteInterest);
 
 // File Uploads — Profile Photo & ID Proof
 router.post(

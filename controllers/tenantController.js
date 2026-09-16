@@ -118,6 +118,23 @@ const createTenant = async (req, res) => {
       return res.status(400).json({ success: false, message: "Name and Phone are required." });
     }
 
+    // Check if tenant with same phone or email already exists to prevent duplicate entries
+    if (body.phone || body.email) {
+      try {
+        const [existing] = await db.query(
+          `SELECT id FROM tenants WHERE (phone IS NOT NULL AND phone != '' AND phone = ?) OR (email IS NOT NULL AND email != '' AND LOWER(email) = LOWER(?)) LIMIT 1`,
+          [body.phone || '', body.email || '']
+        );
+        if (existing && existing.length > 0) {
+          await Tenant.update(existing[0].id, body);
+          const updatedTenant = await Tenant.getById(existing[0].id);
+          return res.status(200).json({ success: true, data: updatedTenant, message: 'Existing tenant updated' });
+        }
+      } catch (e) {
+        console.warn("Duplicate tenant check error:", e.message);
+      }
+    }
+
     // Save tenant immediately without waiting for geocoding
     const tenant = await Tenant.create(body);
     if (!tenant) {
@@ -157,7 +174,7 @@ const updateTenant = async (req, res) => {
       if (tenantId) {
         existingTenant = await Tenant.getById(tenantId);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     if (!existingTenant) {
       try {
@@ -171,7 +188,7 @@ const updateTenant = async (req, res) => {
           tenantId = rows[0].id;
           existingTenant = await Tenant.getById(tenantId);
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // If still no existing tenant in tenants table, check users table and auto-create tenant entry
@@ -211,7 +228,7 @@ const updateTenant = async (req, res) => {
 
     // Check if location changed — geocode in background after save
     const locationChanged = !!body.preferred_location && !body.preferred_locations_coords;
-    
+
     // Check if property linking/unlinking is happening
     const isLinking = body.rental_property_id !== undefined;
 
@@ -267,13 +284,13 @@ const deleteTenant = async (req, res) => {
     let tenant = null;
     try {
       tenant = await Tenant.getById(tenantId);
-    } catch (e) {}
+    } catch (e) { }
 
     if (!tenant) {
       try {
         const [rows] = await db.query("SELECT * FROM tenants WHERE id = ? LIMIT 1", [tenantId]);
         if (rows && rows.length > 0) tenant = rows[0];
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!tenant) {
@@ -283,13 +300,13 @@ const deleteTenant = async (req, res) => {
     // 1. Clean up related tenant records
     try {
       await db.query("DELETE FROM tenant_activities WHERE tenant_id = ?", [tenantId]);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await db.query("DELETE FROM tenant_visits WHERE tenant_id = ?", [tenantId]);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await db.query("DELETE FROM tenant_followups WHERE tenant_id = ?", [tenantId]);
-    } catch (e) {}
+    } catch (e) { }
 
     // 2. Delete corresponding user(s) from users table if role is 'tenant'
     if (tenant.email) {
@@ -327,9 +344,9 @@ const deleteTenant = async (req, res) => {
             if (typeof clearUserFromCache === 'function') {
               clearUserFromCache(u.id);
             }
-          } catch (e) {}
+          } catch (e) { }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // 3. Delete tenant from tenants table
@@ -356,18 +373,18 @@ const bulkDeleteTenants = async (req, res) => {
     try {
       const [rows] = await db.query(`SELECT id, email, phone FROM tenants WHERE id IN (${placeholders})`, ids);
       tenants = rows || [];
-    } catch (e) {}
+    } catch (e) { }
 
     // Clean up related records
     try {
       await db.query(`DELETE FROM tenant_activities WHERE tenant_id IN (${placeholders})`, ids);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await db.query(`DELETE FROM tenant_visits WHERE tenant_id IN (${placeholders})`, ids);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await db.query(`DELETE FROM tenant_followups WHERE tenant_id IN (${placeholders})`, ids);
-    } catch (e) {}
+    } catch (e) { }
 
     // Delete corresponding users with role='tenant'
     for (const t of tenants) {
@@ -384,7 +401,7 @@ const bulkDeleteTenants = async (req, res) => {
               clearUserFromCache(u.id);
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       if (t.phone) {
         try {
@@ -398,7 +415,7 @@ const bulkDeleteTenants = async (req, res) => {
               clearUserFromCache(u.id);
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -444,7 +461,7 @@ const sendTenantOtp = async (req, res) => {
     let existingUser = null;
     try {
       existingUser = await User.findByEmail(normalizedEmail);
-    } catch (e) {}
+    } catch (e) { }
 
     let existingTenants = [];
     try {
@@ -453,7 +470,7 @@ const sendTenantOtp = async (req, res) => {
         [normalizedEmail]
       );
       existingTenants = rows || [];
-    } catch (e) {}
+    } catch (e) { }
 
     if (existingUser || (existingTenants && existingTenants.length > 0)) {
       return res.status(200).json({
@@ -739,7 +756,7 @@ const verifyAndRegisterTenant = async (req, res) => {
           if (existingU && existingU.length > 0) {
             username = `${baseUsername}${Math.floor(10 + Math.random() * 90)}`;
           }
-        } catch (e) {}
+        } catch (e) { }
 
         const newUser = new User({
           salutation: 'Mr.',
@@ -941,7 +958,7 @@ const updateTenantPassword = async (req, res) => {
         if (existingU && existingU.length > 0) {
           username = `${baseUsername}${Math.floor(10 + Math.random() * 90)}`;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       const newUser = new User({
         salutation: 'Mr.',
@@ -1023,7 +1040,7 @@ const getOwnerDetailsForTenant = async (req, res) => {
               oWhatsapp = extraOwner[0].whatsapp || extraOwner[0].phone || oWhatsapp;
               oEmail = extraOwner[0].email || oEmail;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         ownerDetails = {
@@ -1190,6 +1207,15 @@ const sendTenantInterest = async (req, res) => {
     }
 
     if (global.io) {
+      if (sender_type === 'owner') {
+        global.io.to(`user:${tenant_id}`).emit('notification', {
+          badge: 'Owner Interested',
+          title: 'Owner Showed Interest In You!',
+          message: `${prop.owner_name || 'Landlord'} is interested in RENT-${rental_property_id}. Please accept to proceed.`,
+          type: 'interest_received',
+          tab: 'enquiries',
+        });
+      }
       global.io.emit("owner_interest_received", {
         owner_id: prop.seller_id || prop.owner_id,
         tenant_id,
@@ -1200,7 +1226,6 @@ const sendTenantInterest = async (req, res) => {
       });
       global.io.emit("refresh_interests", { owner_id: prop.seller_id || prop.owner_id, tenant_id });
     }
-
     return res.status(201).json({
       success: true,
       message: "Interest request submitted successfully!",
@@ -1347,6 +1372,20 @@ const uploadTenantIdProof = async (req, res) => {
   }
 };
 
+const deleteInterest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Tenant.deleteInterest(id);
+    if (global.io) {
+      global.io.emit("refresh_interests", {});
+    }
+    return res.status(200).json({ success: true, message: "Interest request deleted successfully" });
+  } catch (err) {
+    console.error("deleteInterest error:", err);
+    return res.status(500).json({ success: false, message: "Failed to delete interest request" });
+  }
+};
+
 module.exports = {
   getTenants,
   getTenantById,
@@ -1369,6 +1408,7 @@ module.exports = {
   ownerConfirmTenant,
   ownerRejectTenant,
   tenantRespondToConfirmation,
+  deleteInterest,
   uploadTenantPhoto,
   uploadTenantIdProof,
 };
