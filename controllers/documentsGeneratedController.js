@@ -19,9 +19,50 @@ function atomicWrite(filePath, buf) {
   fs.writeFileSync(tmp, buf);
   fs.renameSync(tmp, filePath);
 }
+function sanitizeHtmlForPdf(html = '') {
+  let str = String(html || '');
+
+  // Fix garbled encoding artifacts commonly created in HTML rendering
+  str = str
+    .replace(/â|â€“/g, '&ndash;')
+    .replace(/â¹|â₹/g, '&#8377;')
+    .replace(/â/g, '&#10148;')
+    .replace(/â¢/g, '&bull;')
+    .replace(/â/g, '');
+
+  // Clean raw symbols to html entities to ensure zero Puppeteer encoding mismatches
+  str = str
+    .replace(/₹/g, '&#8377;')
+    .replace(/–/g, '&ndash;')
+    .replace(/—/g, '&mdash;')
+    .replace(/•/g, '&bull;');
+
+  return str;
+}
+
 function interpolate(html, vars = {}) {
-  return String(html).replace(/{{\s*([\w.]+)\s*}}/g, (_, key) => {
-    const val = key.split('.').reduce((o, k) => (o ? o[k] : undefined), vars);
+  let cleanHtml = sanitizeHtmlForPdf(html);
+
+  return cleanHtml.replace(/{{\s*([\w.]+)\s*}}/g, (_, key) => {
+    let val = key.split('.').reduce((o, k) => (o ? o[k] : undefined), vars);
+
+    // Fallback lookups for common alias keys if undefined
+    if (val === undefined || val === null || val === '') {
+      if (key === 'buyer.name' || key === 'buyer_name' || key === 'buyer_full_name') val = vars.buyer_name || vars.buyer?.name;
+      else if (key === 'buyer.phone' || key === 'buyer_phone' || key === 'buyer_mobile') val = vars.buyer_phone || vars.buyer?.phone;
+      else if (key === 'buyer.email' || key === 'buyer_email') val = vars.buyer_email || vars.buyer?.email;
+      else if (key === 'buyer.location' || key === 'buyer_location' || key === 'buyer_address') val = vars.buyer_location || vars.buyer?.location;
+      else if (key === 'seller.name' || key === 'seller_name' || key === 'seller_full_name') val = vars.seller_name || vars.seller?.name;
+      else if (key === 'seller.phone' || key === 'seller_phone' || key === 'seller_mobile') val = vars.seller_phone || vars.seller?.phone;
+      else if (key === 'seller.email' || key === 'seller_email') val = vars.seller_email || vars.seller?.email;
+      else if (key === 'executive.name' || key === 'executive_name' || key === 'sales_executive') val = vars.executive_name || vars.sales_executive;
+      else if (key === 'executive.phone' || key === 'executive_phone') val = vars.executive_phone;
+      else if (key === 'executive.email' || key === 'executive_email') val = vars.executive_email;
+      else if (key === 'employee_code' || key === 'employee_id' || key === 'executive.code') val = vars.employee_code;
+      else if (key === 'branch_office' || key === 'executive.branch') val = vars.branch_office;
+      else if (key === 'mou_no' || key === 'mou_number') val = vars.mou_no;
+    }
+
     return (val ?? '').toString();
   });
 }
@@ -30,15 +71,31 @@ const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || "/var/www/uploads";
 
-function toLocalFilePath(urlPath) {
-  if (!urlPath) return '';
-  if (typeof urlPath !== 'string') return '';
+// Default SVG Data URIs for crisp logo rendering fallback in PDF
+const DEFAULT_COMPANY_LOGO = `data:image/svg+xml;base64,${Buffer.from(`
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="50" viewBox="0 0 220 50">
+  <rect width="100%" height="100%" fill="none"/>
+  <path d="M10 35 L20 15 L30 35 M15 26 L25 26" stroke="#ea580c" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M20 10 L35 25 L35 35" stroke="#0f172a" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <text x="42" y="28" font-family="'Noto Sans', sans-serif" font-weight="700" font-size="18" fill="#0f172a">RESALE</text>
+  <text x="125" y="28" font-family="'Noto Sans', sans-serif" font-weight="700" font-size="18" fill="#ea580c">EXPERT</text>
+  <text x="42" y="40" font-family="'Noto Sans', sans-serif" font-weight="500" font-size="8" fill="#64748b">Your Trusted Resale Property Expert</text>
+</svg>
+`).toString('base64')}`;
+
+const DEFAULT_FOOTER_LOGO = DEFAULT_COMPANY_LOGO;
+
+function toLocalFilePath(urlPath, type = 'company') {
+  if (!urlPath || typeof urlPath !== 'string') {
+    return type === 'footer' ? DEFAULT_FOOTER_LOGO : DEFAULT_COMPANY_LOGO;
+  }
   if (urlPath.startsWith('data:')) return urlPath;
-  
+  if (isHttpLike(urlPath)) return urlPath;
+
   if (urlPath.startsWith('/uploads/') || urlPath.startsWith('uploads/')) {
     const relative = urlPath.startsWith('/') ? urlPath.substring(9) : urlPath.substring(8);
     const absolutePath = path.resolve(UPLOAD_ROOT, relative);
-    
+
     try {
       if (fs.existsSync(absolutePath)) {
         const fileBuffer = fs.readFileSync(absolutePath);
@@ -60,7 +117,28 @@ function toLocalFilePath(urlPath) {
       console.warn(`Failed to convert file to base64: ${absolutePath}`, err);
     }
   }
-  return urlPath;
+
+  // Check workspace assets / public directory fallbacks
+  const cleanPath = urlPath.replace(/^\/+/, '');
+  const workspacePublicPaths = [
+    path.join(__dirname, '../../frontend/public', cleanPath),
+    path.join(__dirname, '../../public', cleanPath),
+    path.join(__dirname, '../../frontend/public/logo.png'),
+    path.join(__dirname, '../../frontend/src/assets/images/RE.png'),
+  ];
+
+  for (const altPath of workspacePublicPaths) {
+    if (fs.existsSync(altPath)) {
+      try {
+        const fileBuffer = fs.readFileSync(altPath);
+        const ext = path.extname(altPath).toLowerCase();
+        const mime = ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        return `data:${mime};base64,${fileBuffer.toString('base64')}`;
+      } catch {}
+    }
+  }
+
+  return type === 'footer' ? DEFAULT_FOOTER_LOGO : DEFAULT_COMPANY_LOGO;
 }
 
 function uniq(arr) { return [...new Set(arr.filter(Boolean))]; }
@@ -91,35 +169,41 @@ const hasShell = (html = '') =>
   /class\s*=\s*["'][^"']*\bsub-page\b[^"']*["']/.test(html);
 
 const MIN_A4_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
   @page { size: A4; margin: 0; }
-  html, body { width:210mm; height:297mm; margin:0; padding:0; background:#fff !important; }
-  * { box-sizing:border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { width:210mm; height:297mm; margin:0; padding:0; background:#fff !important; font-family: 'Noto Sans', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important; }
+  * { box-sizing:border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; font-family: inherit; }
   #printDialog{ display:flex; justify-content:center; align-items:flex-start; width:210mm; min-height:297mm; margin:0 auto; background:#fff !important; }
   body > *:not(#printDialog) { display:none !important; }
   .main-page{ width:210mm; min-height:297mm; background:#fff !important; box-shadow:none !important; overflow:hidden; }
   .sub-page{ margin:0; padding:20mm 25mm; }
+  img:not([src]), img[src=""], img[src="undefined"], img[src="null"] { display: none !important; }
+  img { max-width: 100%; height: auto; object-fit: contain; }
   @media print { html, body { width:210mm; height:297mm; } .main-page { page-break-after:always; } }
 `;
 const MIN_LEGAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
   @page { size: Legal; margin: 0; }
-  html, body { width:216mm; height:356mm; margin:0; padding:0; background:#fff !important; }
-  * { box-sizing:border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { width:216mm; height:356mm; margin:0; padding:0; background:#fff !important; font-family: 'Noto Sans', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important; }
+  * { box-sizing:border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; font-family: inherit; }
   #printDialog{ display:flex; justify-content:center; align-items:flex-start; width:216mm; min-height:356mm; margin:0 auto; background:#fff !important; }
   body > *:not(#printDialog) { display:none !important; }
   .main-page{ width:216mm; min-height:356mm; background:#fff !important; box-shadow:none !important; }
   .sub-page{ margin:0; padding:20mm 25mm; }
+  img:not([src]), img[src=""], img[src="undefined"], img[src="null"] { display: none !important; }
+  img { max-width: 100%; height: auto; object-fit: contain; }
   @media print { html, body { width:216mm; height:356mm; } .main-page { page-break-after:always; } }
 `;
 
 const wrapInA4 = (inner = '') =>
-  `<!doctype html><html><head><meta charset="utf-8"/><meta name="color-scheme" content="light" />
+  `<!doctype html><html><head><meta charset="utf-8"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="color-scheme" content="light" />
     <title>Document</title><style>${MIN_A4_CSS}</style>
   </head><body>
     <div id="printDialog"><div class="main-page"><div class="sub-page">${inner}</div></div></div>
   </body></html>`;
 
 const wrapInLegal = (inner = '') =>
-  `<!doctype html><html><head><meta charset="utf-8"/><meta name="color-scheme" content="light" />
+  `<!doctype html><html><head><meta charset="utf-8"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="color-scheme" content="light" />
     <title>Document</title><style>${MIN_LEGAL_CSS}</style>
   </head><body>
     <div id="printDialog"><div class="main-page"><div class="sub-page">${inner}</div></div></div>
@@ -486,17 +570,100 @@ async function buildVarsForDoc(row) {
     console.warn('Failed to load system settings for template variables:', err);
   }
 
+  // Fetch creator / executive from DB if missing in variables
+  let creatorUser = null;
+  const creatorId = row.created_by || base.created_by || base.executive_id || base.assigned_executive;
+  if (creatorId) {
+    try {
+      const [uRows] = await pool.query('SELECT id, name, email, phone, role FROM users WHERE id = ? LIMIT 1', [creatorId]);
+      if (uRows && uRows.length > 0) {
+        creatorUser = uRows[0];
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const executive_name = base.sales_executive || base.executive_name || base.executive?.name || creatorUser?.name || settings?.company_name || 'ResaleExpert Executive';
+  const executive_phone = base.executive_phone || base.executive?.phone || creatorUser?.phone || settings?.company_phone || '+91 94033 17017';
+  const executive_email = base.executive_email || base.executive?.email || creatorUser?.email || settings?.company_email || 'info@resaleexpert.in';
+  const employee_code = base.employee_code || base.employee_id || base.executive_id || (creatorUser?.id ? `EX-${String(creatorUser.id).padStart(3, '0')}` : 'EX-001');
+  const branch_office = base.branch_office || base.branch || settings?.company_city || 'Pune Head Office';
+
+  const buyer_name = base.buyer_name || base.buyer?.name || base.buyer_full_name || base.client?.name || base.party_name || '';
+  const buyer_phone = base.buyer_phone || base.buyer?.phone || base.buyer_mobile || base.buyer_contact || '';
+  const buyer_email = base.buyer_email || base.buyer?.email || '';
+  const buyer_location = base.buyer_location || base.buyer_address || base.buyer?.address || base.location || '';
+  const buyer_budget = base.buyer_budget || base.budget || (base.buyer_budget_min && base.buyer_budget_max ? `${base.buyer_budget_min} - ${base.buyer_budget_max}` : '');
+
+  const seller_name = base.seller_name || base.seller?.name || base.seller_full_name || '';
+  const seller_phone = base.seller_phone || base.seller?.phone || base.seller_mobile || base.seller_contact || '';
+  const seller_email = base.seller_email || base.seller?.email || '';
+
+  const mou_no = base.mou_no || base.mou_number || `DEA${String(row.id || '1001').padStart(6, '0')}`;
+
   return {
     ...base,
     ...esignVars,
     current_date,
     current_datetime,
-    // sensible fallbacks
+
+    // Sensible document fallbacks
     document_id: base?.document_id ?? row?.id ?? '',
     document_date: base?.document_date ?? (now.toISOString().slice(0,10)),
-    company_name: base?.company_name ?? base?.company?.name ?? settings?.company_name ?? '',
-    company_logo: toLocalFilePath(base?.company_logo || settings?.company_logo),
-    footer_logo: toLocalFilePath(base?.footer_logo || settings?.footer_logo),
+    mou_no,
+    mou_number: mou_no,
+    company_name: base?.company_name ?? base?.company?.name ?? settings?.company_name ?? 'ResaleExpert',
+    company_logo: toLocalFilePath(base?.company_logo || settings?.company_logo, 'company'),
+    footer_logo: toLocalFilePath(base?.footer_logo || settings?.footer_logo, 'footer'),
+
+    // Executive normalized fields
+    sales_executive: executive_name,
+    executive_name: executive_name,
+    executive_phone: executive_phone,
+    executive_email: executive_email,
+    employee_code: employee_code,
+    employee_id: employee_code,
+    branch_office: branch_office,
+
+    // Buyer normalized fields
+    buyer_name,
+    buyer_phone,
+    buyer_email,
+    buyer_location,
+    buyer_address: buyer_location,
+    buyer_budget,
+
+    // Seller normalized fields
+    seller_name,
+    seller_phone,
+    seller_email,
+
+    // Sub-objects for dot-notation templates: {{buyer.name}}, {{executive.name}}, etc.
+    buyer: {
+      name: buyer_name,
+      phone: buyer_phone,
+      email: buyer_email,
+      location: buyer_location,
+      address: buyer_location,
+      budget: buyer_budget,
+      ...(base.buyer || {})
+    },
+    seller: {
+      name: seller_name,
+      phone: seller_phone,
+      email: seller_email,
+      ...(base.seller || {})
+    },
+    executive: {
+      name: executive_name,
+      phone: executive_phone,
+      email: executive_email,
+      code: employee_code,
+      id: employee_code,
+      branch: branch_office,
+      ...(base.executive || {})
+    }
   };
 }
 
