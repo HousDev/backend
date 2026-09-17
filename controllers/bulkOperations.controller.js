@@ -793,12 +793,15 @@ const setVisibility = async (req, res) => {
     if (typeof PropertyModel.togglePublic === "function") {
       await PropertyModel.togglePublic(id, isPublic);
     } else {
+      const nextStatus = (isPublic && (prop.status === "Pending Review" || !prop.status || prop.status === " - ")) ? "Available" : prop.status;
       await PropertyModel.updatePartial?.(id, {
         is_public: isPublic ? 1 : 0,
         publication_date: isPublic ? new Date() : null,
+        status: nextStatus,
       }) || await PropertyModel.update(id, {
         is_public: isPublic ? 1 : 0,
         publication_date: isPublic ? new Date() : null,
+        status: nextStatus,
       });
     }
 
