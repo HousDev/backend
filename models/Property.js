@@ -436,9 +436,10 @@ class Property {
       `UPDATE my_properties
          SET is_public = ?,
              publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+             status = CASE WHEN ? = 1 AND (status = 'Pending Review' OR status = '' OR status IS NULL) THEN 'Available' ELSE status END,
              updated_at = CURRENT_TIMESTAMP
        WHERE id IN (${placeholders})`,
-      [isPublic ? 1 : 0, isPublic ? 1 : 0, ...propertyIds],
+      [isPublic ? 1 : 0, isPublic ? 1 : 0, isPublic ? 1 : 0, ...propertyIds],
     );
     return { affected: res.affectedRows };
   }
@@ -926,7 +927,8 @@ class Property {
     const conditions = [
       "p.is_public = 1",
       "(p.is_sold = 0 OR p.is_sold IS NULL)",
-      "(p.status = 'Available' OR p.status = 'Active' OR p.status IS NULL)"
+      "(p.status = 'Available' OR p.status = 'Active' OR p.status = 'Pending Review' OR p.status IS NULL OR p.is_available = 1)",
+      "(p.status IS NULL OR (p.status != 'Sold' AND p.status != 'On Hold'))"
     ];
     const params = [];
 
@@ -1038,7 +1040,8 @@ class Property {
     const conditions = [
       "p.is_public = 1",
       "(p.is_sold = 0 OR p.is_sold IS NULL)",
-      "(p.status = 'Available' OR p.status = 'Active' OR p.status IS NULL)"
+      "(p.status = 'Available' OR p.status = 'Active' OR p.status = 'Pending Review' OR p.status IS NULL OR p.is_available = 1)",
+      "(p.status IS NULL OR (p.status != 'Sold' AND p.status != 'On Hold'))"
     ];
     const countParams = [];
 

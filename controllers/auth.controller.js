@@ -10,6 +10,7 @@ const Lead = require('../models/Lead');
 const Integration = require('../models/integration.model');
 const db = require('../config/database');
 const axios = require('axios');
+const { resolveDynamicExecutive } = require('../utils/executiveResolver');
 
 // In-Memory OTP Store: email -> { otp, expiresAt, attempts, userData }
 const otpStore = new Map();
@@ -35,20 +36,33 @@ const ensureBuyerOrSellerProfile = async (user) => {
 
   const safeName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'User';
 
+  // Resolve dynamic executive for client lead (strictly active non-admin sales/presales executive)
+  let assignedExecutiveId = null;
+  try {
+    const dynExec = await resolveDynamicExecutive();
+    if (dynExec && dynExec.id) {
+      assignedExecutiveId = dynExec.id;
+    }
+  } catch (e) {
+    console.warn("Could not resolve dynamic executive for new user profile:", e.message);
+  }
+
   // 1. Automatically Create / Ensure Lead in CRM `client_leads` Table
   try {
     const [existingLead] = await db.query(
-      "SELECT id FROM client_leads WHERE email = ? LIMIT 1",
+      "SELECT id, assigned_executive FROM client_leads WHERE email = ? LIMIT 1",
       [user.email]
     );
     if (!existingLead || existingLead.length === 0) {
       await db.query(
         `INSERT INTO client_leads 
-         (salutation, name, phone, email, lead_type, lead_source, status, priority, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, 'Website Registration', 'new', 'hot', NOW(), NOW())`,
-        [user.salutation || 'Mr.', safeName, user.phone || null, user.email, role]
+         (salutation, name, phone, email, lead_type, lead_source, status, priority, assigned_executive, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, 'Website Registration', 'new', 'hot', ?, NOW(), NOW())`,
+        [user.salutation || 'Mr.', safeName, user.phone || null, user.email, role, assignedExecutiveId]
       );
-      console.log(`✅ [CRM Lead Created] Auto-created ${role} lead for ${user.email}`);
+      console.log(`✅ [CRM Lead Created] Auto-created ${role} lead for ${user.email} (Assigned Executive: ${assignedExecutiveId})`);
+    } else if (!existingLead[0].assigned_executive && assignedExecutiveId) {
+      await db.query("UPDATE client_leads SET assigned_executive = ? WHERE id = ?", [assignedExecutiveId, existingLead[0].id]);
     }
   } catch (leadErr) {
     console.warn("CRM lead provisioning note:", leadErr.message);
@@ -62,8 +76,8 @@ const ensureBuyerOrSellerProfile = async (user) => {
         user.buyer_id = existing[0].id;
       } else {
         const [bRes] = await db.query(
-          "INSERT INTO buyers (salutation, name, phone, email, buyer_lead_source, buyer_lead_status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Website User', 'new', NOW(), NOW())",
-          [user.salutation || 'Mr.', safeName, user.phone || null, user.email]
+          "INSERT INTO buyers (salutation, name, phone, email, buyer_lead_source, buyer_lead_status, assigned_executive, created_at, updated_at) VALUES (?, ?, ?, ?, 'Website User', 'new', ?, NOW(), NOW())",
+          [user.salutation || 'Mr.', safeName, user.phone || null, user.email, assignedExecutiveId]
         );
         user.buyer_id = bRes.insertId;
       }
@@ -993,6 +1007,12 @@ exports.verifyOTPAndRegister = async (req, res) => {
     // 2. Automatically Create Lead in CRM `client_leads` table (ONLY for client personas)
     if (CLIENT_LEAD_ROLES.includes(safeRole)) {
       try {
+        let assignedExecutiveId = null;
+        try {
+          const dynExec = await resolveDynamicExecutive();
+          if (dynExec && dynExec.id) assignedExecutiveId = dynExec.id;
+        } catch (e) {}
+
         const fullName = `${safeFirstName} ${safeLastName}`.trim() || 'New Registered User';
         await Lead.create({
           salutation: safeSalutation,
@@ -1003,8 +1023,9 @@ exports.verifyOTPAndRegister = async (req, res) => {
           lead_source: 'Website Registration',
           status: 'new',
           priority: 'hot',
+          assigned_executive: assignedExecutiveId,
         });
-        console.log(`✅ [CRM Lead Auto-Captured] Lead created for registered user ${normalizedEmail} (Role: ${safeRole})`);
+        console.log(`✅ [CRM Lead Auto-Captured] Lead created for registered user ${normalizedEmail} (Role: ${safeRole}, Exec: ${assignedExecutiveId})`);
       } catch (leadErr) {
         console.warn('⚠️ [CRM Lead Note] Lead entry skipped or duplicate:', leadErr.message);
       }
@@ -1145,6 +1166,12 @@ exports.googleAuth = async (req, res) => {
       // Auto capture lead in CRM with complete phone number and role (ONLY for client personas)
       if (CLIENT_LEAD_ROLES.includes(safeRole)) {
         try {
+          let assignedExecutiveId = null;
+          try {
+            const dynExec = await resolveDynamicExecutive();
+            if (dynExec && dynExec.id) assignedExecutiveId = dynExec.id;
+          } catch (e) {}
+
           await Lead.create({
             salutation: safeSalutation,
             name: `${firstName} ${lastName}`.trim() || 'Google User',
@@ -1154,8 +1181,9 @@ exports.googleAuth = async (req, res) => {
             lead_source: 'Google Sign-In',
             status: 'new',
             priority: 'hot',
+            assigned_executive: assignedExecutiveId,
           });
-          console.log(`✅ [CRM Lead Auto-Captured] Lead created (${safeRole}) with phone for Google user ${email}`);
+          console.log(`✅ [CRM Lead Auto-Captured] Lead created (${safeRole}) with phone for Google user ${email} (Exec: ${assignedExecutiveId})`);
         } catch (lErr) {
           console.warn('⚠️ [CRM Lead Note] Google lead creation note:', lErr.message);
         }

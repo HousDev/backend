@@ -7,6 +7,7 @@ const Buyer = require("../models/Buyer");
 const PropertyVisit = require("../models/PropertyVisit");
 const ChatModel = require("../models/chat.model");
 const db = require("../config/database");
+const { resolveDynamicExecutive } = require("../utils/executiveResolver");
 
 /**
  * Helper to sanitize property objects for public chat presentation
@@ -71,16 +72,325 @@ function formatPrice(val) {
   return "₹0";
 }
 
+function sanitizeRentalPropertyForChat(p) {
+  let photos = [];
+  if (Array.isArray(p.photos)) {
+    photos = p.photos;
+  } else if (typeof p.photos === "string") {
+    try {
+      const parsed = JSON.parse(p.photos);
+      photos = Array.isArray(parsed) ? parsed : [p.photos];
+    } catch {
+      photos = p.photos ? [p.photos] : [];
+    }
+  }
+
+  const subType = p.property_subtype_name || p.property_type_name || "Rental Flat";
+  const loc = p.location_name || "";
+  const ut = p.unit_type || (p.bedrooms ? `${p.bedrooms} BHK` : "Rental Flat");
+  const rentVal = Number(p.monthly_rent) || 0;
+  const depositVal = Number(p.security_deposit) || 0;
+
+  const cleanTitle = p.society_name
+    ? `${ut} Flat at ${p.society_name}`
+    : [ut, subType, loc ? `in ${loc}` : ""].filter(Boolean).join(" ").trim() || "Verified Rental Home";
+
+  return {
+    id: p.id,
+    slug: p.slug || `${p.id}`,
+    title: cleanTitle,
+    property_type: p.property_type_name || "Rental",
+    property_subtype: p.property_subtype_name || null,
+    unit_type: ut,
+    bedrooms: p.bedrooms || null,
+    bathrooms: p.bathrooms || null,
+    carpet_area: p.carpet_area ? `${p.carpet_area} sq ft` : null,
+    city: p.city_name || "Pune",
+    location: loc || "Pune",
+    society: p.society_name || null,
+    price: rentVal,
+    price_display: rentVal > 0 ? `₹${rentVal.toLocaleString("en-IN")}/mo` : "Rent on Request",
+    photos,
+    image: photos[0] || "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80",
+    listing_type: "rent",
+    monthly_rent: rentVal,
+    security_deposit: depositVal,
+    owner_id: p.owner_id || null,
+    owner_name: p.owner_name_joined || p.owner_name || "Property Owner",
+    is_featured: Boolean(p.is_featured),
+    is_premium: Boolean(p.is_premium),
+  };
+}
+
+async function searchRentalPropertiesPaginated(filters = {}, limit = 5, offset = 0) {
+  try {
+    const { city, locations, unitType, bedrooms, budgetMax } = filters;
+    const conditions = ["rp.is_public = 1 AND (rp.status = 'Available' OR rp.status IS NULL OR rp.status = '')"];
+    const params = [];
+
+    if (city) {
+      conditions.push("LOWER(rp.city_name) LIKE ?");
+      params.push(`%${String(city).toLowerCase().trim()}%`);
+    }
+
+    if (Array.isArray(locations) && locations.length > 0) {
+      const locOr = locations.map(() => "(LOWER(rp.location_name) LIKE ? OR LOWER(rp.society_name) LIKE ?)").join(" OR ");
+      conditions.push(`(${locOr})`);
+      locations.forEach((l) => {
+        const clean = `%${String(l).toLowerCase().trim()}%`;
+        params.push(clean, clean);
+      });
+    }
+
+    if (bedrooms) {
+      conditions.push("rp.bedrooms = ?");
+      params.push(Number(bedrooms));
+    } else if (unitType) {
+      conditions.push("LOWER(rp.unit_type) = ?");
+      params.push(String(unitType).toLowerCase().trim());
+    }
+
+    if (budgetMax) {
+      conditions.push("rp.monthly_rent <= ?");
+      params.push(Number(budgetMax));
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const safeLimit = Math.max(1, Math.min(20, Number(limit) || 5));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) AS total FROM rental_properties rp WHERE ${whereClause}`,
+      params
+    );
+    const total = countRows[0]?.total || 0;
+
+    const [rows] = await db.query(
+      `SELECT rp.*,
+              o.name AS owner_name_joined, o.phone AS owner_phone_joined,
+              o.whatsapp AS owner_whatsapp_joined, o.email AS owner_email_joined
+       FROM rental_properties rp
+       LEFT JOIN owners o ON rp.owner_id = o.id
+       WHERE ${whereClause}
+       ORDER BY rp.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, safeOffset]
+    );
+
+    return {
+      properties: rows || [],
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+      hasMore: safeOffset + safeLimit < total,
+      remaining: Math.max(0, total - (safeOffset + safeLimit)),
+    };
+  } catch (err) {
+    console.error("searchRentalPropertiesPaginated error:", err);
+    return { properties: [], total: 0, limit, offset, hasMore: false, remaining: 0 };
+  }
+}
+
+/**
+ * Helper to resolve seller property and assigned executive
+ */
+async function resolveSellerPropertyAndExecutive({ userId, userPhone, userEmail, propertyId, societyName }) {
+  try {
+    let prop = null;
+
+    // 1. If explicit propertyId is provided
+    if (propertyId) {
+      const [rows] = await db.query(
+        `SELECT p.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM my_properties p
+         LEFT JOIN users e ON p.assigned_to = e.id
+         WHERE p.id = ? LIMIT 1`,
+        [propertyId]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    // 2. Lookup by userId (linked via created_by, seller_id, or seller matching user email/phone)
+    if (!prop && userId) {
+      const [rows] = await db.query(
+        `SELECT p.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM my_properties p
+         LEFT JOIN users e ON p.assigned_to = e.id
+         LEFT JOIN sellers s ON p.seller_id = s.id
+         LEFT JOIN users u ON u.id = ?
+         WHERE p.created_by = ? 
+            OR p.seller_id = ? 
+            OR (u.email IS NOT NULL AND s.email = u.email) 
+            OR (u.phone IS NOT NULL AND s.phone = u.phone)
+         ORDER BY p.id DESC LIMIT 1`,
+        [userId, userId, userId]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    // 3. Lookup by phone or email
+    const cleanPhone = userPhone ? String(userPhone).replace(/\D/g, "").slice(-10) : null;
+    const cleanEmail = userEmail ? String(userEmail).toLowerCase().trim() : null;
+
+    if (!prop && (cleanPhone || cleanEmail)) {
+      const conditions = [];
+      const params = [];
+      if (cleanPhone) {
+        conditions.push("s.phone LIKE ?");
+        params.push(`%${cleanPhone}%`);
+      }
+      if (cleanEmail) {
+        conditions.push("s.email = ?");
+        params.push(cleanEmail);
+      }
+      if (conditions.length > 0) {
+        const [rows] = await db.query(
+          `SELECT p.*,
+                  e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                  e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+           FROM my_properties p
+           LEFT JOIN users e ON p.assigned_to = e.id
+           LEFT JOIN sellers s ON p.seller_id = s.id
+           WHERE ${conditions.join(" OR ")}
+           ORDER BY p.id DESC LIMIT 1`,
+          params
+        );
+        if (rows && rows.length > 0) prop = rows[0];
+      }
+    }
+
+    // 4. Lookup by society name if provided
+    if (!prop && societyName && String(societyName).trim().length > 2) {
+      const cleanSoc = String(societyName).trim();
+      const [rows] = await db.query(
+        `SELECT p.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM my_properties p
+         LEFT JOIN users e ON p.assigned_to = e.id
+         WHERE p.society_name LIKE ?
+         ORDER BY p.id DESC LIMIT 1`,
+        [`%${cleanSoc}%`]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    return prop;
+  } catch (err) {
+    console.error("resolveSellerPropertyAndExecutive error:", err);
+    return null;
+  }
+}
+
+/**
+ * Helper to resolve owner rental property and assigned executive
+ */
+async function resolveOwnerPropertyAndExecutive({ userId, userPhone, userEmail, propertyId, societyName }) {
+  try {
+    let prop = null;
+    const cleanPhone = userPhone ? String(userPhone).replace(/\D/g, "").slice(-10) : null;
+    const cleanEmail = userEmail ? String(userEmail).toLowerCase().trim() : null;
+
+    if (propertyId) {
+      const [rows] = await db.query(
+        `SELECT rp.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM rental_properties rp
+         LEFT JOIN users e ON rp.assigned_to = e.id
+         WHERE rp.id = ? LIMIT 1`,
+        [propertyId]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    if (!prop && userId) {
+      const [rows] = await db.query(
+        `SELECT rp.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM rental_properties rp
+         LEFT JOIN users e ON rp.assigned_to = e.id
+         LEFT JOIN owners o ON rp.owner_id = o.id
+         LEFT JOIN users u ON u.id = ?
+         WHERE rp.created_by = ? 
+            OR rp.owner_id = ? 
+            OR (u.email IS NOT NULL AND o.email = u.email) 
+            OR (u.phone IS NOT NULL AND o.phone = u.phone)
+         ORDER BY rp.id DESC LIMIT 1`,
+        [userId, userId, userId]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    if (!prop && (cleanPhone || cleanEmail)) {
+      const conditions = [];
+      const params = [];
+      if (cleanPhone) {
+        conditions.push("o.phone LIKE ? OR rp.owner_phone LIKE ?");
+        params.push(`%${cleanPhone}%`, `%${cleanPhone}%`);
+      }
+      if (cleanEmail) {
+        conditions.push("o.email = ? OR rp.owner_email = ?");
+        params.push(cleanEmail, cleanEmail);
+      }
+      const [rows] = await db.query(
+        `SELECT rp.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM rental_properties rp
+         LEFT JOIN users e ON rp.assigned_to = e.id
+         LEFT JOIN owners o ON rp.owner_id = o.id
+         WHERE ${conditions.join(" OR ")}
+         ORDER BY rp.id DESC LIMIT 1`,
+        params
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    if (!prop && societyName && String(societyName).trim().length > 2) {
+      const cleanSoc = String(societyName).trim();
+      const [rows] = await db.query(
+        `SELECT rp.*,
+                e.salutation AS exec_salutation, e.first_name AS exec_first_name, e.last_name AS exec_last_name,
+                e.phone AS exec_phone, e.email AS exec_email, e.role AS exec_role
+         FROM rental_properties rp
+         LEFT JOIN users e ON rp.assigned_to = e.id
+         WHERE rp.society_name LIKE ?
+         ORDER BY rp.id DESC LIMIT 1`,
+        [`%${cleanSoc}%`]
+      );
+      if (rows && rows.length > 0) prop = rows[0];
+    }
+
+    return prop;
+  } catch (err) {
+    console.error("resolveOwnerPropertyAndExecutive error:", err);
+    return null;
+  }
+}
+
+/**
+ * 3-Tier Intelligent Cascading Dynamic Executive Assignment
+ * Tier 1: Existing Parent Entity Parity (Seller / Owner existing assigned_to, strictly non-admin)
+
+
 const PUNE_LOCALITY_COORDS = [
   { name: "Wakad", lat: 18.5987, lng: 73.7661 },
   { name: "Tathawade", lat: 18.6186, lng: 73.7507 },
   { name: "Hinjewadi", lat: 18.5913, lng: 73.7389 },
+  { name: "Marunji", lat: 18.6081, lng: 73.7228 },
   { name: "Punawale", lat: 18.6322, lng: 73.7438 },
   { name: "Rahatani", lat: 18.6015, lng: 73.7915 },
   { name: "Pimple Saudagar", lat: 18.5987, lng: 73.8000 },
   { name: "Pimple Nilakh", lat: 18.5772, lng: 73.7932 },
   { name: "Baner", lat: 18.5590, lng: 73.7868 },
   { name: "Balewadi", lat: 18.5750, lng: 73.7700 },
+  { name: "Mahalunge", lat: 18.5714, lng: 73.7483 },
   { name: "Pimpri", lat: 18.6279, lng: 73.8009 },
   { name: "Chinchwad", lat: 18.6448, lng: 73.7997 },
   { name: "Ravet", lat: 18.6475, lng: 73.7408 },
@@ -121,10 +431,12 @@ function getNearbyLocations(locName) {
   const nearbyMap = {
     wakad: ["Tathawade", "Hinjewadi", "Punawale", "Rahatani"],
     tathawade: ["Wakad", "Punawale", "Ravet", "Hinjewadi"],
-    hinjewadi: ["Wakad", "Tathawade", "Baner", "Punawale"],
+    hinjewadi: ["Marunji", "Wakad", "Tathawade", "Baner", "Punawale"],
+    marunji: ["Hinjewadi", "Wakad", "Punawale", "Tathawade"],
     baner: ["Balewadi", "Wakad", "Hinjewadi", "Pashan"],
     balewadi: ["Baner", "Wakad", "Mahalunge", "Hinjewadi"],
-    punawale: ["Tathawade", "Wakad", "Ravet", "Rahatani"],
+    mahalunge: ["Balewadi", "Baner", "Hinjewadi", "Wakad"],
+    punawale: ["Tathawade", "Marunji", "Wakad", "Ravet", "Rahatani"],
     rahatani: ["Pimple Saudagar", "Wakad", "Kalewadi", "Pimpri"],
     "pimple saudagar": ["Rahatani", "Wakad", "Pimple Nilakh", "Pimple Gurav"],
     "pimple nilakh": ["Baner", "Wakad", "Pimple Saudagar", "Aundh"],
@@ -196,6 +508,136 @@ exports.handleChatMessage = async (req, res) => {
       }
     }
 
+    // Special fast-path: Listing Status & Assigned Executive for Seller
+    const lower = trimmedMsg.toLowerCase();
+    const isStatusQuery = lower === "check listing status" || lower.includes("check listing status") || (lower.includes("listing status") && !lower.includes("under review"));
+    const isExecQuery = lower === "talk to property executive" || lower.includes("talk to property executive") || lower.includes("talk to executive") || lower.includes("connect with executive") || lower.includes("chat with executive");
+
+    const effectivePersona = persona || req.body?.persona || session.current_intent || currentProfile?.role;
+    const isTenant = effectivePersona === "tenant" || session.current_intent === "tenant" || currentProfile?.role === "tenant";
+
+    if (isTenant && isExecQuery) {
+      const replyText = `You are connected with our Dedicated Rental Assistance Desk:\n\n• Dedicated Rental Desk: Tenant Support Team\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our rental team assists you with owner contact details, physical flat verification, rental agreement drafting, and move-in coordination.\n\nYou can chat, call, or reach us on WhatsApp directly!`;
+
+      const updatedHistory = [
+        ...history,
+        { id: `user_${Date.now()}`, sender: "user", text: trimmedMsg, timestamp: new Date().toISOString() },
+        { id: `bot_${Date.now() + 1}`, sender: "bot", text: replyText, suggestions: ["Rent in Baner", "Rent in Wakad", "Rent in Hinjewadi", "Modify Filters"], timestamp: new Date().toISOString() },
+      ];
+      await RexSessionModel.updateSession(session.session_uuid, { messageHistory: updatedHistory.slice(-60) }).catch(() => {});
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        reply: replyText,
+        suggestions: ["Rent in Baner", "Rent in Wakad", "Rent in Hinjewadi", "Modify Filters"],
+        properties: [],
+        pagination: { total: 0, limit: 5, offset: 0, hasMore: false, remaining: 0 },
+      });
+    }
+
+    if (isStatusQuery || isExecQuery) {
+      const prop = await resolveSellerPropertyAndExecutive({
+        userId,
+        userPhone: authenticatedUser?.phone || session.extracted_profile?.phone || null,
+        userEmail: authenticatedUser?.email || session.extracted_profile?.email || null,
+        societyName: currentRequirements?.society_name || null,
+      });
+
+      if (isStatusQuery) {
+        const society = prop?.society_name || prop?.title || currentRequirements?.society_name || "Your Property";
+        const loc = prop?.location_name || prop?.city_name || currentRequirements?.locations?.[0] || "Pune";
+        const isPublic = prop ? Boolean(prop.is_public == 1 || prop.is_public === true) : false;
+        const hasExecutive = Boolean(prop && prop.assigned_to && prop.exec_first_name);
+        const execName = hasExecutive ? `${prop.exec_salutation ? prop.exec_salutation + " " : ""}${prop.exec_first_name} ${prop.exec_last_name || ""}`.trim() : null;
+        const statusLabel = isPublic ? "Live & Public (Active Listing)" : (prop?.status === "Available" ? "Available" : "Under Review");
+        const execLabel = hasExecutive ? `Assigned to ${execName}` : "Executive Assignment in Progress";
+        const stageLabel = isPublic ? "Active Listing • Verified Buyer Matching" : "Document & Society Verification";
+
+        const replyText = `Property Listing Status:\n\n• Property: ${society} (${loc})\n• Status: ${statusLabel}\n• Executive: ${execLabel}\n• Stage: ${stageLabel}\n\n${isPublic 
+          ? `Your property is now public and actively visible to verified buyers on Resale Expert. Your assigned executive ${hasExecutive ? execName : "team"} is handling buyer inquiries, verified visits, and paperwork.` 
+          : "Our operations team is currently reviewing your property details. A dedicated Property Executive will contact you shortly to verify ownership documents and initiate buyer matching."}`;
+
+        const updatedHistory = [
+          ...history,
+          { id: `user_${Date.now()}`, sender: "user", text: trimmedMsg, timestamp: new Date().toISOString() },
+          { id: `bot_${Date.now() + 1}`, sender: "bot", text: replyText, suggestions: ["Talk to Property Executive", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"], timestamp: new Date().toISOString() },
+        ];
+        await RexSessionModel.updateSession(session.session_uuid, { messageHistory: updatedHistory.slice(-60) }).catch(() => {});
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Talk to Property Executive", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"],
+          properties: [],
+          pagination: { total: 0, limit: 5, offset: 0, hasMore: false, remaining: 0 },
+        });
+      }
+
+      if (isExecQuery && prop && prop.assigned_to && prop.exec_first_name) {
+        const execName = `${prop.exec_salutation ? prop.exec_salutation + " " : ""}${prop.exec_first_name} ${prop.exec_last_name || ""}`.trim();
+        const execPhone = prop.exec_phone || "+91 9637 00 9639";
+        const execEmail = prop.exec_email || "support@resaleexpert.in";
+        const society = prop.society_name || prop.title || "your property";
+
+        let conversationId = null;
+        if (userId && prop.id) {
+          try {
+            const [convRows] = await db.query(
+              "SELECT id FROM property_conversations WHERE property_id = ? AND user_id = ? LIMIT 1",
+              [prop.id, userId]
+            );
+            if (convRows && convRows.length > 0) {
+              conversationId = convRows[0].id;
+              await db.query("UPDATE property_conversations SET executive_id = ? WHERE id = ?", [prop.assigned_to, conversationId]).catch(() => {});
+            } else {
+              const newConv = await ChatModel.createOrGetAtomic({
+                userId,
+                propertyId: prop.id,
+                executiveId: prop.assigned_to,
+                initialMessage: `Hello! I would like to talk with my assigned Property Executive for ${society}.`,
+                senderType: "user",
+              });
+              conversationId = newConv?.conversation?.id || null;
+            }
+          } catch (cErr) {
+            console.warn("Executive conv sync notice:", cErr.message);
+          }
+        }
+
+        const replyText = `You are connected with your dedicated Property Executive for ${society}:\n\n• Assigned Executive: ${execName}\n• Direct Phone / WhatsApp: ${execPhone}\n• Email: ${execEmail}\n• Role: Dedicated Property Executive (Physical verification, buyer visits, key holding & closing)\n\nYou can chat directly with ${prop.exec_first_name}, call, or message on WhatsApp:`;
+
+        const updatedHistory = [
+          ...history,
+          { id: `user_${Date.now()}`, sender: "user", text: trimmedMsg, timestamp: new Date().toISOString() },
+          { id: `bot_${Date.now() + 1}`, sender: "bot", text: replyText, suggestions: ["Check Listing Status", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"], timestamp: new Date().toISOString() },
+        ];
+        await RexSessionModel.updateSession(session.session_uuid, { messageHistory: updatedHistory.slice(-60) }).catch(() => {});
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Check Listing Status", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"],
+          executive_card: {
+            executiveName: execName,
+            executiveFirstName: prop.exec_first_name,
+            executivePhone: execPhone,
+            executiveEmail: execEmail,
+            executiveRole: prop.exec_role || "Dedicated Property Executive",
+            propertyTitle: society,
+            propertyId: prop.id,
+            propertySlug: prop.slug || `${prop.id}`,
+            propertyPrice: prop.budget || prop.final_price || 0,
+            conversationId,
+          },
+          properties: [],
+          pagination: { total: 0, limit: 5, offset: 0, hasMore: false, remaining: 0 },
+        });
+      }
+    }
+
     // 2. Process message through REX AI Engine
     const aiResult = await rexAiService.processUserMessage({
       userMessage: trimmedMsg,
@@ -208,8 +650,67 @@ exports.handleChatMessage = async (req, res) => {
     // 3. Perform 5-Card Paginated Search if criteria detected
     let foundProperties = [];
     let paginationInfo = { total: 0, limit: 5, offset: 0, hasMore: false, remaining: 0 };
+    const lowerTrimmed = trimmedMsg.toLowerCase();
+    const isKnowledgeQuery =
+      rexAiService.isRealEstateKnowledgeQuery(trimmedMsg) ||
+      lowerTrimmed.includes("market rent") ||
+      lowerTrimmed.includes("market rate") ||
+      lowerTrimmed.includes("market price") ||
+      lowerTrimmed.includes("current rent") ||
+      lowerTrimmed.includes("current rate") ||
+      lowerTrimmed.includes("current market") ||
+      lowerTrimmed.includes("average rent") ||
+      lowerTrimmed.includes("average rate") ||
+      lowerTrimmed.includes("average price") ||
+      lowerTrimmed.includes("what is the rent") ||
+      lowerTrimmed.includes("what is the rate") ||
+      lowerTrimmed.includes("what is the price") ||
+      lowerTrimmed.includes("what is rent") ||
+      lowerTrimmed.includes("how much is rent") ||
+      lowerTrimmed.includes("how much rent") ||
+      lowerTrimmed.includes("rental yield") ||
+      lowerTrimmed.includes("stamp duty") ||
+      lowerTrimmed.includes("registration charge") ||
+      lowerTrimmed.includes("registration fee") ||
+      lowerTrimmed.includes("agreement rules") ||
+      lowerTrimmed.includes("rental agreement") ||
+      lowerTrimmed.includes("rules");
 
-    if (aiResult.should_search_properties) {
+    const isDashboardQuery =
+      lowerTrimmed === "open your dashboard" ||
+      lowerTrimmed === "open dashboard" ||
+      lowerTrimmed === "my dashboard" ||
+      lowerTrimmed === "dashboard" ||
+      lowerTrimmed.includes("dashboard");
+
+    const isActionOrNav =
+      isDashboardQuery ||
+      lowerTrimmed.includes("talk to") ||
+      lowerTrimmed.includes("connect with") ||
+      lowerTrimmed.includes("interested tenant") ||
+      lowerTrimmed.includes("tenant demand") ||
+      lowerTrimmed.includes("check interested");
+
+    if (isDashboardQuery) {
+      if (persona === "owner" || currentProfile.role === "owner" || lowerTrimmed.includes("owner")) {
+        aiResult.reply = "You can access your Owner Portal to review verified tenant inquiries, move-in timelines, and track your active rental listings directly in your dashboard.";
+        aiResult.suggestions = ["List Another Rental Property", "Check Interested Tenants", "Talk to Sales Executive", "Rental Agreement Rules"];
+        aiResult.intent = "owner";
+      } else if (persona === "seller" || currentProfile.role === "seller" || lowerTrimmed.includes("seller")) {
+        aiResult.reply = "You can access your Seller Dashboard to check active buyer leads in your society, scheduled executive inspections, and review your property listing status.";
+        aiResult.suggestions = ["Check Active Buyers in My Locality", "Get Free Property Valuation", "Talk to Property Executive"];
+        aiResult.intent = "seller";
+      } else if (persona === "tenant" || currentProfile.role === "tenant" || lowerTrimmed.includes("tenant")) {
+        aiResult.reply = "You can access your Tenant Dashboard to manage your shortlisted rental properties, scheduled visits, and connect with your rental executive.";
+        aiResult.suggestions = ["Rent in Baner", "Rent in Wakad", "Explore Rental Listings", "Talk to Executive"];
+        aiResult.intent = "tenant";
+      } else {
+        aiResult.reply = "You can open your Dashboard to check your saved properties, scheduled visits, and executive communications.";
+        aiResult.suggestions = ["Explore 2 BHK in Pune", "Book Site Visit", "Talk to Executive"];
+      }
+    }
+
+    if (aiResult.should_search_properties && !isKnowledgeQuery && !isActionOrNav) {
       try {
         const reqs = aiResult.extracted_requirements || {};
         const searchFilters = {
@@ -252,93 +753,183 @@ exports.handleChatMessage = async (req, res) => {
         const hasSpecificLocation = Array.isArray(searchFilters.locations) && searchFilters.locations.length > 0;
         const locName = hasSpecificLocation ? searchFilters.locations[0] : "";
 
-        // 1. Search with exact filters
-        let searchRes = await Property.searchPublicPropertiesPaginated(searchFilters, 5, 0);
+        const isTenantSearch =
+          persona === "tenant" ||
+          currentProfile.role === "tenant" ||
+          aiResult.intent === "tenant" ||
+          aiResult.extracted_requirements?.transaction_type === "rent" ||
+          trimmedMsg.toLowerCase().includes("rent") ||
+          trimmedMsg.toLowerCase().includes("tenant");
 
-        // 2. If 0 exact matches in location due to strict budget/BHK, check available inventory in that location
-        if (!searchRes.properties || searchRes.properties.length === 0) {
-          const unitTypeName = searchFilters.unitType || (searchFilters.bedrooms ? `${searchFilters.bedrooms} BHK` : "");
-          const budgetStr = reqs.budget || (searchFilters.budgetMax ? formatPrice(searchFilters.budgetMax) : "");
+        if (isTenantSearch) {
+          // 1. Search rental_properties table
+          let searchRes = await searchRentalPropertiesPaginated(searchFilters, 5, 0);
 
-          if (hasSpecificLocation) {
-            const locInventory = await Property.searchPublicPropertiesPaginated(
-              { city: searchFilters.city, locations: searchFilters.locations },
-              5,
-              0
+          // 2. If 0 matches in requested location
+          if (!searchRes.properties || searchRes.properties.length === 0) {
+            const unitTypeName = searchFilters.unitType || (searchFilters.bedrooms ? `${searchFilters.bedrooms} BHK` : "");
+            const budgetStr = searchFilters.budgetMax ? ` within ₹${Number(searchFilters.budgetMax).toLocaleString("en-IN")}/mo` : "";
+
+            const [availLocRows] = await db.query(
+              `SELECT DISTINCT location_name FROM rental_properties WHERE is_public = 1 AND (status = 'Available' OR status IS NULL OR status = '') AND location_name IS NOT NULL AND location_name != '' LIMIT 3`
             );
+            const otherLocs = (availLocRows || []).map((r) => r.location_name).filter((l) => l.toLowerCase() !== locName.toLowerCase());
 
-            if (locInventory.properties && locInventory.properties.length > 0) {
-              const availableBHKs = [...new Set(locInventory.properties.map((p) => p.unit_type).filter(Boolean))];
-              const validPrices = locInventory.properties
-                .map((p) => Number(p.final_price || p.budget || p.price || 0))
-                .filter((p) => p > 0);
-              const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
-              const formattedMin = minPrice ? formatPrice(minPrice) : "";
-              const bhkList = availableBHKs.length > 0 ? availableBHKs.slice(0, 2).join(" & ") : "Other";
-              const priceText = formattedMin ? ` starting from ${formattedMin}` : "";
-
-              aiResult.reply = `Currently, ${unitTypeName ? `${unitTypeName} ` : ""}properties are not available in ${locName}${budgetStr ? ` within ${budgetStr}` : ""}. However, we have ${bhkList} properties available in ${locName}${priceText}. Would you like to explore these or check nearby locations?`;
-              aiResult.suggestions = [
-                ...(availableBHKs.length > 0 ? [`Show ${availableBHKs[0]} in ${locName}`] : []),
-                "Explore nearby areas",
-                "Modify Filters",
-                "Connect with Executive",
-              ];
+            if (locName) {
+              if (otherLocs.length > 0) {
+                aiResult.reply = `Currently, no rental properties are available in ${locName}${unitTypeName ? ` for ${unitTypeName}` : ""}${budgetStr}. However, we have verified rental listings available in ${otherLocs.join(" and ")}. Would you like to explore those?`;
+                aiResult.suggestions = [
+                  `Show rentals in ${otherLocs[0]}`,
+                  ...(otherLocs[1] ? [`Show rentals in ${otherLocs[1]}`] : []),
+                  "Explore nearby rentals",
+                  "Modify rent budget",
+                  "Talk to Executive",
+                ];
+              } else {
+                aiResult.reply = `Currently, no rental properties are available in ${locName}${unitTypeName ? ` for ${unitTypeName}` : ""}${budgetStr}. Would you like to check nearby locations or talk to an executive?`;
+                aiResult.suggestions = ["Explore nearby rentals", "Modify rent budget", "Talk to Executive"];
+              }
             } else {
-              // 3. If no listings in that exact location at all, search nearby localities
-              const nearbyLocs = getNearbyLocations(locName);
-              const nearbyRes = await Property.searchPublicPropertiesPaginated(
-                { city: searchFilters.city, locations: nearbyLocs.slice(0, 3) },
+              aiResult.reply = `Currently, no rental properties match your exact criteria. Would you like to adjust your budget or explore other rental locations in Pune?`;
+              aiResult.suggestions = ["Show all Pune rentals", "Rent in Baner", "Rent in Hinjewadi", "Modify rent budget"];
+            }
+
+            searchRes.properties = [];
+            searchRes.total = 0;
+            searchRes.hasMore = false;
+          }
+
+          foundProperties = (searchRes.properties || []).map(sanitizeRentalPropertyForChat);
+          paginationInfo = {
+            total: searchRes.total || foundProperties.length,
+            limit: searchRes.limit || 5,
+            offset: searchRes.offset || 0,
+            hasMore: searchRes.hasMore || false,
+            remaining: searchRes.remaining || 0,
+          };
+
+          if (foundProperties.length > 0) {
+            const unitDesc = searchFilters.unitType ? `${searchFilters.unitType} ` : "";
+            const budgetDesc = searchFilters.budgetMax ? ` under ₹${Number(searchFilters.budgetMax).toLocaleString("en-IN")}/mo` : "";
+            aiResult.reply = `Here are verified rental properties available in ${locName || "Pune"}${budgetDesc}:`;
+            aiResult.suggestions = ["Contact Owner", "Explore nearby rentals", "Rent in Baner", "Modify Filters"];
+          }
+        } else {
+          // 1. Search with exact filters (Sale properties)
+          let searchRes = await Property.searchPublicPropertiesPaginated(searchFilters, 5, 0);
+
+          // 2. If 0 exact matches in location due to strict budget/BHK, check available inventory in that location
+          if (!searchRes.properties || searchRes.properties.length === 0) {
+            const unitTypeName = searchFilters.unitType || (searchFilters.bedrooms ? `${searchFilters.bedrooms} BHK` : "");
+            const budgetStr = reqs.budget || (searchFilters.budgetMax ? formatPrice(searchFilters.budgetMax) : "");
+
+            if (hasSpecificLocation) {
+              const locInventory = await Property.searchPublicPropertiesPaginated(
+                { city: searchFilters.city, locations: searchFilters.locations },
                 5,
                 0
               );
-              if (nearbyRes.properties && nearbyRes.properties.length > 0) {
-                aiResult.reply = `Currently, no properties are available in ${locName}. Would you like to explore verified properties in nearby locations like ${nearbyLocs.slice(0, 2).join(" & ")}?`;
+
+              if (locInventory.properties && locInventory.properties.length > 0) {
+                const availableBHKs = [...new Set(locInventory.properties.map((p) => p.unit_type).filter(Boolean))];
+                const validPrices = locInventory.properties
+                  .map((p) => Number(p.final_price || p.budget || p.price || 0))
+                  .filter((p) => p > 0);
+                const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+                const formattedMin = minPrice ? formatPrice(minPrice) : "";
+                const bhkList = availableBHKs.length > 0 ? availableBHKs.slice(0, 2).join(" & ") : "Other";
+                const priceText = formattedMin ? ` starting from ${formattedMin}` : "";
+
+                searchRes = locInventory;
+                aiResult.reply = `Currently, exact ${unitTypeName ? `${unitTypeName} ` : ""}options are not available in ${locName}${budgetStr ? ` within ${budgetStr}` : ""}. However, here are verified ${bhkList} properties available in ${locName}${priceText}:`;
                 aiResult.suggestions = [
-                  `Show all in ${nearbyLocs[0]}`,
-                  nearbyLocs[1] ? `Show all in ${nearbyLocs[1]}` : "Explore nearby areas",
+                  ...(availableBHKs.length > 0 ? [`Show ${availableBHKs[0]} in ${locName}`] : []),
                   "Explore nearby areas",
-                  "Modify Filters",
-                ];
-              } else {
-                aiResult.reply = `Currently, no properties are available in ${locName} matching your criteria. Would you like to explore other popular locations in Pune or modify your budget?`;
-                aiResult.suggestions = [
-                  "Explore nearby areas",
-                  "Show all Pune properties",
                   "Modify Filters",
                   "Connect with Executive",
                 ];
+              } else {
+                // 3. If no listings in that exact location at all, search nearby localities
+                const nearbyLocs = getNearbyLocations(locName);
+                const nearbyRes = await Property.searchPublicPropertiesPaginated(
+                  { city: searchFilters.city, locations: nearbyLocs.slice(0, 3) },
+                  5,
+                  0
+                );
+                if (nearbyRes.properties && nearbyRes.properties.length > 0) {
+                  searchRes = nearbyRes;
+                  aiResult.reply = `Currently, no properties are directly available in ${locName}. Here are verified properties in nearby locations like ${nearbyLocs.slice(0, 2).join(" & ")}:`;
+                  aiResult.suggestions = [
+                    `Show all in ${nearbyLocs[0]}`,
+                    nearbyLocs[1] ? `Show all in ${nearbyLocs[1]}` : "Explore nearby areas",
+                    "Explore nearby areas",
+                    "Modify Filters",
+                  ];
+                } else {
+                  aiResult.reply = `Currently, no properties are available in ${locName} matching your criteria. Would you like to explore other popular locations in Pune or modify your budget?`;
+                  aiResult.suggestions = [
+                    "Explore nearby areas",
+                    "Show all Pune properties",
+                    "Modify Filters",
+                    "Connect with Executive",
+                  ];
+                  searchRes.properties = [];
+                  searchRes.total = 0;
+                  searchRes.hasMore = false;
+                }
+              }
+            } else {
+              const anyRes = await Property.searchPublicPropertiesPaginated(
+                { city: searchFilters.city },
+                5,
+                0
+              );
+              if (anyRes.properties && anyRes.properties.length > 0) {
+                searchRes = anyRes;
+                aiResult.reply = `Here are featured verified properties available in Pune:`;
+                aiResult.suggestions = [
+                  "Show all Pune properties",
+                  "2 BHK in Wakad",
+                  "Properties in Hinjewadi",
+                  "Modify Filters",
+                ];
+              } else {
+                aiResult.reply = `Currently, no properties match your exact criteria. Would you like to adjust your budget or explore other areas in Pune?`;
+                aiResult.suggestions = [
+                  "Show all Pune properties",
+                  "2 BHK in Wakad",
+                  "Properties in Hinjewadi",
+                  "Modify Filters",
+                ];
+                searchRes.properties = [];
+                searchRes.total = 0;
+                searchRes.hasMore = false;
               }
             }
-          } else {
-            aiResult.reply = `Currently, no properties match your exact criteria. Would you like to adjust your budget or explore other areas in Pune?`;
+          }
+
+          foundProperties = (searchRes.properties || []).map(sanitizePropertyForChat);
+          paginationInfo = {
+            total: searchRes.total || foundProperties.length,
+            limit: searchRes.limit || 5,
+            offset: searchRes.offset || 0,
+            hasMore: searchRes.hasMore || false,
+            remaining: searchRes.remaining || 0,
+          };
+
+          if (foundProperties.length > 0) {
+            const unitDesc = searchFilters.unitType ? `${searchFilters.unitType} ` : "";
+            const budgetDesc = searchFilters.budgetMax ? ` under ${formatPrice(searchFilters.budgetMax)}` : "";
+            if (!aiResult.reply || aiResult.reply.includes("hold on") || aiResult.reply.includes("gather") || aiResult.reply.includes("wait") || aiResult.reply.includes("search for available") || aiResult.reply.includes("I will search")) {
+              aiResult.reply = `Here are available ${unitDesc}properties in ${locName || "Pune"}${budgetDesc}:`;
+            }
             aiResult.suggestions = [
-              "Show all Pune properties",
-              "2 BHK in Wakad",
-              "Properties in Hinjewadi",
+              "Book Site Visit",
+              "Talk to Property Executive",
+              "Explore nearby areas",
               "Modify Filters",
             ];
           }
-
-          // STRICT: Ensure searchRes.properties is empty so zero false-positive cards are sent
-          searchRes.properties = [];
-          searchRes.total = 0;
-          searchRes.hasMore = false;
-        }
-
-        foundProperties = (searchRes.properties || []).map(sanitizePropertyForChat);
-        paginationInfo = {
-          total: searchRes.total || foundProperties.length,
-          limit: searchRes.limit || 5,
-          offset: searchRes.offset || 0,
-          hasMore: searchRes.hasMore || false,
-          remaining: searchRes.remaining || 0,
-        };
-
-        if (foundProperties.length > 0) {
-          const unitDesc = searchFilters.unitType ? `${searchFilters.unitType} ` : "";
-          const budgetDesc = searchFilters.budgetMax ? ` under ${formatPrice(searchFilters.budgetMax)}` : "";
-          aiResult.reply = `Here are available ${unitDesc}properties in ${locName || "Pune"}${budgetDesc}:`;
         }
       } catch (searchErr) {
         console.error("Property search in REX controller error:", searchErr);
@@ -383,7 +974,10 @@ exports.handleChatMessage = async (req, res) => {
       pagination: paginationInfo,
       session_uuid: session.session_uuid,
       intent: aiResult.intent,
-      show_buyer_filter: Boolean(aiResult.show_buyer_filter),
+      show_buyer_filter: Boolean(aiResult.show_buyer_filter && !isKnowledgeQuery),
+      show_tenant_filter: Boolean(aiResult.show_tenant_filter && !isKnowledgeQuery),
+      show_owner_wizard: Boolean(aiResult.show_owner_wizard && (userId || authenticatedUser)),
+      show_owner_registration: Boolean(aiResult.show_owner_wizard && !userId && !authenticatedUser),
       show_seller_wizard: Boolean(aiResult.show_seller_wizard),
       profile: aiResult.extracted_profile,
       requirements: aiResult.extracted_requirements,
@@ -419,6 +1013,33 @@ exports.handleAction = async (req, res) => {
 
     if (action === "load_more") {
       const offset = Number(payload?.offset) || 5;
+      const isTenant = currentProfile.role === "tenant" || currentReqs.transaction_type === "rent";
+      if (isTenant) {
+        const searchFilters = {
+          city: currentReqs.city || null,
+          locations: currentReqs.locations || [],
+          propertyType: currentReqs.property_type || null,
+          propertySubtype: currentReqs.property_subtype || null,
+          unitType: currentReqs.unit_type || null,
+          bedrooms: currentReqs.bedrooms || null,
+          budgetMin: currentReqs.budget_min || null,
+          budgetMax: currentReqs.budget_max || null,
+        };
+        const result = await searchRentalPropertiesPaginated(searchFilters, 5, offset);
+        const properties = (result.properties || []).map(sanitizeRentalPropertyForChat);
+        return res.status(200).json({
+          success: true,
+          properties,
+          pagination: {
+            total: result.total,
+            limit: result.limit,
+            offset: result.offset,
+            hasMore: result.hasMore,
+            remaining: result.remaining,
+          },
+        });
+      }
+
       const searchFilters = {
         city: currentReqs.city || null,
         locations: currentReqs.locations || [],
@@ -459,6 +1080,9 @@ exports.handleAction = async (req, res) => {
       if (role === "buyer") {
         reply = "Wonderful! Can you describe what type of property you are looking for, preferred location, and your price range?";
         suggestions = ["2 BHK in Wakad under 70L", "3 BHK Apartment in Baner", "Villa near Hinjewadi"];
+      } else if (role === "tenant") {
+        reply = "Great! I can help you find verified rental homes in Pune. Use the filters below or tell me your preferred locality, budget, and BHK.";
+        suggestions = ["1 BHK in Hinjewadi", "2 BHK in Wakad", "Rental flats in Baner"];
       } else if (role === "seller" || role === "owner") {
         reply = "Great! What is your property type, society/location name, and expected selling price?";
         suggestions = ["Selling 2 BHK in Pimple Saudagar", "List 3 BHK in Wakad", "Talk to Sales Executive"];
@@ -472,6 +1096,8 @@ exports.handleAction = async (req, res) => {
         reply,
         suggestions,
         profile: currentProfile,
+        show_tenant_filter: role === "tenant",
+        show_buyer_filter: role === "buyer",
       });
     }
 
@@ -584,6 +1210,13 @@ exports.handleAction = async (req, res) => {
       let leadId = session.lead_id || null;
       if (userId && propertyId && !leadId) {
         try {
+          const dynExec = await resolveDynamicExecutive({
+            propertyId,
+            location: propertyData?.location,
+            society: propertyData?.society_name,
+          });
+          const assignedExecId = dynExec?.id || propertyData?.assigned_to || null;
+
           const lead = await Lead.create({
             name: req.user?.first_name ? `${req.user.first_name} ${req.user.last_name || ""}`.trim() : "Interested Buyer",
             phone: req.user?.phone || currentProfile.phone || "0000000000",
@@ -593,6 +1226,7 @@ exports.handleAction = async (req, res) => {
             lead_source: "REX AI Chatbot",
             status: "new",
             priority: "hot",
+            assigned_executive: assignedExecId,
           }).catch(() => null);
           if (lead?.id) leadId = lead.id;
         } catch (e) {
@@ -646,6 +1280,24 @@ exports.handleAction = async (req, res) => {
         }
       }
 
+      // 1. Resolve dynamic executive using 3-Tier Intelligent Cascading Strategy
+      let assignedExec = await resolveDynamicExecutive({
+        location: locality || payload?.location_name,
+        society: society_name,
+      });
+
+      if (!assignedExec) {
+        assignedExec = {
+          id: null,
+          first_name: "Sales",
+          last_name: "Executive",
+          phone: "+91 9637 00 9639",
+          email: "support@resaleexpert.in",
+          role: "sales executive",
+        };
+      }
+      const execFullName = `${assignedExec.first_name} ${assignedExec.last_name || ""}`.trim();
+
       const effectiveName =
         seller_name ||
         (req.user?.first_name ? `${req.user.first_name} ${req.user.last_name || ""}`.trim() : null) ||
@@ -669,7 +1321,9 @@ exports.handleAction = async (req, res) => {
             status: "new",
             priority: "hot",
             city: "Pune",
-            location: locality || "Pune",
+            location: locality || payload?.location_name || "Pune",
+            assigned_to: assignedExec.id,
+            assigned_to_name: execFullName,
           }).catch((err) => {
             console.warn("Notice: Lead create skipped duplicate or error:", err.message);
             return null;
@@ -679,7 +1333,7 @@ exports.handleAction = async (req, res) => {
           console.warn("Seller lead creation notice:", e.message);
         }
 
-        // Provision or link CRM Seller profile in `sellers` table (set to uncontacted)
+        // Provision or link CRM Seller profile in `sellers` table
         try {
           const [existingSellers] = await db.query(
             "SELECT id FROM sellers WHERE (email = ? AND email IS NOT NULL AND email != '') OR (phone = ? AND phone IS NOT NULL AND phone != '') LIMIT 1",
@@ -688,39 +1342,105 @@ exports.handleAction = async (req, res) => {
           if (existingSellers && existingSellers.length > 0) {
             sellerEntityId = existingSellers[0].id;
             await db.query(
-              "UPDATE sellers SET status = 'uncontacted', stage = 'uncontacted', location = COALESCE(location, ?) WHERE id = ?",
-              [locality || null, sellerEntityId]
+              "UPDATE sellers SET status = 'uncontacted', stage = 'uncontacted', location = COALESCE(?, location), assigned_to = ?, assigned_to_name = ? WHERE id = ?",
+              [locality || payload?.location_name || null, assignedExec.id, execFullName, sellerEntityId]
             );
           } else {
             const [sInsert] = await db.query(
-              `INSERT INTO sellers (salutation, name, phone, email, source, status, stage, location, city, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'REX AI Chatbot', 'uncontacted', 'uncontacted', ?, 'Pune', NOW(), NOW())`,
-              ['Mr.', effectiveName, effectivePhone, effectiveEmail, locality || null]
+              `INSERT INTO sellers (salutation, name, phone, email, source, status, stage, location, city, assigned_to, assigned_to_name, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'REX AI Chatbot', 'uncontacted', 'uncontacted', ?, 'Pune', ?, ?, NOW(), NOW())`,
+              ['Mr.', effectiveName, effectivePhone, effectiveEmail, locality || payload?.location_name || null, assignedExec.id, execFullName]
             );
             sellerEntityId = sInsert.insertId;
-          }
-
-          if (userId && sellerEntityId) {
-            await db.query("UPDATE users SET seller_id = ? WHERE id = ?", [sellerEntityId, userId]).catch(() => {});
           }
         } catch (sErr) {
           console.warn("Seller entity sync error:", sErr.message);
         }
       }
 
-      // Create new property in my_properties linked directly to sellerEntityId
+      // 1. Auto-sync Society & Locality into master_values & societies table if new / custom
+      const cleanSocName = society_name ? String(society_name).trim() : "";
+      const cleanLocName = (locality || payload?.location_name) ? String(locality || payload?.location_name).trim() : "";
+
+      if (cleanSocName) {
+        try {
+          // Check & add to master_values
+          const [socMasterType] = await db.query(
+            "SELECT id FROM master_types WHERE tab_id = 'property' AND LOWER(name) = 'society' LIMIT 1"
+          );
+          if (socMasterType && socMasterType.length > 0) {
+            const masterTypeId = socMasterType[0].id;
+            const [existingVal] = await db.query(
+              "SELECT id FROM master_values WHERE master_type_id = ? AND LOWER(TRIM(value)) = LOWER(?) LIMIT 1",
+              [masterTypeId, cleanSocName]
+            );
+            if (!existingVal || existingVal.length === 0) {
+              const { v4: uuidv4 } = require("uuid");
+              await db.query(
+                "INSERT INTO master_values (id, master_type_id, value, status) VALUES (?, ?, ?, 'Active')",
+                [uuidv4(), masterTypeId, cleanSocName]
+              );
+            }
+          }
+
+          // Check & add to societies table if not exists
+          const [existSoc] = await db.query(
+            "SELECT id FROM societies WHERE LOWER(TRIM(society_name)) = LOWER(?) LIMIT 1",
+            [cleanSocName]
+          );
+          if (!existSoc || existSoc.length === 0) {
+            const SocietyModel = require("../models/SocietyModel");
+            await SocietyModel.createSociety({
+              societyName: cleanSocName,
+              locality: cleanLocName || "Pune",
+              city: "Pune",
+              pincode: "411001",
+              status: "Active",
+            });
+          }
+        } catch (socErr) {
+          console.warn("Auto-society sync notice:", socErr.message);
+        }
+      }
+
+      if (cleanLocName) {
+        try {
+          const [locMasterType] = await db.query(
+            "SELECT id FROM master_types WHERE tab_id = 'property' AND (LOWER(name) = 'location' OR LOWER(name) = 'locality') LIMIT 1"
+          );
+          if (locMasterType && locMasterType.length > 0) {
+            const masterTypeId = locMasterType[0].id;
+            const [existingLocVal] = await db.query(
+              "SELECT id FROM master_values WHERE master_type_id = ? AND LOWER(TRIM(value)) = LOWER(?) LIMIT 1",
+              [masterTypeId, cleanLocName]
+            );
+            if (!existingLocVal || existingLocVal.length === 0) {
+              const { v4: uuidv4 } = require("uuid");
+              await db.query(
+                "INSERT INTO master_values (id, master_type_id, value, status) VALUES (?, ?, ?, 'Active')",
+                [uuidv4(), masterTypeId, cleanLocName]
+              );
+            }
+          }
+        } catch (locErr) {
+          console.warn("Auto-locality sync notice:", locErr.message);
+        }
+      }
+
+      // Create new property in my_properties linked directly to sellerEntityId & assigned to assignedExec
       let createdPropertyId = null;
       try {
         const propInsertId = await Property.create({
           seller_name: effectiveName,
           seller_id: sellerEntityId || payload?.seller_id || (userId ? Number(userId) : null) || null,
-          property_type_name: "Residential",
-          property_subtype_name: "Apartment",
-          unit_type: bhk || (parsedBedrooms ? `${parsedBedrooms} BHK` : "Apartment"),
+          assigned_to: assignedExec.id,
+          property_type_name: payload?.property_type_name || "Residential",
+          property_subtype_name: payload?.property_subtype_name || "Apartment",
+          unit_type: bhk || payload?.unit_type || (parsedBedrooms ? `${parsedBedrooms} BHK` : "Apartment"),
           bedrooms: parsedBedrooms,
-          furnishing: furnishing || null,
+          furnishing: null,
           city_name: "Pune",
-          location_name: locality || null,
+          location_name: locality || payload?.location_name || null,
           society_name: society_name || null,
           floor: floor || null,
           carpet_area: carpet_area ? String(carpet_area) : null,
@@ -729,7 +1449,7 @@ exports.handleAction = async (req, res) => {
           status: "Pending Review",
           lead_source: "REX AI Chatbot",
           is_public: 0,
-          description: notes || `Submitted via REX AI Chatbot by ${effectiveName}`,
+          description: notes || `Submitted via REX AI Chatbot by ${effectiveName}. Assigned to dedicated Property Executive ${execFullName}.`,
         }).catch((err) => {
           console.error("Failed to insert seller property:", err);
           return null;
@@ -737,7 +1457,7 @@ exports.handleAction = async (req, res) => {
 
         if (propInsertId) {
           createdPropertyId = propInsertId;
-          const slug = `${propInsertId}-${(society_name || locality || "property").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+          const slug = `${propInsertId}-${(society_name || locality || payload?.location_name || "property").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
           await Property.updateSlug(propInsertId, slug).catch(() => {});
         }
       } catch (pErr) {
@@ -762,15 +1482,6 @@ exports.handleAction = async (req, res) => {
             });
           }
         }
-      } else {
-        history.push({
-          id: `seller_sub_${Date.now()}`,
-          sender: "bot",
-          text: `Your property at ${society_name || "Society"}, ${locality || "Pune"} (${bhk || "Apartment"}) has been submitted for review. Our team will assign a dedicated Property Executive for your property shortly.`,
-          sellerConfirmedCard: { data: payload },
-          suggestions: ["List Another Property", "Check Listing Status", "Get Free Property Valuation", "Talk to Property Executive"],
-          timestamp: new Date().toISOString(),
-        });
       }
 
       await RexSessionModel.updateSession(session.session_uuid, {
@@ -788,13 +1499,13 @@ exports.handleAction = async (req, res) => {
         },
         extractedRequirements: {
           ...currentReqs,
-          locations: locality ? [locality] : currentReqs.locations,
+          locations: (locality || payload?.location_name) ? [locality || payload?.location_name] : currentReqs.locations,
           society_name: society_name || currentReqs.society_name,
           bedrooms: parsedBedrooms || currentReqs.bedrooms,
-          unit_type: bhk || (parsedBedrooms ? `${parsedBedrooms} BHK` : currentReqs.unit_type),
+          unit_type: bhk || payload?.unit_type || (parsedBedrooms ? `${parsedBedrooms} BHK` : currentReqs.unit_type),
           budget_max: parsedPrice || currentReqs.budget_max,
           carpet_area: carpet_area || currentReqs.carpet_area,
-          furnishing: furnishing || currentReqs.furnishing,
+          furnishing: null,
         },
       });
 
@@ -802,18 +1513,12 @@ exports.handleAction = async (req, res) => {
       let conversation = null;
       if (userId && createdPropertyId) {
         try {
-          let assignedExecId = 1;
-          const [pCheck] = await db.execute(`SELECT assigned_to FROM my_properties WHERE id = ?`, [createdPropertyId]);
-          if (pCheck.length > 0 && pCheck[0].assigned_to) {
-            assignedExecId = pCheck[0].assigned_to;
-          }
-
           const convResult = await ChatModel.createOrGetAtomic({
             userId,
             propertyId: createdPropertyId,
-            executiveId: assignedExecId,
+            executiveId: assignedExec.id,
             leadId,
-            initialMessage: `New Seller Listing: ${bhk || "Apartment"} in ${society_name || "Society"}, ${locality || "Pune"} (Expected: ${expected_price || "₹" + parsedPrice}). Submitted for executive review.`,
+            initialMessage: `New Seller Listing: ${bhk || payload?.unit_type || "Apartment"} in ${society_name || "Society"}, ${locality || payload?.location_name || "Pune"} (Expected: ${expected_price || "₹" + Number(parsedPrice).toLocaleString("en-IN")}). Submitted for executive review.`,
             senderType: "user",
           });
           conversation = convResult.conversation;
@@ -822,13 +1527,727 @@ exports.handleAction = async (req, res) => {
         }
       }
 
+      const propertyTitle = `${bhk || payload?.unit_type || "Property"} at ${society_name || locality || payload?.location_name}`;
+
       return res.status(200).json({
         success: true,
         session_uuid: session.session_uuid,
         property_id: createdPropertyId,
         conversation_id: conversation?.id || null,
         lead_id: leadId,
-        message: "Seller property submitted successfully for review",
+        property_title: propertyTitle,
+        executive_card: {
+          executiveId: assignedExec.id,
+          executiveName: execFullName,
+          executivePhone: assignedExec.phone || "+91 9604350255",
+          executiveEmail: assignedExec.email || "support@resaleexpert.in",
+          executiveRole: "Property Executive",
+          propertyTitle: propertyTitle,
+          propertyId: createdPropertyId,
+          location: locality || payload?.location_name,
+          societyName: society_name,
+          unitType: bhk || payload?.unit_type || "Apartment",
+          expectedPrice: expected_price || (parsedPrice ? `₹${Number(parsedPrice).toLocaleString("en-IN")}` : ""),
+        },
+        reply: `Your property listing for ${propertyTitle} has been submitted successfully!\n\n• Assigned Property Executive: ${execFullName}\n• Expected Price: ${expected_price || (parsedPrice ? "₹" + Number(parsedPrice).toLocaleString("en-IN") : "₹0")}\n• Status: Assigned for Executive Review\n\nYour dedicated executive will review the details and initiate physical verification, document check, and buyer matching.`,
+        suggestions: ["Chat with Executive", "List Another Property", "Check Active Buyers", "Talk to Property Executive"],
+      });
+    }
+
+    if (action === "submit_owner_rental_property") {
+      const {
+        property_type_name = "Residential",
+        property_subtype_name = "Apartment / Flat",
+        unit_type = "2 BHK",
+        location_name = "Baner",
+        society_name,
+        monthly_rent,
+        security_deposit,
+        furnishing = "Semi-Furnished",
+        owner_name,
+        owner_phone,
+        owner_email,
+      } = payload || {};
+
+      const cleanRent = parseFloat(String(monthly_rent || 0).replace(/[^\d.]/g, "")) || 0;
+      const cleanDeposit = parseFloat(String(security_deposit || 0).replace(/[^\d.]/g, "")) || (cleanRent * 2);
+
+      const effectiveEmail = (req.user?.email || owner_email || session.extracted_profile?.email || "").trim().toLowerCase();
+      const effectivePhone = req.user?.phone || owner_phone || session.extracted_profile?.phone || null;
+      const effectiveName = (req.user ? `${req.user.first_name || ""} ${req.user.last_name || ""}`.trim() : owner_name || session.extracted_profile?.name || "Property Owner").trim();
+
+      // 1. Assign dynamic executive using 3-Tier Intelligent Cascading Strategy
+      let assignedExec = await resolveDynamicExecutive({
+        location: location_name,
+        society: society_name,
+      });
+
+      if (!assignedExec) {
+        assignedExec = {
+          id: null,
+          first_name: "Sales",
+          last_name: "Executive",
+          phone: "+91 9637 00 9639",
+          email: "support@resaleexpert.in",
+          role: "sales executive",
+        };
+      }
+
+      // Auto-add new society to Property Master (master_values) and societies table if not present
+      if (society_name && typeof society_name === "string" && society_name.trim()) {
+        const cleanSocName = society_name.trim();
+        try {
+          // 1. Check & add to master_values under 'Society' master type
+          const [socMasterType] = await db.query(
+            "SELECT id FROM master_types WHERE tab_id = 'property' AND LOWER(name) = 'society' LIMIT 1"
+          );
+          if (socMasterType && socMasterType.length > 0) {
+            const masterTypeId = socMasterType[0].id;
+            const [existingVal] = await db.query(
+              "SELECT id FROM master_values WHERE master_type_id = ? AND LOWER(TRIM(value)) = LOWER(?) LIMIT 1",
+              [masterTypeId, cleanSocName]
+            );
+            if (!existingVal || existingVal.length === 0) {
+              const { v4: uuidv4 } = require("uuid");
+              await db.query(
+                "INSERT INTO master_values (id, master_type_id, value, status) VALUES (?, ?, ?, 'Active')",
+                [uuidv4(), masterTypeId, cleanSocName]
+              );
+            }
+          }
+
+          // 2. Check & add to societies table if not exists
+          const [existSoc] = await db.query(
+            "SELECT id FROM societies WHERE LOWER(TRIM(society_name)) = LOWER(?) LIMIT 1",
+            [cleanSocName]
+          );
+          if (!existSoc || existSoc.length === 0) {
+            const SocietyModel = require("../models/SocietyModel");
+            await SocietyModel.createSociety({
+              societyName: cleanSocName,
+              locality: location_name || "Pune",
+              city: "Pune",
+              pincode: "411001",
+              status: "Active",
+            });
+          }
+        } catch (socMasterErr) {
+          console.warn("Auto-adding society to masters warning:", socMasterErr.message);
+        }
+      }
+
+      // 2. Create or find Owner lead in `owners` table
+      let ownerId = null;
+      try {
+        if (effectiveEmail || effectivePhone) {
+          const [existOwner] = await db.query(
+            "SELECT id FROM owners WHERE (email IS NOT NULL AND email = ?) OR (phone IS NOT NULL AND phone = ?) LIMIT 1",
+            [effectiveEmail || "", effectivePhone || ""]
+          );
+          if (existOwner && existOwner.length > 0) {
+            ownerId = existOwner[0].id;
+          } else {
+            const OwnerModel = require("../models/OwnerModel");
+            ownerId = await OwnerModel.create({
+              name: effectiveName,
+              email: effectiveEmail || null,
+              phone: effectivePhone || null,
+              location: location_name || "Pune",
+              assigned_to: assignedExec.id,
+              assigned_to_name: `${assignedExec.first_name} ${assignedExec.last_name || ""}`.trim(),
+              status: "New",
+              stage: "New Lead",
+              lead_type: "Owner",
+              source: "REX AI Chatbot",
+              notes: `Rental Property Listing Owner Lead via REX AI Chatbot for ${unit_type} at ${society_name || location_name}`,
+            });
+          }
+        }
+      } catch (oErr) {
+        console.warn("Owner lead creation notice:", oErr.message);
+      }
+
+      // 3. Create rental property in \`rental_properties\` table
+      let createdPropertyId = null;
+      try {
+        const RentalProperty = require("../models/RentalProperty");
+        createdPropertyId = await RentalProperty.create({
+          owner_name: effectiveName,
+          owner_id: ownerId,
+          assigned_to: assignedExec.id,
+          property_type_name: property_type_name || "Residential",
+          property_subtype_name: property_subtype_name || "Apartment / Flat",
+          unit_type: unit_type || "2 BHK",
+          city_name: "Pune",
+          location_name: location_name || "Pune",
+          society_name: society_name || null,
+          monthly_rent: cleanRent,
+          security_deposit: cleanDeposit,
+          furnishing: furnishing || "Semi-Furnished",
+          status: "Pending Review",
+          lead_source: "REX AI Chatbot",
+          listing_type: "rent",
+          is_public: 0,
+          description: `Listed for Rent via REX AI Chatbot by Owner ${effectiveName}. Assigned to Sales Executive ${assignedExec.first_name} ${assignedExec.last_name || ""}.`,
+        });
+
+        if (createdPropertyId) {
+          const slug = `${createdPropertyId}-${(society_name || location_name || "rent-property").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+          await RentalProperty.updateSlug(createdPropertyId, slug).catch(() => {});
+        }
+      } catch (pErr) {
+        console.error("RentalProperty.create error:", pErr);
+      }
+
+      // Update session history if messages provided
+      let history = Array.isArray(session.message_history) ? [...session.message_history] : [];
+      if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
+        for (const m of payload.messages) {
+          if (!history.some((h) => h.id === m.id)) {
+            history.push({
+              id: m.id || `msg_${Date.now()}`,
+              sender: m.sender || "user",
+              text: m.text || "",
+              suggestions: m.suggestions || undefined,
+              timestamp: m.timestamp || new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      await RexSessionModel.updateSession(session.session_uuid, {
+        currentIntent: "owner",
+        isQualified: 1,
+        messageHistory: history.slice(-60),
+        extractedProfile: {
+          ...currentProfile,
+          role: "owner",
+          name: effectiveName,
+          first_name: effectiveName,
+          phone: effectivePhone,
+          email: effectiveEmail,
+        },
+        extractedRequirements: {
+          ...currentReqs,
+          locations: location_name ? [location_name] : currentReqs.locations,
+          society_name: society_name || currentReqs.society_name,
+          unit_type: unit_type || currentReqs.unit_type,
+          budget_max: cleanRent,
+          furnishing: furnishing || currentReqs.furnishing,
+        },
+      });
+
+      const execFullName = `${assignedExec.first_name} ${assignedExec.last_name || ""}`.trim();
+      const propertyTitle = `${unit_type} at ${society_name || location_name}`;
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        property_id: createdPropertyId,
+        owner_id: ownerId,
+        property_title: propertyTitle,
+        reply: `Your rental property listing for ${propertyTitle} has been submitted successfully!\n\n• Assigned Sales Executive: ${execFullName}\n• Monthly Rent: ₹${cleanRent.toLocaleString("en-IN")}/mo\n• Security Deposit: ₹${cleanDeposit.toLocaleString("en-IN")}\n• Status: Assigned for Executive Review\n\nYour dedicated executive will review the details and initiate matching with active verified tenants. You can also view interested tenants on your Owner Dashboard.`,
+        suggestions: ["Check Interested Tenants", "List Another Rental Property", "Talk to Sales Executive", "Open Owner Dashboard"],
+        executive_card: {
+          executiveId: assignedExec.id,
+          executiveName: execFullName,
+          executivePhone: assignedExec.phone || "+91 9604350255",
+          executiveEmail: assignedExec.email || "support@resaleexpert.in",
+          executiveRole: "Sales Executive",
+          propertyTitle: propertyTitle,
+          propertyId: createdPropertyId,
+          location: location_name,
+          societyName: society_name,
+          unitType: unit_type,
+          monthlyRent: cleanRent,
+          securityDeposit: cleanDeposit,
+        },
+      });
+    }
+
+    if (action === "get_listing_status") {
+      const effectiveUserId = userId || payload?.userId || null;
+      const effectivePhone = req.user?.phone || payload?.phone || session.extracted_profile?.phone || null;
+      const effectiveEmail = req.user?.email || payload?.email || session.extracted_profile?.email || null;
+      const targetPropertyId = payload?.propertyId || session.extracted_profile?.property_id || null;
+      const targetSociety = payload?.society_name || session.extracted_requirements?.society_name || null;
+
+      const prop = await resolveSellerPropertyAndExecutive({
+        userId: effectiveUserId,
+        userPhone: effectivePhone,
+        userEmail: effectiveEmail,
+        propertyId: targetPropertyId,
+        societyName: targetSociety,
+      });
+
+      const society = prop?.society_name || prop?.title || targetSociety || "Your Property";
+      const loc = prop?.location_name || prop?.city_name || session.extracted_requirements?.locations?.[0] || "Pune";
+      const isPublic = prop ? Boolean(prop.is_public == 1 || prop.is_public === true) : false;
+      const hasExecutive = Boolean(prop && prop.assigned_to && prop.exec_first_name);
+      const execName = hasExecutive ? `${prop.exec_salutation ? prop.exec_salutation + " " : ""}${prop.exec_first_name} ${prop.exec_last_name || ""}`.trim() : null;
+
+      const statusLabel = isPublic ? "Live & Public (Active Listing)" : (prop?.status === "Available" ? "Available" : "Under Review");
+      const execLabel = hasExecutive ? `Assigned to ${execName}` : "Executive Assignment in Progress";
+      const stageLabel = isPublic ? "Active Listing • Verified Buyer Matching" : "Document & Society Verification";
+
+      const replyText = `Property Listing Status:\n\n• Property: ${society} (${loc})\n• Status: ${statusLabel}\n• Executive: ${execLabel}\n• Stage: ${stageLabel}\n\n${isPublic 
+        ? `Your property is now public and actively visible to verified buyers on Resale Expert. Your assigned executive ${hasExecutive ? execName : "team"} is handling buyer inquiries, verified visits, and paperwork.` 
+        : "Our operations team is currently reviewing your property details. A dedicated Property Executive will contact you shortly to verify ownership documents and initiate buyer matching."}`;
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        reply: replyText,
+        suggestions: ["Talk to Property Executive", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"],
+        property_status: prop ? {
+          id: prop.id,
+          title: society,
+          location: loc,
+          is_public: isPublic,
+          status: statusLabel,
+          has_executive: hasExecutive,
+          executive_name: execName,
+          executive_phone: prop.exec_phone,
+          executive_email: prop.exec_email,
+        } : null,
+      });
+    }
+
+    if (action === "get_property_executive") {
+      const isTenant =
+        payload?.persona === "tenant" ||
+        session.current_intent === "tenant" ||
+        session.extracted_profile?.role === "tenant";
+
+      if (isTenant) {
+        const replyText = `You are connected with our Dedicated Rental Assistance Desk:\n\n• Dedicated Rental Desk: Tenant Support Team\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our rental team assists you with owner contact details, physical flat verification, rental agreement drafting, and move-in coordination.\n\nYou can chat, call, or reach us on WhatsApp directly!`;
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Rent in Baner", "Rent in Wakad", "Rent in Hinjewadi", "Modify Filters"],
+        });
+      }
+
+      const isBuyer =
+        payload?.persona === "buyer" ||
+        session.current_intent === "buyer" ||
+        session.extracted_profile?.role === "buyer";
+
+      if (isBuyer) {
+        const replyText = `You are connected with our Dedicated Buyer Advisory Desk:\n\n• Advisory Team: Resale Expert Property Advisory\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our property advisors assist with verified property visits, legal documentation review, pricing negotiations, and home loan processing.\n\nYou can call, message on WhatsApp, or let me know what property you'd like to visit!`;
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Explore 2 BHK in Pune", "Book Site Visit", "Properties under ₹80L", "Filter Properties"],
+        });
+      }
+
+      const isOwner =
+        payload?.persona === "owner" ||
+        session.current_intent === "owner" ||
+        session.extracted_profile?.role === "owner";
+
+      if (isOwner) {
+        const effectiveUserId = userId || payload?.userId || null;
+        const effectivePhone = req.user?.phone || payload?.phone || session.extracted_profile?.phone || null;
+        const effectiveEmail = req.user?.email || payload?.email || session.extracted_profile?.email || null;
+        const targetPropertyId = payload?.propertyId || session.extracted_profile?.property_id || null;
+        const targetSociety = payload?.society_name || session.extracted_requirements?.society_name || null;
+
+        const ownerProp = await resolveOwnerPropertyAndExecutive({
+          userId: effectiveUserId,
+          userPhone: effectivePhone,
+          userEmail: effectiveEmail,
+          propertyId: targetPropertyId,
+          societyName: targetSociety,
+        });
+
+        if (ownerProp && ownerProp.assigned_to && ownerProp.exec_first_name) {
+          const execName = `${ownerProp.exec_salutation ? ownerProp.exec_salutation + " " : ""}${ownerProp.exec_first_name} ${ownerProp.exec_last_name || ""}`.trim();
+          const execPhone = ownerProp.exec_phone || "+91 9637 00 9639";
+          const execEmail = ownerProp.exec_email || "info@resaleexpert.in";
+          const society = ownerProp.society_name || ownerProp.title || "your rental property";
+
+          return res.status(200).json({
+            success: true,
+            session_uuid: session.session_uuid,
+            reply: `You are connected with your dedicated Property Executive for ${society}:\n\n• Assigned Executive: ${execName}\n• Direct Phone / WhatsApp: ${execPhone}\n• Email: ${execEmail}\n• Role: Dedicated Rental Property Executive (Tenant verification, Leave & License agreement, key holding)\n\nYou can chat directly with ${ownerProp.exec_first_name || "your executive"}, call, or message on WhatsApp:`,
+            suggestions: ["Open Your Dashboard", "Check Interested Tenants", "Rental Agreement Rules", "List Another Rental Property"],
+            executive_card: {
+              executiveName: execName,
+              executiveFirstName: ownerProp.exec_first_name,
+              executivePhone: execPhone,
+              executiveEmail: execEmail,
+              executiveRole: ownerProp.exec_role || "Dedicated Rental Executive",
+              propertyTitle: society,
+              propertyId: ownerProp.id,
+              propertySlug: ownerProp.slug || `${ownerProp.id}`,
+              propertyPrice: ownerProp.monthly_rent || 0,
+            },
+          });
+        }
+
+        const replyText = `You are connected with our Dedicated Owner Assistance Desk:\n\n• Dedicated Desk: Property Owner & Landlord Desk\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our rental team assists you with verified tenant screening, biometric Leave & License agreement drafting, police verification, and move-in coordination.\n\nYou can chat, call, or reach us on WhatsApp directly!`;
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Open Your Dashboard", "Check Interested Tenants", "List Property for Rent", "Rental Agreement Rules"],
+          executive_desk: {
+            deskName: "Dedicated Owner Assistance Desk",
+            phone: "+919637009639",
+            displayPhone: "+91 9637 00 9639",
+            persona: "owner",
+          },
+        });
+      }
+
+      const isBroker =
+        payload?.persona === "broker" ||
+        session.current_intent === "broker" ||
+        session.extracted_profile?.role === "broker";
+
+      if (isBroker) {
+        const replyText = `You are connected with our Dedicated Channel Partner & Broker Desk:\n\n• Partnership Desk: B2B Channel Partner Relations\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Collaboration: Verified Pune inventory access, guaranteed fast commission payouts, dedicated CP relationship manager, and joint client site visit coordination.\n\nYou can call, reach us on WhatsApp, or schedule a partnership discussion!`;
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Channel Partner Registration", "Commission Structure", "Inventory Sharing", "Talk to Partner Desk"],
+          executive_desk: {
+            deskName: "Dedicated Channel Partner Desk",
+            phone: "+919637009639",
+            displayPhone: "+91 9637 00 9639",
+            persona: "broker",
+          },
+        });
+      }
+
+      const effectiveUserId = userId || payload?.userId || null;
+      const effectivePhone = req.user?.phone || payload?.phone || session.extracted_profile?.phone || null;
+      const effectiveEmail = req.user?.email || payload?.email || session.extracted_profile?.email || null;
+      const targetPropertyId = payload?.propertyId || session.extracted_profile?.property_id || null;
+      const targetSociety = payload?.society_name || session.extracted_requirements?.society_name || null;
+
+      const prop = await resolveSellerPropertyAndExecutive({
+        userId: effectiveUserId,
+        userPhone: effectivePhone,
+        userEmail: effectiveEmail,
+        propertyId: targetPropertyId,
+        societyName: targetSociety,
+      });
+
+      const society = prop?.society_name || prop?.title || targetSociety || "your property";
+      const loc = prop?.location_name || prop?.city_name || "Pune";
+      const hasExecutive = Boolean(prop && prop.assigned_to && prop.exec_first_name);
+
+      if (hasExecutive) {
+        const execName = `${prop.exec_salutation ? prop.exec_salutation + " " : ""}${prop.exec_first_name} ${prop.exec_last_name || ""}`.trim();
+        const execPhone = prop.exec_phone || "+91 9637 00 9639";
+        const execEmail = prop.exec_email || "info@resaleexpert.in";
+
+        let conversationId = null;
+        if (effectiveUserId && prop.id) {
+          try {
+            const [convRows] = await db.query(
+              "SELECT id FROM property_conversations WHERE property_id = ? AND user_id = ? LIMIT 1",
+              [prop.id, effectiveUserId]
+            );
+            if (convRows && convRows.length > 0) {
+              conversationId = convRows[0].id;
+              await db.query("UPDATE property_conversations SET executive_id = ? WHERE id = ?", [prop.assigned_to, conversationId]).catch(() => {});
+            } else {
+              const newConv = await ChatModel.createOrGetAtomic({
+                userId: effectiveUserId,
+                propertyId: prop.id,
+                executiveId: prop.assigned_to,
+                initialMessage: `Hello! I would like to talk with my assigned Property Executive for ${society}.`,
+                senderType: "user",
+              });
+              conversationId = newConv?.conversation?.id || null;
+            }
+          } catch (cErr) {
+            console.warn("Executive conv sync notice:", cErr.message);
+          }
+        }
+
+        const replyText = `You are connected with your dedicated Property Executive for ${society}:\n\n• Assigned Executive: ${execName}\n• Direct Phone / WhatsApp: ${execPhone}\n• Email: ${execEmail}\n• Role: Dedicated Property Executive (Physical verification, buyer visits, key holding & closing)\n\nYou can chat directly with ${prop.exec_first_name || "your executive"}, call, or message on WhatsApp:`;
+
+        return res.status(200).json({
+          success: true,
+          session_uuid: session.session_uuid,
+          reply: replyText,
+          suggestions: ["Check Listing Status", "Check Active Buyers in My Locality", "Get Free Property Valuation", "List Another Property"],
+          executive_card: {
+            executiveName: execName,
+            executiveFirstName: prop.exec_first_name,
+            executivePhone: execPhone,
+            executiveEmail: execEmail,
+            executiveRole: prop.exec_role || "Dedicated Property Executive",
+            propertyTitle: society,
+            propertyId: prop.id,
+            propertySlug: prop.slug || `${prop.id}`,
+            propertyPrice: prop.budget || prop.final_price || 0,
+            conversationId,
+          },
+        });
+      }
+
+      // Default fallback if no dedicated executive assigned yet
+      const defaultReply = `You can connect with the Resale Expert team directly:\n\n• Dedicated Support: Resale Expert Property Executive Team\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n\nOur assigned Executive handles physical verification, key holding, legal documentation, and verified buyer visits.`;
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        reply: defaultReply,
+        suggestions: ["Check Active Buyers in My Locality", "Get Free Property Valuation", "Check Listing Status", "List Another Property"],
+        executive_desk: {
+          deskName: "Resale Expert Property Executive Team",
+          phone: "+919637009639",
+          displayPhone: "+91 9637 00 9639",
+          persona: "seller",
+        },
+      });
+    }
+
+    if (action === "create_call_request_lead") {
+      const { phone, name, timing, persona, location, society_name } = payload || {};
+      if (!phone || String(phone).replace(/\D/g, "").length < 10) {
+        return res.status(400).json({ success: false, message: "A valid 10-digit mobile number is required" });
+      }
+
+      const cleanPhone = String(phone).replace(/\D/g, "").slice(-10);
+      const cleanName = (name || "").trim() || (req.user ? `${req.user.first_name || ""} ${req.user.last_name || ""}`.trim() : "Website Visitor");
+      const preferredTiming = timing || "Immediately";
+      const effectivePersona = persona || session.current_intent || "tenant";
+
+      let leadId = null;
+
+      // 1. Check if lead already exists in client_leads
+      const [existingLeads] = await db.query(
+        "SELECT id, name, phone, email, assigned_executive FROM client_leads WHERE phone = ? OR phone LIKE ? LIMIT 1",
+        [cleanPhone, `%${cleanPhone}`]
+      );
+
+      if (existingLeads && existingLeads.length > 0) {
+        leadId = existingLeads[0].id;
+        await db.query(
+          `UPDATE client_leads 
+           SET name = COALESCE(NULLIF(?, ''), name),
+               status = 'new',
+               priority = 'hot',
+               lead_source = 'Website Chatbot - Call Request',
+               whatsapp_number = COALESCE(NULLIF(?, ''), whatsapp_number),
+               location = COALESCE(NULLIF(?, ''), location),
+               updated_at = NOW()
+           WHERE id = ?`,
+          [cleanName, cleanPhone, location || null, leadId]
+        );
+      } else {
+        // Dynamic Executive Assignment using 3-Tier Intelligent Cascading Strategy
+        let assignedExec = null;
+        const dynExec = await resolveDynamicExecutive({
+          location,
+          society: society_name,
+        });
+        if (dynExec && dynExec.id) {
+          assignedExec = dynExec.id;
+        }
+
+        const leadType =
+          effectivePersona === "tenant"
+            ? "Rental Tenant"
+            : effectivePersona === "seller"
+            ? "Seller"
+            : effectivePersona === "owner"
+            ? "Rental Owner"
+            : "Buyer";
+
+        const [insertRes] = await db.query(
+          `INSERT INTO client_leads (
+             salutation, name, phone, lead_type, lead_source, whatsapp_number,
+             city, location, status, priority, assigned_executive, created_at, updated_at
+           ) VALUES ('Mr.', ?, ?, ?, 'Website Chatbot - Call Request', ?, 'Pune', ?, 'new', 'hot', ?, NOW(), NOW())`,
+          [cleanName, cleanPhone, leadType, cleanPhone, location || "Pune", assignedExec]
+        );
+        leadId = insertRes.insertId;
+      }
+
+      // Record User Activity Event
+      try {
+        const UserActivityEvent = require("../models/userActivityEvent.model");
+        await UserActivityEvent.recordEvent({
+          guest_id: req.body.guest_uuid || session.guest_uuid || null,
+          lead_id: leadId,
+          source: "chatbot",
+          session_id: session.session_uuid,
+          event_type: "call_request",
+          event_name: "callback_requested",
+          payload: {
+            name: cleanName,
+            phone: cleanPhone,
+            timing: preferredTiming,
+            persona: effectivePersona,
+          },
+        });
+      } catch (e) {}
+
+      // Trigger automation / CRM notifications
+      try {
+        const { triggerWelcomeAutomation } = require("../services/automationEngine");
+        triggerWelcomeAutomation({
+          entityType: "lead",
+          entityData: { id: leadId, name: cleanName, phone: cleanPhone, status: "new", priority: "hot" },
+        }).catch(() => {});
+      } catch (e) {}
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        leadId,
+        name: cleanName,
+        phone: cleanPhone,
+        timing: preferredTiming,
+        message: `Call request submitted successfully. Our executive will call you ${preferredTiming === "Immediately" ? "immediately" : preferredTiming}.`,
+      });
+    }
+
+    if (action === "get_rental_owner_details") {
+      const propertyId = payload?.propertyId || payload?.property_id;
+      const effectiveUserId = userId || payload?.userId || null;
+      const effectiveEmail = (req.user?.email || payload?.email || session.extracted_profile?.email || "").trim().toLowerCase();
+      const effectivePhone = req.user?.phone || payload?.phone || session.extracted_profile?.phone || null;
+      const effectiveName = (req.user ? `${req.user.first_name || ""} ${req.user.last_name || ""}`.trim() : payload?.name || session.extracted_profile?.name || "Tenant").trim();
+
+      if (!propertyId) {
+        return res.status(400).json({ success: false, message: "Property ID required" });
+      }
+
+      // 1. Fetch rental property and owner details
+      const [propRows] = await db.query(
+        `SELECT rp.*,
+                o.name AS owner_name_joined, o.phone AS owner_phone_joined,
+                o.whatsapp AS owner_whatsapp_joined, o.email AS owner_email_joined,
+                o.salutation AS owner_salutation, o.location AS owner_address
+         FROM rental_properties rp
+         LEFT JOIN owners o ON rp.owner_id = o.id
+         WHERE rp.id = ?
+         LIMIT 1`,
+        [propertyId]
+      );
+
+      if (!propRows || propRows.length === 0) {
+        return res.status(404).json({ success: false, message: "Rental property not found" });
+      }
+
+      const rp = propRows[0];
+      const ownerName = rp.owner_name_joined ? `${rp.owner_salutation ? rp.owner_salutation + " " : ""}${rp.owner_name_joined}`.trim() : (rp.owner_name || "Property Owner");
+      const ownerPhone = rp.owner_phone_joined || "+91 9637 00 9639";
+      const ownerWhatsapp = rp.owner_whatsapp_joined || rp.owner_phone_joined || "919637009639";
+      const ownerEmail = rp.owner_email_joined || "support@resaleexpert.in";
+      const propertyTitle = rp.society_name ? `${rp.unit_type || ""} at ${rp.society_name}` : `Rental Property #${rp.id}`;
+
+      // 2. Register or update Tenant lead in \`tenants\` table if email/phone provided
+      let tenantRecord = null;
+      if (effectiveEmail || effectivePhone) {
+        try {
+          const [existingTenants] = await db.query(
+            "SELECT * FROM tenants WHERE (email IS NOT NULL AND email = ?) OR (phone IS NOT NULL AND phone = ?) ORDER BY id DESC LIMIT 1",
+            [effectiveEmail || "", effectivePhone || ""]
+          );
+          if (existingTenants && existingTenants.length > 0) {
+            tenantRecord = existingTenants[0];
+            try {
+              const tenantActivityModel = require("../models/TenantActivity");
+              await tenantActivityModel.create({
+                tenant_id: tenantRecord.id,
+                activity_type: "Inquiry / Owner Contacted",
+                notes: `Unlocked owner contact via REX AI Chatbot for RENT-${rp.id} (${propertyTitle})`,
+              });
+            } catch (aErr) {}
+          } else {
+            // Create brand new tenant lead!
+            const Tenant = require("../models/Tenant");
+            tenantRecord = await Tenant.create({
+              name: effectiveName,
+              email: effectiveEmail || null,
+              phone: effectivePhone || null,
+              whatsapp: effectivePhone || null,
+              preferred_location: rp.location_name || "Pune",
+              preferred_bhk: rp.unit_type || "2 BHK",
+              status: "Active Search",
+              notes: `Tenant Lead via REX AI Chatbot - Interested in ${propertyTitle} (Rent: ₹${rp.monthly_rent || 0})`,
+            });
+          }
+        } catch (tErr) {
+          console.warn("Tenant lead creation note in REX controller:", tErr.message);
+        }
+      }
+
+      const replyText = `Here are the verified contact details for the owner of ${propertyTitle}:\n\n• Owner Name: ${ownerName}\n• Phone: ${ownerPhone}\n• WhatsApp: ${ownerWhatsapp}\n• Email: ${ownerEmail}\n• Monthly Rent: ₹${Number(rp.monthly_rent || 0).toLocaleString("en-IN")}/month\n\nYou can call the owner directly, message on WhatsApp, or view all options on your Tenant Dashboard:`;
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        reply: replyText,
+        suggestions: ["Go to Tenant Dashboard", "Explore nearby rentals", "Rental agreement process", "Talk to Property Executive"],
+        rental_owner_card: {
+          ownerId: rp.owner_id,
+          ownerName,
+          ownerPhone,
+          ownerWhatsapp,
+          ownerEmail,
+          propertyTitle,
+          propertyId: rp.id,
+          monthlyRent: rp.monthly_rent,
+          location: rp.location_name,
+        },
+      });
+    }
+
+    if (action === "check_user_status") {
+      const email = (payload?.email || "").trim().toLowerCase();
+      const phone = (payload?.phone || "").replace(/\D/g, "").slice(-10);
+
+      let isRegistered = false;
+      let userRole = null;
+      let firstName = null;
+
+      if (email || phone) {
+        const [uRows] = await db.query(
+          "SELECT id, first_name, last_name, email, phone, role FROM users WHERE (email IS NOT NULL AND email = ?) OR (phone IS NOT NULL AND phone LIKE ?) LIMIT 1",
+          [email || "", `%${phone || ""}%`]
+        );
+        if (uRows && uRows.length > 0) {
+          isRegistered = true;
+          userRole = uRows[0].role;
+          firstName = uRows[0].first_name;
+        } else {
+          // Also check tenants table
+          const [tRows] = await db.query(
+            "SELECT id, name, email, phone FROM tenants WHERE (email IS NOT NULL AND email = ?) OR (phone IS NOT NULL AND phone LIKE ?) LIMIT 1",
+            [email || "", `%${phone || ""}%`]
+          );
+          if (tRows && tRows.length > 0) {
+            isRegistered = true;
+            userRole = "tenant";
+            firstName = tRows[0].name ? tRows[0].name.split(" ")[0] : "Tenant";
+          }
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        session_uuid: session.session_uuid,
+        is_registered: isRegistered,
+        first_name: firstName,
+        role: userRole,
       });
     }
 
@@ -1105,11 +2524,28 @@ exports.handleScheduleVisit = async (req, res) => {
     const buyerPhone = req.user?.phone || guest_phone || "0000000000";
     const buyerEmail = req.user?.email || guest_email || null;
 
+    // 1. Check if lead already exists in client_leads or create with dynamic executive
     let leadId = null;
+    let assignedExecId = null;
+    try {
+      const dynExec = await resolveDynamicExecutive({
+        propertyId,
+        location: property.location,
+        society: property.society_name || property.title,
+      });
+      if (dynExec?.id) {
+        assignedExecId = dynExec.id;
+      } else if (property.assigned_to) {
+        assignedExecId = property.assigned_to;
+      }
+    } catch (e) {
+      console.warn("Could not resolve executive for visit:", e.message);
+    }
+
     try {
       if (buyerEmail || (buyerPhone && buyerPhone !== "0000000000")) {
         const [existingLeads] = await db.query(
-          "SELECT id FROM client_leads WHERE (email IS NOT NULL AND email != '' AND email = ?) OR (phone IS NOT NULL AND phone != '' AND (phone = ? OR phone LIKE ?)) LIMIT 1",
+          "SELECT id, assigned_executive FROM client_leads WHERE (email IS NOT NULL AND email != '' AND email = ?) OR (phone IS NOT NULL AND phone != '' AND (phone = ? OR phone LIKE ?)) LIMIT 1",
           [buyerEmail, buyerPhone, `%${buyerPhone.slice(-10)}`]
         );
         if (existingLeads.length > 0) {
@@ -1121,9 +2557,10 @@ exports.handleScheduleVisit = async (req, res) => {
                  status = 'site_visit_scheduled', 
                  priority = 'hot', 
                  property_id = COALESCE(?, property_id), 
+                 assigned_executive = COALESCE(assigned_executive, ?),
                  updated_at = NOW() 
              WHERE id = ?`,
-            [buyerName, buyerPhone !== "0000000000" ? buyerPhone : null, propertyId, leadId]
+            [buyerName, buyerPhone !== "0000000000" ? buyerPhone : null, propertyId, assignedExecId, leadId]
           );
         }
       }
@@ -1138,6 +2575,7 @@ exports.handleScheduleVisit = async (req, res) => {
           lead_source: "REX AI Site Visit Booking",
           status: "site_visit_scheduled",
           priority: "hot",
+          assigned_executive: assignedExecId,
         }).catch(() => null);
         if (createdLead?.id) leadId = createdLead.id;
       }
@@ -1150,7 +2588,7 @@ exports.handleScheduleVisit = async (req, res) => {
     try {
       if (buyerPhone || buyerEmail) {
         const [existingBuyers] = await db.query(
-          "SELECT id FROM buyers WHERE (phone IS NOT NULL AND phone != '' AND (phone = ? OR phone LIKE ?)) OR (email IS NOT NULL AND email != '' AND email = ?) ORDER BY id DESC LIMIT 1",
+          "SELECT id, assigned_executive FROM buyers WHERE (phone IS NOT NULL AND phone != '' AND (phone = ? OR phone LIKE ?)) OR (email IS NOT NULL AND email != '' AND email = ?) ORDER BY id DESC LIMIT 1",
           [buyerPhone, `%${buyerPhone.slice(-10)}`, buyerEmail]
         );
         if (existingBuyers.length > 0) {
@@ -1162,9 +2600,10 @@ exports.handleScheduleVisit = async (req, res) => {
                  buyer_lead_status = 'site_visit_scheduled', 
                  buyer_lead_stage = 'Site Visit Scheduled', 
                  buyer_lead_priority = 'hot', 
+                 assigned_executive = COALESCE(assigned_executive, ?),
                  updated_at = NOW() 
              WHERE id = ?`,
-            [buyerName, buyerPhone !== "0000000000" ? buyerPhone : null, buyerDbId]
+            [buyerName, buyerPhone !== "0000000000" ? buyerPhone : null, assignedExecId, buyerDbId]
           );
         }
       }
@@ -1181,6 +2620,7 @@ exports.handleScheduleVisit = async (req, res) => {
           buyer_lead_status: "site_visit_scheduled",
           buyer_lead_stage: "Site Visit Scheduled",
           buyer_lead_priority: "hot",
+          assigned_executive: assignedExecId,
         }).catch(() => null);
         if (createdBuyer?.id) {
           buyerDbId = createdBuyer.id;
@@ -1201,7 +2641,7 @@ exports.handleScheduleVisit = async (req, res) => {
         buyer_phone: buyerPhone,
         buyer_email: buyerEmail,
         seller_id: property.seller_id || null,
-        executive_id: property.assigned_to || null,
+        executive_id: assignedExecId || property.assigned_to || null,
         visit_date,
         visit_time,
         status: "scheduled",

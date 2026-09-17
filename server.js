@@ -286,6 +286,10 @@ app.use("/api/ai", aiRoutes); // <-- new line
 app.use("/api/status-update", propertyStatusRoutes);
 app.use("/api/bulk-operations", bulkOperationsRoutes);
 app.use("/api/client-lead-notifications", clientLeadNotificationRoutes);
+app.use("/api/v1/ai-training", require("./routes/aiTraining.routes"));
+app.use("/api/ai-training", require("./routes/aiTraining.routes"));
+app.use("/api/v1/ai-reports", require("./routes/dynamicAiReport.routes"));
+app.use("/api/ai-reports", require("./routes/dynamicAiReport.routes"));
 
 app.use(
   "/api/public/system-settings",

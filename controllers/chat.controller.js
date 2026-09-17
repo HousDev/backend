@@ -645,10 +645,12 @@ exports.getSmartReplies = async (req, res) => {
     const rexAiService = require("../services/rexAiService");
     const userRoleStr = String(conversation.user_role || "").toLowerCase();
     const isSeller =
-      userRoleStr === "seller" ||
-      userRoleStr === "owner" ||
-      clientMsg.toLowerCase().includes("seller") ||
-      clientMsg.toLowerCase().includes("selling");
+      userRoleStr === "buyer" || userRoleStr === "tenant"
+        ? false
+        : userRoleStr === "seller" ||
+          userRoleStr === "owner" ||
+          clientMsg.toLowerCase().startsWith("new seller listing") ||
+          clientMsg.toLowerCase().startsWith("new owner rental");
 
     const suggestions = await rexAiService.generateExecutiveSmartReplies({
       clientName: `${conversation.user_first_name || "Customer"} ${conversation.user_last_name || ""}`.trim(),

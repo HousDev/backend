@@ -39,7 +39,20 @@ class ChatModel {
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
-              u.role AS user_role,
+              CASE 
+                WHEN c.user_id = p.created_by OR (p.seller_id IS NOT NULL AND CAST(c.user_id AS CHAR) = CAST(p.seller_id AS CHAR)) THEN 
+                  CASE WHEN LOWER(COALESCE(u.role, '')) = 'owner' OR p.listing_type = 'rent' THEN 'owner' ELSE 'seller' END
+                WHEN LOWER(COALESCE(u.role, '')) = 'buyer' THEN 'buyer'
+                WHEN LOWER(COALESCE(u.role, '')) = 'tenant' THEN 'tenant'
+                WHEN LOWER(COALESCE(u.role, '')) = 'seller' THEN 'seller'
+                WHEN LOWER(COALESCE(u.role, '')) = 'owner' THEN 'owner'
+                WHEN LOWER(COALESCE(u.role, '')) = 'broker' THEN 'broker'
+                WHEN c.last_message_text LIKE 'New Seller Listing%' THEN 'seller'
+                WHEN c.last_message_text LIKE 'New Owner Rental%' THEN 'owner'
+                WHEN p.listing_type = 'rent' THEN 'tenant'
+                WHEN u.role = 'user' THEN 'buyer'
+                ELSE COALESCE(u.role, 'buyer')
+              END AS user_role,
               COALESCE(u.avatar, NULL) AS user_avatar,
               e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
@@ -100,7 +113,20 @@ class ChatModel {
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
-              u.role AS user_role,
+              CASE 
+                WHEN c.user_id = p.created_by OR (p.seller_id IS NOT NULL AND CAST(c.user_id AS CHAR) = CAST(p.seller_id AS CHAR)) THEN 
+                  CASE WHEN LOWER(COALESCE(u.role, '')) = 'owner' OR p.listing_type = 'rent' THEN 'owner' ELSE 'seller' END
+                WHEN LOWER(COALESCE(u.role, '')) = 'buyer' THEN 'buyer'
+                WHEN LOWER(COALESCE(u.role, '')) = 'tenant' THEN 'tenant'
+                WHEN LOWER(COALESCE(u.role, '')) = 'seller' THEN 'seller'
+                WHEN LOWER(COALESCE(u.role, '')) = 'owner' THEN 'owner'
+                WHEN LOWER(COALESCE(u.role, '')) = 'broker' THEN 'broker'
+                WHEN c.last_message_text LIKE 'New Seller Listing%' THEN 'seller'
+                WHEN c.last_message_text LIKE 'New Owner Rental%' THEN 'owner'
+                WHEN p.listing_type = 'rent' THEN 'tenant'
+                WHEN u.role = 'user' THEN 'buyer'
+                ELSE COALESCE(u.role, 'buyer')
+              END AS user_role,
               COALESCE(u.avatar, NULL) AS user_avatar,
               e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
@@ -327,7 +353,20 @@ class ChatModel {
               u.last_name AS user_last_name,
               u.email AS user_email,
               u.phone AS user_phone,
-              u.role AS user_role,
+              CASE 
+                WHEN c.user_id = p.created_by OR (p.seller_id IS NOT NULL AND CAST(c.user_id AS CHAR) = CAST(p.seller_id AS CHAR)) THEN 
+                  CASE WHEN LOWER(COALESCE(u.role, '')) = 'owner' OR p.listing_type = 'rent' THEN 'owner' ELSE 'seller' END
+                WHEN LOWER(COALESCE(u.role, '')) = 'buyer' THEN 'buyer'
+                WHEN LOWER(COALESCE(u.role, '')) = 'tenant' THEN 'tenant'
+                WHEN LOWER(COALESCE(u.role, '')) = 'seller' THEN 'seller'
+                WHEN LOWER(COALESCE(u.role, '')) = 'owner' THEN 'owner'
+                WHEN LOWER(COALESCE(u.role, '')) = 'broker' THEN 'broker'
+                WHEN c.last_message_text LIKE 'New Seller Listing%' THEN 'seller'
+                WHEN c.last_message_text LIKE 'New Owner Rental%' THEN 'owner'
+                WHEN p.listing_type = 'rent' THEN 'tenant'
+                WHEN u.role = 'user' THEN 'buyer'
+                ELSE COALESCE(u.role, 'buyer')
+              END AS user_role,
               COALESCE(u.avatar, NULL) AS user_avatar,
               e.salutation AS executive_salutation,
               e.first_name AS executive_first_name,
