@@ -150,7 +150,7 @@ class RentalProperty {
     const [result] = await db.execute(
       `INSERT INTO rental_properties
        (owner_name, owner_id, assigned_to, property_type_name, property_subtype_name,
-        unit_type, wing, unit_no, furnishing, balcony, bedrooms, bathrooms, facing,
+        unit_type, wing, unit_no, furnishing, balcony, dry_balcony, bedrooms, bathrooms, facing,
         parking_type, parking_qty, city_name, location_name, society_name,
         floor, total_floors, carpet_area, builtup_area,
         address, status, lead_source, source_url,
@@ -158,7 +158,7 @@ class RentalProperty {
         description, is_public, publication_date,
         listing_type, monthly_rent, security_deposit, maintenance_extra, maintenance_charge,
         preferred_tenants, lock_in_period, notice_period, agreement_duration, available_from, latitude, longitude)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 
       [
         data.owner_name || null,
@@ -171,6 +171,7 @@ class RentalProperty {
         data.unit_no || null,
         data.furnishing || null,
         data.balcony || null,
+        data.dry_balcony || 'No',
         data.bedrooms || null,
         data.bathrooms || null,
         data.facing || null,
@@ -424,7 +425,7 @@ class RentalProperty {
     const [result] = await db.execute(
       `UPDATE rental_properties SET
         owner_name = ?, owner_id = ?, property_type_name = ?, property_subtype_name = ?,
-        unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, balcony = ?, bedrooms = ?, bathrooms = ?, facing = ?,
+        unit_type = ?, wing = ?, unit_no = ?, furnishing = ?, balcony = ?, dry_balcony = ?, bedrooms = ?, bathrooms = ?, facing = ?,
         parking_type = ?, parking_qty = ?, city_name = ?, location_name = ?, society_name = ?,
         floor = ?, total_floors = ?, carpet_area = ?, builtup_area = ?,
         address = ?, status = ?, lead_source = ?, source_url = ?,
@@ -447,6 +448,7 @@ class RentalProperty {
         data.unit_no || null,
         data.furnishing || null,
         data.balcony || null,
+        data.dry_balcony || 'No',
         data.bedrooms ?? null,
         data.bathrooms ?? null,
         data.facing || null,

@@ -116,10 +116,10 @@ const buildPropertyData = (req, ownershipDocPath, photoPaths) => ({
   unit_no: req.body.unitNo || null,
   furnishing: req.body.furnishing || null,
 
-  // NEW
   bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
   bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
   balcony: req.body.balcony || null ? Number(req.body.balcony) : null,
+  dry_balcony: req.body.dryBalcony || req.body.dry_balcony || 'No',
   facing: req.body.facing || null,
 
   parking_type: req.body.parkingType || null,
@@ -587,6 +587,7 @@ const updateProperty = async (req, res) => {
       bedrooms: req.body.bedrooms != null ? Number(req.body.bedrooms) : null,
       bathrooms: req.body.bathrooms != null ? Number(req.body.bathrooms) : null,
       balcony: req.body.balcony || null ? Number(req.body.balcony) : null,
+      dry_balcony: req.body.dryBalcony || req.body.dry_balcony || 'No',
       facing: req.body.facing || null,
       price_type: req.body.priceType === "Negotiable" ? "Negotiable" : "Fixed",
       final_price: parseMoneyToRupees(req.body.finalPrice),
