@@ -238,89 +238,104 @@ function getPuppeteerLaunchOptions() {
   return executablePath ? { executablePath } : {};
 }
 
+async function launchPuppeteerBrowser() {
+  const launchOptions = {
+    headless: 'new',
+    ...getPuppeteerLaunchOptions(),
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--force-color-profile=srgb',
+      '--disable-low-end-device-mode',
+      '--font-render-hinting=medium',
+    ],
+  };
+  try {
+    return await puppeteer.launch(launchOptions);
+  } catch (e1) {
+    console.warn("Failed to launch puppeteer with 'new' headless mode, trying fallback...", e1.message);
+    launchOptions.headless = true;
+    return await puppeteer.launch(launchOptions);
+  }
+}
+
+async function renderHtmlWithPage(page, finalHtml, pdfOptions = {}) {
+  await page.setViewport({ width: 1280, height: 1024, deviceScaleFactor: 2 });
+  await page.emulateMediaType('screen');
+  page.setDefaultNavigationTimeout(30000);
+  try {
+    await page.setContent(finalHtml, { waitUntil: ['domcontentloaded', 'networkidle2'], timeout: 25000 });
+  } catch (e) {
+    console.warn("setContent network wait exceeded, continuing with rendered content...", e.message);
+  }
+
+  // wait images (max 2.5s)
+  await page.evaluate(async () => {
+    const imgs = Array.from(document.images || []);
+    await Promise.all(
+      imgs.map(async (img) => {
+        if ('decode' in img) {
+          try {
+            await Promise.race([
+              img.decode(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+            ]);
+            return;
+          } catch {}
+        }
+        if (img.complete && img.naturalWidth) return;
+        await new Promise((res) => {
+          const timer = setTimeout(res, 2000);
+          img.addEventListener('load', () => { clearTimeout(timer); res(); }, { once: true });
+          img.addEventListener('error', () => { clearTimeout(timer); res(); }, { once: true });
+        });
+      })
+    );
+  });
+
+  // wait fonts (max 2s)
+  await page.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch {} }
+  });
+  try {
+    await page.waitForFunction(
+      () => typeof document !== 'undefined' && document.fonts && document.fonts.status === 'loaded',
+      { timeout: 2000 }
+    );
+  } catch {}
+
+  await page.addStyleTag({
+    content: `
+      body { background:#fff !important; }
+      #printDialog { background:#fff !important; }
+      .main-page { background:#fff !important; box-shadow:none !important; margin:0 !important; }
+    `,
+  });
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  const buf = await page.pdf({
+    printBackground: true,
+    preferCSSPageSize: true,
+    margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+    ...pdfOptions,
+  });
+
+  const size = Buffer.isBuffer(buf) ? buf.length : (buf?.byteLength ?? 0);
+  if (!size || size < 1000) throw new Error('Empty/invalid PDF buffer generated');
+  return buf;
+}
+
 async function renderPdfBuffer(finalHtml, pdfOptions = {}) {
   let browser;
   try {
-    const launchOptions = {
-      headless: 'new',
-      ...getPuppeteerLaunchOptions(),
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--force-color-profile=srgb',
-        '--disable-low-end-device-mode',
-        '--font-render-hinting=medium',
-      ],
-    };
-    try {
-      browser = await puppeteer.launch(launchOptions);
-    } catch (e1) {
-      console.warn("Failed to launch puppeteer with 'new' headless mode, trying fallback...", e1.message);
-      launchOptions.headless = true;
-      browser = await puppeteer.launch(launchOptions);
-    }
-
+    browser = await launchPuppeteerBrowser();
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 1024, deviceScaleFactor: 2 });
-    await page.emulateMediaType('screen');
-    page.setDefaultNavigationTimeout(90000);
-    await page.setContent(finalHtml, { waitUntil: 'networkidle0' });
-
-    // wait images
-    await page.evaluate(async () => {
-      const imgs = Array.from(document.images || []);
-      await Promise.all(
-        imgs.map(async (img) => {
-          if ('decode' in img) {
-            try {
-              await Promise.race([
-                img.decode(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-              ]);
-              return;
-            } catch {}
-          }
-          if (img.complete && img.naturalWidth) return;
-          await new Promise((res) => {
-            const timer = setTimeout(res, 3000);
-            img.addEventListener('load', () => { clearTimeout(timer); res(); }, { once: true });
-            img.addEventListener('error', () => { clearTimeout(timer); res(); }, { once: true });
-          });
-        })
-      );
-    });
-
-    // wait fonts
-    await page.evaluate(async () => {
-      if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch {} }
-    });
-    try {
-      await page.waitForFunction(
-        () => typeof document !== 'undefined' && document.fonts && document.fonts.status === 'loaded',
-        { timeout: 10000 }
-      );
-    } catch {}
-
-    await page.addStyleTag({
-      content: `
-        body { background:#fff !important; }
-        #printDialog { background:#fff !important; }
-        .main-page { background:#fff !important; box-shadow:none !important; margin:0 !important; }
-      `,
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    const buf = await page.pdf({
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
-      ...pdfOptions,
-    });
-
-    const size = Buffer.isBuffer(buf) ? buf.length : (buf?.byteLength ?? 0);
-    if (!size || size < 1000) throw new Error('Empty/invalid PDF buffer generated');
-    return buf;
+    return await renderHtmlWithPage(page, finalHtml, pdfOptions);
   } finally {
     if (browser) { try { await browser.close(); } catch {} }
   }
@@ -1337,19 +1352,37 @@ async previewPdfInline(req, res) {
         footer_logo: toLocalFilePath(base?.footer_logo || settings?.footer_logo),
       };
 
-      // 3) build 1-page AUDIT PDF
-      const auditHtmlInner = buildAuditHtml({ doc: row, vars, session });
-      const auditWrapped = applyPageShell(auditHtmlInner, 'A4');
-      const auditPdf = await renderPdfBuffer(auditWrapped);
-
-      // 4) base PDF: prefer signed PDF if exists, else render from HTML
+      // 3 & 4) render Audit and Base PDF (reusing single browser instance)
+      let auditPdf;
       let basePdfBuffer;
-      if (session?.signed_pdf_path && fs.existsSync(session.signed_pdf_path)) {
+
+      const hasSignedPdf = session?.signed_pdf_path && fs.existsSync(session.signed_pdf_path);
+      if (hasSignedPdf) {
         basePdfBuffer = fs.readFileSync(session.signed_pdf_path);
+        const auditHtmlInner = buildAuditHtml({ doc: row, vars, session });
+        const auditWrapped = applyPageShell(auditHtmlInner, 'A4');
+        auditPdf = await renderPdfBuffer(auditWrapped);
       } else {
-        const filled = interpolate(row.content || '', vars);
-        const html = applyPageShell(filled, 'A4');
-        basePdfBuffer = await renderPdfBuffer(html);
+        let browser;
+        try {
+          browser = await launchPuppeteerBrowser();
+          
+          // 3) build 1-page AUDIT PDF
+          const auditHtmlInner = buildAuditHtml({ doc: row, vars, session });
+          const auditWrapped = applyPageShell(auditHtmlInner, 'A4');
+          const auditPage = await browser.newPage();
+          auditPdf = await renderHtmlWithPage(auditPage, auditWrapped);
+          try { await auditPage.close(); } catch {}
+
+          // 4) base PDF from HTML
+          const filled = interpolate(row.content || '', vars);
+          const html = applyPageShell(filled, 'A4');
+          const basePage = await browser.newPage();
+          basePdfBuffer = await renderHtmlWithPage(basePage, html);
+          try { await basePage.close(); } catch {}
+        } finally {
+          if (browser) { try { await browser.close(); } catch {} }
+        }
       }
 
       // 5) merge: base pages + audit last page
