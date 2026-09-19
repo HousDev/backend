@@ -61,7 +61,7 @@ const Tenant = {
         LEFT JOIN rental_properties rp ON t.rental_property_id = rp.id
         LEFT JOIN owners o ON rp.owner_id = o.id
         LEFT JOIN users u ON t.assigned_to = u.id
-      ORDER BY t.id DESC
+      ORDER BY COALESCE(t.assigned_at, t.created_at) DESC, t.id DESC
     `;
     const [rows] = await runQuery(conn, sql);
     return rows;

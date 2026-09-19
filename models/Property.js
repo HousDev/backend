@@ -118,7 +118,7 @@ class Property {
     FROM my_properties AS p
     LEFT JOIN users   AS u ON p.assigned_to = u.id
     LEFT JOIN sellers AS s ON p.seller_id   = s.id
-    ORDER BY p.created_at DESC
+    ORDER BY COALESCE(p.assigned_at, p.created_at) DESC, p.id DESC
   `);
 
     return rows.map((row) => {

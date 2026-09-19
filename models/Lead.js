@@ -67,30 +67,63 @@ class Lead {
     }
 
     try {
-      const [result] = await db.execute(
-        `INSERT INTO client_leads (
-        salutation, name, phone, email, lead_type, lead_source,
-        whatsapp_number, state, city, location, status, assigned_executive,
-        created_by, updated_by, priority
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          salutation ?? null,
-          name ?? null,
-          phone ?? null,
-          email ?? null,
-          lead_type ?? null,
-          lead_source ?? null,
-          whatsapp_number ?? null,
-          state ?? null,
-          city ?? null,
-          location ?? null,
-          status ?? null,
-          assigned_executive ?? null,
-          created_by ?? null,
-          updated_by ?? null,
-          priority ?? null,
-        ]
-      );
+      const hasAssignedExec = assigned_executive !== null && assigned_executive !== undefined && String(assigned_executive).trim() !== "";
+      let result;
+      try {
+        const [res] = await db.execute(
+          `INSERT INTO client_leads (
+          salutation, name, phone, email, lead_type, lead_source,
+          whatsapp_number, state, city, location, status, assigned_executive,
+          created_by, updated_by, priority, assigned_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            salutation ?? null,
+            name ?? null,
+            phone ?? null,
+            email ?? null,
+            lead_type ?? null,
+            lead_source ?? null,
+            whatsapp_number ?? null,
+            state ?? null,
+            city ?? null,
+            location ?? null,
+            status ?? null,
+            assigned_executive ?? null,
+            created_by ?? null,
+            updated_by ?? null,
+            priority ?? null,
+            hasAssignedExec ? new Date() : null,
+          ]
+        );
+        result = res;
+      } catch (insertColErr) {
+        // Fallback if assigned_at column is not yet created
+        const [res] = await db.execute(
+          `INSERT INTO client_leads (
+          salutation, name, phone, email, lead_type, lead_source,
+          whatsapp_number, state, city, location, status, assigned_executive,
+          created_by, updated_by, priority
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            salutation ?? null,
+            name ?? null,
+            phone ?? null,
+            email ?? null,
+            lead_type ?? null,
+            lead_source ?? null,
+            whatsapp_number ?? null,
+            state ?? null,
+            city ?? null,
+            location ?? null,
+            status ?? null,
+            assigned_executive ?? null,
+            created_by ?? null,
+            updated_by ?? null,
+            priority ?? null,
+          ]
+        );
+        result = res;
+      }
 
       if (result.insertId) {
         const lead = await this.findById(result.insertId);
@@ -136,19 +169,38 @@ class Lead {
   // GET ALL (Updated to hide transferred leads to buyer OR seller)
   // ===========================
   static async findAll() {
-    const [rows] = await db.execute(
-      `SELECT l.*, 
-              ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
-              cu.first_name AS created_first_name, cu.last_name AS created_last_name,
-              uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
-       FROM client_leads l
-       LEFT JOIN users ae ON l.assigned_executive = ae.id
-       LEFT JOIN users cu ON l.created_by = cu.id
-       LEFT JOIN users uu ON l.updated_by = uu.id
-       WHERE (l.transferred_to_buyer != 1 OR l.transferred_to_buyer IS NULL)
-         AND (l.transferred_to_seller != 1 OR l.transferred_to_seller IS NULL)
-       ORDER BY l.created_at DESC`
-    );
+    let rows;
+    try {
+      const [r] = await db.execute(
+        `SELECT l.*, 
+                ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
+                cu.first_name AS created_first_name, cu.last_name AS created_last_name,
+                uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
+         FROM client_leads l
+         LEFT JOIN users ae ON l.assigned_executive = ae.id
+         LEFT JOIN users cu ON l.created_by = cu.id
+         LEFT JOIN users uu ON l.updated_by = uu.id
+         WHERE (l.transferred_to_buyer != 1 OR l.transferred_to_buyer IS NULL)
+           AND (l.transferred_to_seller != 1 OR l.transferred_to_seller IS NULL)
+         ORDER BY COALESCE(l.assigned_at, l.created_at) DESC, l.id DESC`
+      );
+      rows = r;
+    } catch (queryErr) {
+      const [r] = await db.execute(
+        `SELECT l.*, 
+                ae.first_name AS assigned_first_name, ae.last_name AS assigned_last_name,
+                cu.first_name AS created_first_name, cu.last_name AS created_last_name,
+                uu.first_name AS updated_first_name, uu.last_name AS updated_last_name
+         FROM client_leads l
+         LEFT JOIN users ae ON l.assigned_executive = ae.id
+         LEFT JOIN users cu ON l.created_by = cu.id
+         LEFT JOIN users uu ON l.updated_by = uu.id
+         WHERE (l.transferred_to_buyer != 1 OR l.transferred_to_buyer IS NULL)
+           AND (l.transferred_to_seller != 1 OR l.transferred_to_seller IS NULL)
+         ORDER BY l.created_at DESC, l.id DESC`
+      );
+      rows = r;
+    }
 
     const [allLeadFollowups] = await db.execute(
       `SELECT f.*, f.entity_id AS lead_id FROM fu_follow_ups f WHERE f.entity_code = 'LEAD' ORDER BY COALESCE(f.scheduled_date, f.created_at) DESC, f.id DESC`
@@ -480,10 +532,21 @@ class Lead {
   }
 
   static async updateAssignedExecutive(id, assigned_executive) {
-    const [result] = await db.execute(
-      `UPDATE client_leads SET assigned_executive = ? WHERE id = ?`,
-      [assigned_executive, id]
-    );
+    const hasAssigned = assigned_executive !== null && assigned_executive !== undefined && String(assigned_executive).trim() !== "";
+    let result;
+    try {
+      const [r] = await db.execute(
+        `UPDATE client_leads SET assigned_executive = ?, assigned_at = ?, updated_at = NOW() WHERE id = ?`,
+        [assigned_executive || null, hasAssigned ? new Date() : null, id]
+      );
+      result = r;
+    } catch (e) {
+      const [r] = await db.execute(
+        `UPDATE client_leads SET assigned_executive = ?, updated_at = NOW() WHERE id = ?`,
+        [assigned_executive || null, id]
+      );
+      result = r;
+    }
     return result.affectedRows > 0;
   }
   static async bulkUpdateAssignedExecutive(ids = [], assigned_executive = null) {
@@ -505,13 +568,24 @@ class Lead {
     // Step 2: Update existing ones
     let affectedCount = 0;
     if (existingIds.length > 0) {
-      const [result] = await db.execute(
-        `UPDATE client_leads 
-       SET assigned_executive = ?, updated_at = NOW() 
-       WHERE id IN (${existingIds.map(() => '?').join(',')})`,
-        [assigned_executive, ...existingIds]
-      );
-      affectedCount = result.affectedRows || 0;
+      const hasAssigned = assigned_executive !== null && assigned_executive !== undefined && String(assigned_executive).trim() !== "";
+      try {
+        const [result] = await db.execute(
+          `UPDATE client_leads 
+         SET assigned_executive = ?, assigned_at = ?, updated_at = NOW() 
+         WHERE id IN (${existingIds.map(() => '?').join(',')})`,
+          [assigned_executive || null, hasAssigned ? new Date() : null, ...existingIds]
+        );
+        affectedCount = result.affectedRows || 0;
+      } catch (colErr) {
+        const [result] = await db.execute(
+          `UPDATE client_leads 
+         SET assigned_executive = ?, updated_at = NOW() 
+         WHERE id IN (${existingIds.map(() => '?').join(',')})`,
+          [assigned_executive || null, ...existingIds]
+        );
+        affectedCount = result.affectedRows || 0;
+      }
     }
 
     return {

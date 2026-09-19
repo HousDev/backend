@@ -170,7 +170,7 @@ const getOwners = async (_req, res) => {
       LEFT JOIN users c ON o.created_by = c.id
       LEFT JOIN users u ON o.updated_by = u.id
       LEFT JOIN users a ON o.assigned_to = a.id
-      ORDER BY o.id DESC
+      ORDER BY COALESCE(o.assigned_at, o.created_at) DESC, o.id DESC
     `;
     const [owners] = await pool.query(ownersSql);
     if (!owners.length) return res.json({ success: true, data: [] });

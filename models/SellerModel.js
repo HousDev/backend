@@ -333,12 +333,21 @@ const SellerModel = {
       return { success: true, affected: 0 };
 
     const placeholders = sellerIds.map(() => "?").join(",");
-    const params = [executiveId ?? null, ...sellerIds];
-
-    let sql = `UPDATE sellers SET assigned_to=?, updated_at=NOW() WHERE id IN (${placeholders})`;
-    if (onlyEmpty) sql += " AND (assigned_to IS NULL OR assigned_to='')";
-
-    const [res] = await pool.execute(sql, params);
+    const hasAssigned = executiveId !== null && executiveId !== undefined && String(executiveId).trim() !== "";
+    let res;
+    try {
+      const params = [executiveId ?? null, hasAssigned ? new Date() : null, ...sellerIds];
+      let sql = `UPDATE sellers SET assigned_to=?, assigned_at=?, updated_at=NOW() WHERE id IN (${placeholders})`;
+      if (onlyEmpty) sql += " AND (assigned_to IS NULL OR assigned_to='')";
+      const [r] = await pool.execute(sql, params);
+      res = r;
+    } catch (e) {
+      const params = [executiveId ?? null, ...sellerIds];
+      let sql = `UPDATE sellers SET assigned_to=?, updated_at=NOW() WHERE id IN (${placeholders})`;
+      if (onlyEmpty) sql += " AND (assigned_to IS NULL OR assigned_to='')";
+      const [r] = await pool.execute(sql, params);
+      res = r;
+    }
     return { success: true, affected: res.affectedRows };
   },
 

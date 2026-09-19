@@ -104,33 +104,68 @@ class Buyer {
 
     const preferred_locations_coords = data.preferred_locations_coords ?? null;
 
-   const [result] = await db.execute(
-  `INSERT INTO buyers (
-    \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
-    \`state\`, \`city\`, \`location\`,
-    \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
-    \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
-    \`assigned_executive\`,          -- 🔥 ADD THIS
-    \`preferred_locations_coords\`,
-    \`created_at\`, \`updated_at\`
-  ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
-    CAST(? AS JSON), CAST(? AS JSON),
-    ?,                              -- 🔥 VALUE FOR assigned_executive
-    CAST(? AS JSON),
-    NOW(), NOW()
-  )`,
-  [
-    salutation, name, dob, phone, whatsapp_number, email,
-    state, city, location,
-    buyer_lead_priority, buyer_lead_source, buyer_lead_stage, buyer_lead_status,
-    budget_min, budget_max,
-    requirements, financials,
-    intOrNull(data.assigned_executive),   // 🔥 THIS FIXES NULL ISSUE
-    preferred_locations_coords
-  ]
-);
-
+    const hasAssignedExec = data.assigned_executive !== null && data.assigned_executive !== undefined && String(data.assigned_executive).trim() !== "";
+    let result;
+    try {
+      const [res] = await db.execute(
+        `INSERT INTO buyers (
+          \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
+          \`state\`, \`city\`, \`location\`,
+          \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
+          \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
+          \`assigned_executive\`,
+          \`preferred_locations_coords\`,
+          \`assigned_at\`,
+          \`created_at\`, \`updated_at\`
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+          CAST(? AS JSON), CAST(? AS JSON),
+          ?,
+          CAST(? AS JSON),
+          ?,
+          NOW(), NOW()
+        )`,
+        [
+          salutation, name, dob, phone, whatsapp_number, email,
+          state, city, location,
+          buyer_lead_priority, buyer_lead_source, buyer_lead_stage, buyer_lead_status,
+          budget_min, budget_max,
+          requirements, financials,
+          intOrNull(data.assigned_executive),
+          preferred_locations_coords,
+          hasAssignedExec ? new Date() : null
+        ]
+      );
+      result = res;
+    } catch (insertErr) {
+      const [res] = await db.execute(
+        `INSERT INTO buyers (
+          \`salutation\`, \`name\`, \`dob\`, \`phone\`, \`whatsapp_number\`, \`email\`,
+          \`state\`, \`city\`, \`location\`,
+          \`buyer_lead_priority\`, \`buyer_lead_source\`, \`buyer_lead_stage\`, \`buyer_lead_status\`,
+          \`budget_min\`, \`budget_max\`, \`requirements\`, \`financials\`,
+          \`assigned_executive\`,
+          \`preferred_locations_coords\`,
+          \`created_at\`, \`updated_at\`
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+          CAST(? AS JSON), CAST(? AS JSON),
+          ?,
+          CAST(? AS JSON),
+          NOW(), NOW()
+        )`,
+        [
+          salutation, name, dob, phone, whatsapp_number, email,
+          state, city, location,
+          buyer_lead_priority, buyer_lead_source, buyer_lead_stage, buyer_lead_status,
+          budget_min, budget_max,
+          requirements, financials,
+          intOrNull(data.assigned_executive),
+          preferred_locations_coords
+        ]
+      );
+      result = res;
+    }
 
     return await Buyer.findById(result.insertId);
   }
@@ -138,15 +173,7 @@ class Buyer {
   /* ---------- Read ---------- */
   static async findById(id) {
     const [rows] = await db.execute("SELECT * FROM buyers WHERE id = ?", [id]);
-    if (!rows[0]) return null;
-    const row = rows[0];
-    return {
-      ...row,
-      dob: row.dob,
-      requirements: safeParse(row.requirements, {}),
-      financials: safeParse(row.financials, {}),
-      budget: { min: row.budget_min, max: row.budget_max },
-    };
+    return rows.length ? rows[0] : null;
   }
 
   static async findAll() {
@@ -163,7 +190,7 @@ class Buyer {
   /* ---------- Update ---------- */
   static async update(id, data) {
     const current = await this.findById(id);
-    if (!current) return null;
+    if (!current) throw new Error("Buyer not found");
 
     // Merge JSON fields
     const incomingReq = data.requirements !== undefined ? data.requirements : undefined;
@@ -226,20 +253,42 @@ class Buyer {
   /* ---------- Assignment ---------- */
   static async assignExecutive(buyerId, executiveId) {
     if (!buyerId) throw new Error("Buyer ID required");
-    const [res] = await db.execute(
-      "UPDATE buyers SET assigned_executive=?, updated_at=NOW() WHERE id=?",
-      [executiveId ?? null, buyerId]
-    );
+    const hasAssigned = executiveId !== null && executiveId !== undefined && String(executiveId).trim() !== "";
+    let res;
+    try {
+      const [r] = await db.execute(
+        "UPDATE buyers SET assigned_executive=?, assigned_at=?, updated_at=NOW() WHERE id=?",
+        [executiveId ?? null, hasAssigned ? new Date() : null, buyerId]
+      );
+      res = r;
+    } catch (e) {
+      const [r] = await db.execute(
+        "UPDATE buyers SET assigned_executive=?, updated_at=NOW() WHERE id=?",
+        [executiveId ?? null, buyerId]
+      );
+      res = r;
+    }
     return { success: true, affected: res.affectedRows };
   }
 
   static async bulkAssignSameExecutive(buyerIds = [], executiveId, onlyEmpty = false) {
     if (!Array.isArray(buyerIds) || buyerIds.length === 0) return { success: true, affected: 0 };
     const placeholders = buyerIds.map(() => "?").join(",");
-    const params = [executiveId ?? null, ...buyerIds];
-    let sql = `UPDATE buyers SET assigned_executive=?, updated_at=NOW() WHERE id IN (${placeholders})`;
-    if (onlyEmpty) sql += " AND (assigned_executive IS NULL OR assigned_executive='')";
-    const [res] = await db.execute(sql, params);
+    const hasAssigned = executiveId !== null && executiveId !== undefined && String(executiveId).trim() !== "";
+    let res;
+    try {
+      const params = [executiveId ?? null, hasAssigned ? new Date() : null, ...buyerIds];
+      let sql = `UPDATE buyers SET assigned_executive=?, assigned_at=?, updated_at=NOW() WHERE id IN (${placeholders})`;
+      if (onlyEmpty) sql += " AND (assigned_executive IS NULL OR assigned_executive='')";
+      const [r] = await db.execute(sql, params);
+      res = r;
+    } catch (e) {
+      const params = [executiveId ?? null, ...buyerIds];
+      let sql = `UPDATE buyers SET assigned_executive=?, updated_at=NOW() WHERE id IN (${placeholders})`;
+      if (onlyEmpty) sql += " AND (assigned_executive IS NULL OR assigned_executive='')";
+      const [r] = await db.execute(sql, params);
+      res = r;
+    }
     return { success: true, affected: res.affectedRows };
   }
 

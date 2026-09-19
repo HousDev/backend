@@ -118,7 +118,7 @@ class RentalProperty {
           FROM rental_properties AS p
           LEFT JOIN users   AS u ON p.assigned_to = u.id
           LEFT JOIN owners  AS o ON p.owner_id   = o.id
-          ORDER BY p.created_at DESC
+          ORDER BY COALESCE(p.assigned_at, p.created_at) DESC, p.id DESC
         `);
       rows = dbRows || [];
     } catch (err) {

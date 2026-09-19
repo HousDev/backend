@@ -235,7 +235,7 @@ const getSellers = async (_req, res) => {
       LEFT JOIN users u ON s.updated_by = u.id
       LEFT JOIN users a ON s.assigned_to = a.id
       LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
-      ORDER BY s.id DESC
+      ORDER BY COALESCE(s.assigned_at, s.created_at) DESC, s.id DESC
     `;
     const [sellers] = await pool.query(sellersSql);
     if (!sellers.length) return res.json({ success: true, data: [] });

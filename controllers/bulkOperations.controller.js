@@ -856,15 +856,29 @@ const bulkAssignExecutive = async (req, res) => {
     const placeholders = propertyIds.map(() => '?').join(',');
     const db = require('../config/database');
     if (executiveId !== null && executiveId !== undefined) {
-      await db.query(
-        `UPDATE ${table} SET assigned_to = ? WHERE id IN (${placeholders})`,
-        [executiveId, ...propertyIds]
-      );
+      try {
+        await db.query(
+          `UPDATE ${table} SET assigned_to = ?, assigned_at = NOW() WHERE id IN (${placeholders})`,
+          [executiveId, ...propertyIds]
+        );
+      } catch (colErr) {
+        await db.query(
+          `UPDATE ${table} SET assigned_to = ? WHERE id IN (${placeholders})`,
+          [executiveId, ...propertyIds]
+        );
+      }
     } else {
-      await db.query(
-        `UPDATE ${table} SET assigned_to = NULL WHERE id IN (${placeholders})`,
-        [...propertyIds]
-      );
+      try {
+        await db.query(
+          `UPDATE ${table} SET assigned_to = NULL, assigned_at = NULL WHERE id IN (${placeholders})`,
+          [...propertyIds]
+        );
+      } catch (colErr) {
+        await db.query(
+          `UPDATE ${table} SET assigned_to = NULL WHERE id IN (${placeholders})`,
+          [...propertyIds]
+        );
+      }
     }
     return res.json({
       success: true,
