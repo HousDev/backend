@@ -12,7 +12,10 @@ function buildModulePermissionsFromKeys(permissionKeys = []) {
   for (const key of permissionKeys) {
     if (!key || typeof key !== "string") continue;
 
-    const [resource, action] = key.split(".");
+    const dotIndex = key.indexOf(".");
+    if (dotIndex < 0) continue;
+    const resource = key.slice(0, dotIndex).trim();
+    const action = key.slice(dotIndex + 1).trim();
     if (!resource || !action) continue;
 
     if (!modules[resource]) {
@@ -30,8 +33,14 @@ function buildModulePermissionsFromKeys(permissionKeys = []) {
       };
     }
 
-    // Action mapping
+    // Set exact action
+    modules[resource][action] = true;
+
+    // Action mapping & aliases
     if (action === "read") {
+      modules[resource].read = true;
+      modules[resource].view = true;
+    } else if (action === "view") {
       modules[resource].read = true;
       modules[resource].view = true;
     } else if (action === "create") {
@@ -42,14 +51,34 @@ function buildModulePermissionsFromKeys(permissionKeys = []) {
       modules[resource].delete = true;
     } else if (action === "manage") {
       modules[resource].manage = true;
-    } else if (action === "export") {
+    } else if (action === "export" || action === "export_data") {
       modules[resource].export = true;
-    } else if (action === "import") {
+    } else if (action === "import" || action === "import_data") {
       modules[resource].import = true;
     } else if (action === "assign") {
       modules[resource].assign = true;
     } else if (action === "bulk_delete") {
       modules[resource].bulk_delete = true;
+    }
+
+    // Settings / Master Data aliases
+    if (resource === "settings") {
+      if (action === "manage_master" || action === "manage_variable_center") {
+        if (!modules["settings_master"]) {
+          modules["settings_master"] = { manage: true, read: true, view: true };
+        } else {
+          modules["settings_master"].manage = true;
+          modules["settings_master"].read = true;
+          modules["settings_master"].view = true;
+        }
+      }
+    }
+    if (resource === "settings_master") {
+      if (!modules["settings"]) {
+        modules["settings"] = { manage_master: true };
+      } else {
+        modules["settings"].manage_master = true;
+      }
     }
   }
 
@@ -639,10 +668,16 @@ class User {
       const sql = `
         UPDATE users
         SET module_permissions = ?, updated_at = NOW()
-        WHERE role = ?
+        WHERE LOWER(TRIM(role)) = LOWER(TRIM(?))
+           OR LOWER(REPLACE(TRIM(role), ' ', '_')) = LOWER(REPLACE(TRIM(?), ' ', '_'))
+           OR LOWER(REPLACE(TRIM(role), '_', ' ')) = LOWER(REPLACE(TRIM(?), '_', ' '))
+           OR role = ?
       `;
       const [result] = await db.query(sql, [
         JSON.stringify(module_permissions),
+        roleId,
+        roleId,
+        roleId,
         roleId,
       ]);
 

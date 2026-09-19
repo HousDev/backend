@@ -6,11 +6,19 @@ const db = require("../config/database"); // mysql2/promise pool
  * Returns: ['user.create', 'user.read', 'lead.read', ...]
  */
 async function getRolePermissionKeys(roleId) {
+  const clean = String(roleId || "").trim();
+  const slug = clean.toLowerCase().replace(/\s+/g, "_");
+  const space = clean.toLowerCase().replace(/_/g, " ");
+
   const [rows] = await db.query(
-    "SELECT permission_key FROM role_permissions WHERE role_id = ?",
-    [roleId]
+    `SELECT permission_key FROM role_permissions 
+     WHERE role_id = ? 
+        OR LOWER(TRIM(role_id)) = LOWER(TRIM(?)) 
+        OR role_id = ? 
+        OR role_id = ?`,
+    [clean, clean, slug, space]
   );
-  return rows.map((r) => r.permission_key);
+  return [...new Set(rows.map((r) => r.permission_key))];
 }
 
 /**
