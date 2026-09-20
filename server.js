@@ -72,6 +72,7 @@ const { startCampaignScheduler } = require("./corn/campaignScheduler");
 const societyRoutes = require("./routes/SocietyRoutes");
 
 const googleSheetsRoutes = require("./routes/googleSheets.routes");
+const workSessionRoutes = require("./routes/workSession.routes");
 const app = express();
 
 app.set("trust proxy", 1);
@@ -196,7 +197,8 @@ app.use("/api/analytics", require("./routes/analytics.routes"));
 app.use("/api/rent-leases", require("./routes/rentLeaseRoutes"));
 
 // Add this with other routes
-
+app.use("/api/sessions", workSessionRoutes);
+app.use("/api/work-sessions", workSessionRoutes);
 
 app.use("/api/rbac", rbacRoutes);
 app.use("/api/backup", backupRoutes);

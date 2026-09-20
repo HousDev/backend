@@ -257,13 +257,9 @@ exports.signin = async (req, res) => {
       });
     }
 
-    // Mandatory Location Access Check
-    if (req.body.latitude === undefined || req.body.longitude === undefined || req.body.latitude === null || req.body.longitude === null) {
-      return res.status(400).send({
-        success: false,
-        message: 'Location access is required to log in. Please enable location permissions in your browser and try again.'
-      });
-    }
+    // Fallback location defaults if missing or blocked
+    if (req.body.latitude === undefined || req.body.latitude === null) req.body.latitude = 0;
+    if (req.body.longitude === undefined || req.body.longitude === null) req.body.longitude = 0;
 
     // Find user by username OR email (case-insensitive)
     const user = await User.findByIdentifier(cleanIdentifier);
