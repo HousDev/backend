@@ -70,8 +70,8 @@ class RentalProperty {
         data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
         data.nearby_places ? JSON.stringify(data.nearby_places) : null,
         data.description || null,
-        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : 0,
-        data.publication_date || null,
+        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : (data.is_public ? 1 : 0),
+        data.publication_date || (data.is_public ? new Date() : null),
         data.listing_type || 'rent',
         data.monthly_rent || null,
         data.security_deposit || null,
@@ -318,8 +318,8 @@ class RentalProperty {
         data.furnishing_items ? JSON.stringify(data.furnishing_items) : null,
         data.nearby_places ? JSON.stringify(data.nearby_places) : null,
         data.description || null,
-        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : null,
-        data.publication_date || null,
+        typeof data.is_public === "boolean" ? (data.is_public ? 1 : 0) : (data.is_public != null ? (data.is_public ? 1 : 0) : null),
+        data.publication_date || (data.is_public ? (existing?.publication_date || new Date()) : (data.is_public === false || data.is_public === 0 ? null : (existing?.publication_date || null))),
         data.listing_type || 'rent',
         data.monthly_rent || null,
         data.security_deposit || null,
@@ -398,8 +398,13 @@ class RentalProperty {
     const val = isPublic ? 1 : 0;
     const placeholders = propertyIds.map(() => "?").join(",");
     const [result] = await db.execute(
-      `UPDATE rental_properties SET is_public = ? WHERE id IN (${placeholders})`,
-      [val, ...propertyIds],
+      `UPDATE rental_properties 
+       SET is_public = ?, 
+           publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           status = CASE WHEN ? = 1 AND (status = 'Pending Review' OR status = '' OR status IS NULL) THEN 'Available' ELSE status END,
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id IN (${placeholders})`,
+      [val, val, val, ...propertyIds],
     );
     return result.affectedRows;
   }
@@ -417,8 +422,13 @@ class RentalProperty {
   static async togglePublic(id, isPublic) {
     const val = isPublic ? 1 : 0;
     const [result] = await db.execute(
-      "UPDATE rental_properties SET is_public = ? WHERE id = ?",
-      [val, id],
+      `UPDATE rental_properties 
+       SET is_public = ?, 
+           publication_date = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           status = CASE WHEN ? = 1 AND (status = 'Pending Review' OR status = '' OR status IS NULL) THEN 'Available' ELSE status END,
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [val, val, val, id],
     );
     return result.affectedRows;
   }
