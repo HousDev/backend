@@ -293,6 +293,13 @@ app.use("/api/ai-training", require("./routes/aiTraining.routes"));
 app.use("/api/v1/ai-reports", require("./routes/dynamicAiReport.routes"));
 app.use("/api/ai-reports", require("./routes/dynamicAiReport.routes"));
 
+// Python AI/ML Microservice Proxies
+const aiProxyRoutes = require("./routes/aiProxy.routes");
+app.use("/api/datasets", aiProxyRoutes);
+app.use("/api/models", aiProxyRoutes);
+app.use("/api/training", aiProxyRoutes);
+app.use("/api/prediction", aiProxyRoutes);
+
 app.use(
   "/api/public/system-settings",
   require("./routes/publicSystemSettings.routes"),

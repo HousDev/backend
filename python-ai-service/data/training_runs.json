@@ -1,0 +1,1104 @@
+[
+  {
+    "id": 1789994956461,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 10,
+      "test_split": 10,
+      "learning_rate": 0.075,
+      "n_estimators": 400,
+      "mode": "Incremental Learning"
+    },
+    "metrics": {
+      "mae": 1.18,
+      "mae_formatted": "1.2 pts AI score error",
+      "rmse": 1.87,
+      "r2_score": 0.993,
+      "accuracy_pct": 98.8,
+      "feature_importances": {
+        "discount_pct": 0.6454,
+        "rental_yield_pct": 0.0023,
+        "search_interest_score": 0.0008,
+        "search_momentum": 0.0017,
+        "property_age": 0.0,
+        "price_per_sqft": 0.3497
+      },
+      "samples_trained": 58,
+      "samples_tested": 25,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-21T12:49:16.462029Z",
+    "completed_at": "2026-09-21T12:49:16.855613Z",
+    "error": null,
+    "version_tag": "v14"
+  },
+  {
+    "id": 1789993623992,
+    "model_id": 4,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 10,
+      "test_split": 10,
+      "learning_rate": 0.075,
+      "n_estimators": 400,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "retrieval_latency_ms": 38.0,
+      "intent_accuracy_pct": 97.5,
+      "coverage_localities": 14,
+      "rag_enabled": true
+    },
+    "started_at": "2026-09-21T12:27:03.992742Z",
+    "completed_at": "2026-09-21T12:27:04.173745Z",
+    "error": null,
+    "version_tag": "v6"
+  },
+  {
+    "id": 1789993607583,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 10,
+      "test_split": 10,
+      "learning_rate": 0.075,
+      "n_estimators": 400,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "mae": 1.18,
+      "mae_formatted": "1.2 pts AI score error",
+      "rmse": 1.87,
+      "r2_score": 0.993,
+      "accuracy_pct": 98.8,
+      "feature_importances": {
+        "discount_pct": 0.6454,
+        "rental_yield_pct": 0.0023,
+        "search_interest_score": 0.0008,
+        "search_momentum": 0.0017,
+        "property_age": 0.0,
+        "price_per_sqft": 0.3497
+      },
+      "samples_trained": 58,
+      "samples_tested": 25,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-21T12:26:47.583379Z",
+    "completed_at": "2026-09-21T12:26:48.478236Z",
+    "error": null,
+    "version_tag": "v13"
+  },
+  {
+    "id": 1789993505060,
+    "model_id": 2,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 10,
+      "test_split": 10,
+      "learning_rate": 0.075,
+      "n_estimators": 400,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "mae": 566.66,
+      "mae_formatted": "\u20b9566/sqft error",
+      "rmse": 1166.28,
+      "r2_score": 0.9722,
+      "accuracy_pct": 97.7,
+      "feature_importances": {
+        "historical_avg_sqft": 0.959,
+        "search_interest_score": 0.0225,
+        "search_momentum": 0.0078,
+        "quarter_index": 0.0033,
+        "inventory_count": 0.0074
+      },
+      "samples_trained": 84,
+      "samples_tested": 36,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-21T12:25:05.060202Z",
+    "completed_at": "2026-09-21T12:25:07.751762Z",
+    "error": null,
+    "version_tag": "v11"
+  },
+  {
+    "id": 1789992948015,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 979202.17,
+      "mae_formatted": "\u00b1\u20b99.79L",
+      "precision_tolerance": "\u00b17.5% variance",
+      "rmse": 2263049.0,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:15:48.015630Z",
+    "completed_at": "2026-09-21T12:15:48.405116Z",
+    "error": null,
+    "version_tag": "v31"
+  },
+  {
+    "id": 1789992814196,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 80,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.04,
+      "n_estimators": 180,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 777973.0,
+      "mae_formatted": "\u00b1\u20b97.78L",
+      "precision_tolerance": "\u00b16.3% variance",
+      "rmse": 1993941.82,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 184,
+      "samples_tested": 46,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:13:34.196712Z",
+    "completed_at": "2026-09-21T12:13:34.756878Z",
+    "error": null,
+    "version_tag": "v30"
+  },
+  {
+    "id": 1789992772857,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 945053.62,
+      "mae_formatted": "\u00b1\u20b99.45L",
+      "precision_tolerance": "\u00b17.4% variance",
+      "rmse": 2212142.25,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:12:52.857109Z",
+    "completed_at": "2026-09-21T12:12:53.311919Z",
+    "error": null,
+    "version_tag": "v29"
+  },
+  {
+    "id": 1789992722215,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 980118.59,
+      "mae_formatted": "\u00b1\u20b99.8L",
+      "precision_tolerance": "\u00b17.7% variance",
+      "rmse": 2221938.79,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:12:02.215395Z",
+    "completed_at": "2026-09-21T12:12:02.685906Z",
+    "error": null,
+    "version_tag": "v28"
+  },
+  {
+    "id": 1789992702738,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 961783.1,
+      "mae_formatted": "\u00b1\u20b99.62L",
+      "precision_tolerance": "\u00b17.4% variance",
+      "rmse": 2209508.98,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:11:42.738880Z",
+    "completed_at": "2026-09-21T12:11:43.223610Z",
+    "error": null,
+    "version_tag": "v27"
+  },
+  {
+    "id": 1789992677881,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 991363.22,
+      "mae_formatted": "\u00b1\u20b99.91L",
+      "precision_tolerance": "\u00b17.7% variance",
+      "rmse": 2271593.19,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:11:17.881944Z",
+    "completed_at": "2026-09-21T12:11:18.525140Z",
+    "error": null,
+    "version_tag": "v26"
+  },
+  {
+    "id": 1789992620635,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 1060876.28,
+      "mae_formatted": "\u00b1\u20b910.61L",
+      "precision_tolerance": "\u00b18.6% variance",
+      "rmse": 2308972.02,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:10:20.635817Z",
+    "completed_at": "2026-09-21T12:10:21.221595Z",
+    "error": null,
+    "version_tag": "v25"
+  },
+  {
+    "id": 1789992565752,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 983598.33,
+      "mae_formatted": "\u00b1\u20b99.84L",
+      "precision_tolerance": "\u00b17.7% variance",
+      "rmse": 2242539.32,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:09:25.752874Z",
+    "completed_at": "2026-09-21T12:09:26.185862Z",
+    "error": null,
+    "version_tag": "v24"
+  },
+  {
+    "id": 1789992519335,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 1003533.3,
+      "mae_formatted": "\u00b1\u20b910.04L",
+      "precision_tolerance": "\u00b17.9% variance",
+      "rmse": 2255206.01,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:08:39.335411Z",
+    "completed_at": "2026-09-21T12:08:39.834295Z",
+    "error": null,
+    "version_tag": "v23"
+  },
+  {
+    "id": 1789992342290,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 80,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "mae": 836315.75,
+      "mae_formatted": "\u00b1\u20b98.36L",
+      "precision_tolerance": "\u00b17.0% variance",
+      "rmse": 2012606.05,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 184,
+      "samples_tested": 46,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-21T12:05:42.290705Z",
+    "completed_at": "2026-09-21T12:05:43.011075Z",
+    "error": null,
+    "version_tag": "v22"
+  },
+  {
+    "id": 1789796038,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 20,
+      "test_split": 10,
+      "learning_rate": 0.045,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 781182.43,
+      "mae_formatted": "\u00c2\u00b1\u00e2\u201a\u00b97.81L",
+      "precision_tolerance": "\u00c2\u00b17.0% variance",
+      "rmse": 1776515.31,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 161,
+      "samples_tested": 69,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-19T11:03:58.528374Z",
+    "completed_at": "2026-09-19T11:03:59.973929Z",
+    "error": null,
+    "version_tag": "v21"
+  },
+  {
+    "id": 1789794951,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 65,
+      "valid_split": 20,
+      "test_split": 15,
+      "learning_rate": 0.025,
+      "n_estimators": 300,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "mae": 1.1,
+      "mae_formatted": "1.1 pts AI score error",
+      "rmse": 1.86,
+      "r2_score": 0.9933,
+      "accuracy_pct": 98.9,
+      "feature_importances": {
+        "discount_pct": 0.6564,
+        "rental_yield_pct": 0.0019,
+        "search_interest_score": 0.0025,
+        "search_momentum": 0.0005,
+        "property_age": 0.0002,
+        "price_per_sqft": 0.3385
+      },
+      "samples_trained": 53,
+      "samples_tested": 30,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-19T10:45:51.177997Z",
+    "completed_at": "2026-09-19T10:45:51.985387Z",
+    "error": null,
+    "version_tag": "v12"
+  },
+  {
+    "id": 1789794581,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "n_estimators": 250,
+      "learning_rate": 0.05,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 1.18,
+      "mae_formatted": "1.2 pts AI score error",
+      "rmse": 1.87,
+      "r2_score": 0.993,
+      "accuracy_pct": 98.8,
+      "feature_importances": {
+        "discount_pct": 0.6454,
+        "rental_yield_pct": 0.0023,
+        "search_interest_score": 0.0008,
+        "search_momentum": 0.0017,
+        "property_age": 0,
+        "price_per_sqft": 0.3497
+      },
+      "samples_trained": 58,
+      "samples_tested": 25,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-19T10:39:41.857072Z",
+    "completed_at": "2026-09-19T10:39:42.087421Z",
+    "error": null,
+    "version_tag": "v11"
+  },
+  {
+    "id": 1789794516,
+    "model_id": 4,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 75,
+      "n_estimators": 120,
+      "learning_rate": 0.05,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 787590.91,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b97.88L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b16.8% variance",
+      "rmse": 1810304.2,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 172,
+      "samples_tested": 58,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-19T10:38:36.796963Z",
+    "completed_at": "2026-09-19T10:38:37.713838Z",
+    "error": null,
+    "version_tag": "v20"
+  },
+  {
+    "id": 1789794335,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 75,
+      "n_estimators": 200,
+      "learning_rate": 0.04,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 1.24,
+      "mae_formatted": "1.2 pts AI score error",
+      "rmse": 2.01,
+      "r2_score": 0.9924,
+      "accuracy_pct": 98.8,
+      "feature_importances": {
+        "discount_pct": 0.6547,
+        "rental_yield_pct": 0.0025,
+        "search_interest_score": 0.0009,
+        "search_momentum": 0.0012,
+        "property_age": 0.0002,
+        "price_per_sqft": 0.3406
+      },
+      "samples_trained": 62,
+      "samples_tested": 21,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-19T10:35:35.769022Z",
+    "completed_at": "2026-09-19T10:35:36.038076Z",
+    "error": null,
+    "version_tag": "v9"
+  },
+  {
+    "id": 1789793962,
+    "model_id": 2,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 20,
+      "test_split": 10,
+      "learning_rate": 0.05,
+      "n_estimators": 300,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 517.37,
+      "mae_formatted": "\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b9517/sqft error",
+      "rmse": 1148.48,
+      "r2_score": 0.972,
+      "accuracy_pct": 97.9,
+      "feature_importances": {
+        "historical_avg_sqft": 0.9693,
+        "search_interest_score": 0.0027,
+        "search_momentum": 0.0077,
+        "quarter_index": 0.0021,
+        "inventory_count": 0.0183
+      },
+      "samples_trained": 84,
+      "samples_tested": 36,
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-19T10:29:22.200224Z",
+    "completed_at": "2026-09-19T10:29:23.632500Z",
+    "error": null,
+    "version_tag": "v9"
+  },
+  {
+    "id": 1789793924,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 70,
+      "valid_split": 20,
+      "test_split": 10,
+      "learning_rate": 0.05,
+      "n_estimators": 300,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 860078.17,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b98.6L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b18.0% variance",
+      "rmse": 1852791.63,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 161,
+      "samples_tested": 69,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-19T10:28:44.020470Z",
+    "completed_at": "2026-09-19T10:28:45.069517Z",
+    "error": null,
+    "version_tag": "v19"
+  },
+  {
+    "id": 1789792737,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 10,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 959380.79,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b99.59L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b17.4% variance",
+      "rmse": 2227338.52,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-19T10:08:57.528095Z",
+    "completed_at": "2026-09-19T10:08:58.553449Z",
+    "error": null,
+    "version_tag": "v18"
+  },
+  {
+    "id": 1789792708,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 10,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Full Model Retrain"
+    },
+    "metrics": {
+      "mae": 985273.83,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b99.85L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b17.6% variance",
+      "rmse": 2243375.75,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-19T10:08:28.506080Z",
+    "completed_at": "2026-09-19T10:08:29.602076Z",
+    "error": null,
+    "version_tag": "v17"
+  },
+  {
+    "id": 1789716833,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 85,
+      "valid_split": 15,
+      "test_split": 5,
+      "learning_rate": 0.035,
+      "n_estimators": 200,
+      "mode": "Fine-tuning"
+    },
+    "metrics": {
+      "mae": 1013965.05,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b910.14L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b18.2% variance",
+      "rmse": 2268945.32,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 195,
+      "samples_tested": 35,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-18T13:03:53.449414Z",
+    "completed_at": "2026-09-18T13:03:53.762575Z",
+    "error": null,
+    "version_tag": "v16"
+  },
+  {
+    "id": 1789714156,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {},
+    "metrics": {
+      "mae": 775212.53,
+      "mae_formatted": "\u00c3\u201a\u00c2\u00b1\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b97.75L",
+      "precision_tolerance": "\u00c3\u201a\u00c2\u00b16.0% variance",
+      "rmse": 2009225.51,
+      "r2_score": 0.95,
+      "accuracy_pct": 95.4,
+      "samples_trained": 184,
+      "samples_tested": 46,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true,
+      "data_pillars": "Past Comps + Active Listings + Google Trends"
+    },
+    "started_at": "2026-09-18T12:19:16.145978Z",
+    "completed_at": "2026-09-18T12:19:16.634491Z",
+    "error": null,
+    "version_tag": "v15"
+  },
+  {
+    "id": 1789714116,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {},
+    "metrics": {
+      "mae": 2625511.85,
+      "mae_formatted": "\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b92,625,511 (26.26L)",
+      "rmse": 4207514.76,
+      "r2_score": 0.6689,
+      "accuracy_pct": 77.9,
+      "samples_trained": 66,
+      "samples_tested": 17,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-18T12:18:36.267813Z",
+    "completed_at": "2026-09-18T12:18:36.499150Z",
+    "error": null,
+    "version_tag": "v14"
+  },
+  {
+    "id": 1789711982,
+    "model_id": 1,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 80
+    },
+    "metrics": {
+      "mae": 2625511.85,
+      "mae_formatted": "\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b92,625,511 (26.26L)",
+      "rmse": 4207514.76,
+      "r2_score": 0.6689,
+      "accuracy_pct": 77.9,
+      "samples_trained": 66,
+      "samples_tested": 17,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-18T11:43:02.534546Z",
+    "completed_at": "2026-09-18T11:43:04.660991Z",
+    "error": null,
+    "version_tag": "v10"
+  },
+  {
+    "id": 1789711718,
+    "model_id": 3,
+    "dataset_id": null,
+    "status": "completed",
+    "progress_pct": 100,
+    "parameters": {
+      "train_split": 80
+    },
+    "metrics": {
+      "mae": 2625511.85,
+      "mae_formatted": "\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00b92,625,511 (26.26L)",
+      "rmse": 4207514.76,
+      "r2_score": 0.6689,
+      "accuracy_pct": 77.9,
+      "samples_trained": 66,
+      "samples_tested": 17,
+      "features_used": [
+        "carpet_area",
+        "bedrooms",
+        "bathrooms",
+        "floor_num",
+        "property_age",
+        "search_interest_score",
+        "search_momentum",
+        "location_name",
+        "unit_type",
+        "furnishing"
+      ],
+      "google_trends_integrated": true
+    },
+    "started_at": "2026-09-18T11:38:38.387656Z",
+    "completed_at": "2026-09-18T11:38:40.270017Z",
+    "error": null,
+    "version_tag": "v9"
+  }
+]

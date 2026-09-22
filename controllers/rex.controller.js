@@ -710,7 +710,15 @@ exports.handleChatMessage = async (req, res) => {
       }
     }
 
-    if (aiResult.should_search_properties && !isKnowledgeQuery && !isActionOrNav) {
+    const isNearbyRequest =
+      trimmedMsg.toLowerCase().includes("nearby") ||
+      trimmedMsg.toLowerCase().includes("near me") ||
+      trimmedMsg.toLowerCase().includes("around me") ||
+      trimmedMsg.toLowerCase().includes("explore nearby") ||
+      trimmedMsg.toLowerCase().includes("current location") ||
+      trimmedMsg.toLowerCase().includes("surrounding");
+
+    if ((aiResult.should_search_properties || isNearbyRequest) && !isKnowledgeQuery && !isActionOrNav) {
       try {
         const reqs = aiResult.extracted_requirements || {};
         const searchFilters = {
@@ -724,20 +732,35 @@ exports.handleChatMessage = async (req, res) => {
           budgetMax: reqs.budget_max || null,
         };
 
-        const isNearbyRequest =
-          trimmedMsg.toLowerCase().includes("nearby") ||
-          trimmedMsg.toLowerCase().includes("near me") ||
-          trimmedMsg.toLowerCase().includes("explore nearby") ||
-          trimmedMsg.toLowerCase().includes("surrounding");
-
         const isShowAllRequest =
           trimmedMsg.toLowerCase().includes("show all") ||
           trimmedMsg.toLowerCase().includes("all properties") ||
           trimmedMsg.toLowerCase().includes("browse all");
 
+        let detectedLocName = null;
+        let isWithinPune = false;
+        const hasLocationCoords = Boolean(latitude && longitude && !isNaN(Number(latitude)) && !isNaN(Number(longitude)));
+
         if (isNearbyRequest) {
-          const baseLoc = searchFilters.locations?.[0] || session.extracted_requirements?.locations?.[0] || "Wakad";
-          const nearbyLocs = getNearbyLocations(baseLoc);
+          let nearbyLocs = [];
+          if (hasLocationCoords) {
+            const sortedLocs = [...PUNE_LOCALITY_COORDS]
+              .map((loc) => ({
+                ...loc,
+                distance: getDistanceKm(Number(latitude), Number(longitude), loc.lat, loc.lng),
+              }))
+              .sort((a, b) => a.distance - b.distance);
+
+            detectedLocName = sortedLocs[0]?.name || "Wakad";
+            isWithinPune = (sortedLocs[0]?.distance || 0) <= 60; // within 60 km of Pune
+            nearbyLocs = sortedLocs.slice(0, 3).map((l) => l.name);
+          } else {
+            const baseLoc = searchFilters.locations?.[0] || session.extracted_requirements?.locations?.[0] || "Wakad";
+            nearbyLocs = getNearbyLocations(baseLoc);
+            detectedLocName = baseLoc;
+            isWithinPune = true;
+          }
+
           searchFilters.locations = nearbyLocs.slice(0, 3);
           searchFilters.budgetMax = null;
           searchFilters.budgetMin = null;
@@ -811,8 +834,24 @@ exports.handleChatMessage = async (req, res) => {
           if (foundProperties.length > 0) {
             const unitDesc = searchFilters.unitType ? `${searchFilters.unitType} ` : "";
             const budgetDesc = searchFilters.budgetMax ? ` under ₹${Number(searchFilters.budgetMax).toLocaleString("en-IN")}/mo` : "";
-            aiResult.reply = `Here are verified rental properties available in ${locName || "Pune"}${budgetDesc}:`;
-            aiResult.suggestions = ["Contact Owner", "Explore nearby rentals", "Rent in Baner", "Modify Filters"];
+            if (isNearbyRequest) {
+              if (hasLocationCoords && isWithinPune && detectedLocName) {
+                aiResult.reply = `📍 Based on your current location near ${detectedLocName}, here are verified rental homes available nearby (${searchFilters.locations.join(", ")}):`;
+              } else if (hasLocationCoords && !isWithinPune && detectedLocName) {
+                aiResult.reply = `📍 We noticed your current location is outside Pune. Here are verified rental homes available in prime Pune hubs (${searchFilters.locations.join(", ")}):`;
+              } else {
+                aiResult.reply = `Here are verified rental homes available in nearby areas (${searchFilters.locations.join(", ")}):`;
+              }
+              aiResult.suggestions = [
+                `Rent in ${searchFilters.locations[0] || "Baner"}`,
+                searchFilters.locations[1] ? `Rent in ${searchFilters.locations[1]}` : "Rent in Wakad",
+                "Contact Owner",
+                "Talk to Executive",
+              ];
+            } else {
+              aiResult.reply = `Here are verified rental properties available in ${locName || "Pune"}${budgetDesc}:`;
+              aiResult.suggestions = ["Contact Owner", "Explore nearby rentals", "Rent in Baner", "Modify Filters"];
+            }
           }
         } else {
           // 1. Search with exact filters (Sale properties)
@@ -920,15 +959,29 @@ exports.handleChatMessage = async (req, res) => {
           if (foundProperties.length > 0) {
             const unitDesc = searchFilters.unitType ? `${searchFilters.unitType} ` : "";
             const budgetDesc = searchFilters.budgetMax ? ` under ${formatPrice(searchFilters.budgetMax)}` : "";
-            if (!aiResult.reply || aiResult.reply.includes("hold on") || aiResult.reply.includes("gather") || aiResult.reply.includes("wait") || aiResult.reply.includes("search for available") || aiResult.reply.includes("I will search")) {
+            if (isNearbyRequest) {
+              if (hasLocationCoords && isWithinPune && detectedLocName) {
+                aiResult.reply = `📍 Based on your current location near ${detectedLocName}, here are verified properties available nearby (${searchFilters.locations.join(", ")}):`;
+              } else if (hasLocationCoords && !isWithinPune && detectedLocName) {
+                aiResult.reply = `📍 We noticed your current location is outside Pune. Here are top verified properties available in prime Pune hubs (${searchFilters.locations.join(", ")}):`;
+              } else {
+                aiResult.reply = `Here are verified properties available in nearby areas (${searchFilters.locations.join(", ")}):`;
+              }
+              aiResult.suggestions = [
+                `Show all in ${searchFilters.locations[0] || "Wakad"}`,
+                searchFilters.locations[1] ? `Show all in ${searchFilters.locations[1]}` : "Explore 2 BHK in Pune",
+                "Book Site Visit",
+                "Talk to Property Executive",
+              ];
+            } else if (!aiResult.reply || aiResult.reply.includes("hold on") || aiResult.reply.includes("gather") || aiResult.reply.includes("wait") || aiResult.reply.includes("search for available") || aiResult.reply.includes("I will search")) {
               aiResult.reply = `Here are available ${unitDesc}properties in ${locName || "Pune"}${budgetDesc}:`;
+              aiResult.suggestions = [
+                "Book Site Visit",
+                "Talk to Property Executive",
+                "Explore nearby areas",
+                "Modify Filters",
+              ];
             }
-            aiResult.suggestions = [
-              "Book Site Visit",
-              "Talk to Property Executive",
-              "Explore nearby areas",
-              "Modify Filters",
-            ];
           }
         }
       } catch (searchErr) {
@@ -1120,7 +1173,7 @@ exports.handleAction = async (req, res) => {
         for (const m of payload.messages) {
           history.push({
             id: m.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-            sender: m.sender || "user",
+            sender: m.sender === "bot" ? "rex" : (m.sender || "user"),
             text: m.text || "",
             suggestions: m.suggestions || undefined,
             properties: m.properties || undefined,
@@ -1137,7 +1190,7 @@ exports.handleAction = async (req, res) => {
       } else if (payload) {
         history.push({
           id: payload.id || `msg_${Date.now()}`,
-          sender: payload.sender || "user",
+          sender: payload.sender === "bot" ? "rex" : (payload.sender || "user"),
           text: payload.text || "",
           suggestions: payload.suggestions || undefined,
           properties: payload.properties || undefined,
@@ -1822,6 +1875,25 @@ exports.handleAction = async (req, res) => {
       if (isTenant) {
         const replyText = `You are connected with our Dedicated Rental Assistance Desk:\n\n• Dedicated Rental Desk: Tenant Support Team\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our rental team assists you with owner contact details, physical flat verification, rental agreement drafting, and move-in coordination.\n\nYou can chat, call, or reach us on WhatsApp directly!`;
 
+        try {
+          const history = Array.isArray(session.message_history) ? [...session.message_history] : [];
+          history.push({
+            id: `u_talk_exec_${Date.now()}`,
+            sender: "user",
+            text: payload?.userMessage || "Talk to Property Executive",
+            timestamp: new Date().toISOString(),
+          });
+          history.push({
+            id: `b_talk_exec_${Date.now()}`,
+            sender: "rex",
+            text: replyText,
+            timestamp: new Date().toISOString(),
+          });
+          await RexSessionModel.updateSession(session.session_uuid, {
+            messageHistory: history,
+          });
+        } catch (hErr) {}
+
         return res.status(200).json({
           success: true,
           session_uuid: session.session_uuid,
@@ -1837,6 +1909,25 @@ exports.handleAction = async (req, res) => {
 
       if (isBuyer) {
         const replyText = `You are connected with our Dedicated Buyer Advisory Desk:\n\n• Advisory Team: Resale Expert Property Advisory\n• Direct Phone / WhatsApp: +91 9637 00 9639\n• Email: info@resaleexpert.in\n• Office Hours: Mon - Fri: 9:00 AM - 8:00 PM | Sat - Sun: 9:00 AM - 9:00 PM\n• Assistance: Our property advisors assist with verified property visits, legal documentation review, pricing negotiations, and home loan processing.\n\nYou can call, message on WhatsApp, or let me know what property you'd like to visit!`;
+
+        try {
+          const history = Array.isArray(session.message_history) ? [...session.message_history] : [];
+          history.push({
+            id: `u_talk_exec_${Date.now()}`,
+            sender: "user",
+            text: payload?.userMessage || "Talk to Property Executive",
+            timestamp: new Date().toISOString(),
+          });
+          history.push({
+            id: `b_talk_exec_${Date.now()}`,
+            sender: "rex",
+            text: replyText,
+            timestamp: new Date().toISOString(),
+          });
+          await RexSessionModel.updateSession(session.session_uuid, {
+            messageHistory: history,
+          });
+        } catch (hErr) {}
 
         return res.status(200).json({
           success: true,
@@ -2097,6 +2188,37 @@ exports.handleAction = async (req, res) => {
           },
         });
       } catch (e) {}
+
+      // Update REX session message_history & profile so it appears in the communication dashboard
+      try {
+        const history = Array.isArray(session.message_history) ? [...session.message_history] : [];
+        history.push({
+          id: `u_call_req_${Date.now()}`,
+          sender: "user",
+          text: `Callback Request: ${cleanName}, Phone: +91 ${cleanPhone}, Preferred Timing: ${preferredTiming}`,
+          timestamp: new Date().toISOString(),
+        });
+        history.push({
+          id: `b_call_req_${Date.now()}`,
+          sender: "rex",
+          text: `✅ Callback Request Registered!\n\nThank you ${cleanName}! Our Property Executive will call you ${preferredTiming === "Immediately" ? "immediately" : preferredTiming} at +91 ${cleanPhone}.\n\nYour request has been saved and routed to our CRM team. How else can we assist you today?`,
+          timestamp: new Date().toISOString(),
+        });
+
+        const updatedProfile = {
+          ...(session.extracted_profile || {}),
+          name: cleanName,
+          phone: cleanPhone,
+          role: effectivePersona,
+        };
+
+        await RexSessionModel.updateSession(session.session_uuid, {
+          messageHistory: history,
+          extractedProfile: updatedProfile,
+        });
+      } catch (histErr) {
+        console.warn("Could not append call request to session history:", histErr.message);
+      }
 
       // Trigger automation / CRM notifications
       try {

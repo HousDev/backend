@@ -28,7 +28,12 @@ const upload = multer({
 
 // Routes
 router.get("/stats", aiTrainingController.getTrainingStats);
+router.get("/runs", aiTrainingController.getTrainingRuns);
+router.get("/master-locations", aiTrainingController.getMasterLocations);
+router.post("/realtime-valuation", aiTrainingController.runRealTimeValuation);
 router.post("/upload", upload.single("file"), aiTrainingController.uploadTrainingData);
 router.post("/start-training", aiTrainingController.startTrainingRun);
+router.delete("/batches/:id", aiTrainingController.deleteBatch);
 
 module.exports = router;
+

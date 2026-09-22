@@ -372,6 +372,52 @@ const UserActivityEvent = {
       `;
       const [recentSessions] = await db.query(recentSessionsSql, params);
 
+      // 5. Enrich recent sessions with AI Property Interest Detection
+      if (recentSessions && recentSessions.length > 0) {
+        try {
+          const sessionIds = recentSessions.map((s) => s.session_id).filter(Boolean);
+          if (sessionIds.length > 0) {
+            // Fetch property, calculator, and search events for these sessions
+            const [events] = await db.query(
+              `SELECT session_id, event_type, event_name, property_id, payload, created_at 
+               FROM user_activity_events 
+               WHERE session_id IN (?) AND (property_id IS NOT NULL OR event_type IN ('calculator', 'search', 'property'))
+               ORDER BY created_at ASC`,
+              [sessionIds]
+            );
+
+            // Fetch property metadata for all referenced property_ids
+            const propIds = [...new Set((events || []).map((e) => e.property_id).filter(Boolean))];
+            const propMap = {};
+            if (propIds.length > 0) {
+              const [props] = await db.query(
+                `SELECT id, society_name, location_name, city_name, unit_type, final_price, budget 
+                 FROM my_properties WHERE id IN (?)`,
+                [propIds]
+              );
+              for (const p of props || []) {
+                propMap[p.id] = p;
+              }
+            }
+
+            // Group events by session_id
+            const eventsBySession = {};
+            for (const ev of events || []) {
+              if (!eventsBySession[ev.session_id]) eventsBySession[ev.session_id] = [];
+              eventsBySession[ev.session_id].push(ev);
+            }
+
+            const { detectSessionInterest } = require('../services/visitorAiInterestService');
+            for (const s of recentSessions) {
+              const sEvents = eventsBySession[s.session_id] || [];
+              s.ai_interest = detectSessionInterest(s, sEvents, propMap);
+            }
+          }
+        } catch (enrichErr) {
+          console.warn('Error enriching sessions with AI interest:', enrichErr.message);
+        }
+      }
+
       return {
         summary: totals && totals[0] ? totals[0] : {},
         topProperties: topProperties || [],
