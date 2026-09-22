@@ -940,19 +940,22 @@ const searchProperties = (req, res) => {
 
     const SELECT_COLUMNS = `
       id,
-      owner_name, owner_id, lead_id, assigned_to,
+      owner_name, owner_id, assigned_to,
       property_type_name, property_subtype_name, unit_type, wing, unit_no,
-      furnishing, bedrooms, bathrooms, facing, parking_type, parking_qty,
+      furnishing, balcony, dry_balcony, bedrooms, bathrooms, facing, parking_type, parking_qty,
       city_name, location_name, society_name, floor, total_floors,
-      carpet_area, builtup_area, budget, price_type, final_price,
-      address, status, lead_source, ownership_doc_path,
+      carpet_area, builtup_area,
+      address, 
+      CASE WHEN is_public = 1 AND (status = 'Pending Review' OR status = '' OR status IS NULL) THEN 'Available' ELSE status END AS status,
+      lead_source, source_url,
       photos, amenities, furnishing_items, nearby_places, description,
       created_at, updated_at,
-      is_public, is_private, is_sold, is_available, is_new_listing, is_premium, is_verified, is_featured,
-      publication_date, created_by, updated_by,
+      is_public, is_sold, is_available, is_new_listing, is_premium, is_verified, is_featured,
+      publication_date,
       public_views, public_inquiries, slug,
       listing_type, monthly_rent, security_deposit, maintenance_extra, maintenance_charge,
-      preferred_tenants, lock_in_period, notice_period, agreement_duration, available_from
+      preferred_tenants, lock_in_period, notice_period, agreement_duration, available_from,
+      latitude, longitude
     `.replace(/\s+/g, ' ').trim();
 
     let sql = `SELECT ${SELECT_COLUMNS} FROM rental_properties${whereClause}`;
