@@ -1,0 +1,7 @@
+python-ai-service/*
+python-ai-service/**
+uploads/*
+uploads/**
+data/*
+data/**
+*.log

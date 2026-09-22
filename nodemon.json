@@ -1,0 +1,21 @@
+{
+  "watch": [
+    "server.js",
+    "controllers",
+    "routes",
+    "models",
+    "services",
+    "middleware",
+    "config",
+    "corn"
+  ],
+  "ignore": [
+    "python-ai-service/**",
+    "uploads/**",
+    "data/**",
+    "*.log",
+    "temp/**",
+    "node_modules/**"
+  ],
+  "ext": "js,json"
+}

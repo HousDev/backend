@@ -10,6 +10,7 @@ router.get('/timeline/lead/:leadId', authJwt.verifyToken, ctrl.getLeadTimeline);
 router.get('/timeline/user/:userId', authJwt.verifyToken, ctrl.getUserTimeline);
 router.get('/timeline/guest/:guestId', authJwt.verifyToken, ctrl.getGuestTimeline);
 router.get('/timeline/session/:sessionId', authJwt.verifyToken, ctrl.getSessionTimeline);
+router.get('/session/:sessionId/ai-dossier', authJwt.verifyToken, ctrl.getSessionAiDossier);
 router.get('/overview', authJwt.verifyToken, ctrl.getOverview);
 
 // WhatsApp stats (existing endpoint)

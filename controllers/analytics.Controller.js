@@ -152,3 +152,19 @@ exports.getOverview = async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
+/**
+ * Generate Deep AI Dossier for a Session
+ * GET /api/analytics/session/:sessionId/ai-dossier
+ */
+exports.getSessionAiDossier = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { generateDeepAiDossier } = require('../services/visitorAiInterestService');
+    const result = await generateDeepAiDossier(sessionId);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error('getSessionAiDossier error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};

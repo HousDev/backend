@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-multipart>=0.0.12
+pyjwt>=2.9.0
+pymysql>=1.1.1
+cryptography>=43.0.0
+numpy>=2.0.0
+pandas>=2.2.0
+scikit-learn>=1.5.0
+joblib>=1.4.0
+requests>=2.32.0
+pytrends>=4.9.2
+python-dotenv>=1.0.1

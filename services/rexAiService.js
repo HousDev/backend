@@ -516,6 +516,11 @@ function generateRuleBasedResponse(userMessage, currentProfile = {}, currentRequ
     (lower.includes("show") ||
       lower.includes("find") ||
       lower.includes("search") ||
+      lower.includes("explore") ||
+      lower.includes("nearby") ||
+      lower.includes("near me") ||
+      lower.includes("around me") ||
+      lower.includes("current location") ||
       lower.includes("flats") ||
       lower.includes("flat") ||
       lower.includes("bhk") ||
@@ -875,6 +880,9 @@ Annual capital appreciation in major IT corridors averages 7% to 9.5%. Would you
   } else if (reqs.locations.length > 0) {
     reply = `Here are properties available in ${reqs.locations.join(", ")}.`;
     suggestions = ["1 BHK", "2 BHK", "3 BHK", "Row House"];
+  } else if (isNearbyIntent) {
+    reply = `Here are verified properties in nearby locations:`;
+    suggestions = ["2 BHK in Wakad", "Properties in Hinjewadi", "Book Site Visit", "Talk to Property Executive"];
   } else {
     reply = `Please specify your preferences below (Configuration, Locality, and Budget) to view matching verified properties in Pune:`;
     suggestions = ["2 BHK in Wakad", "Properties in Hinjewadi", "3 BHK in Baner", "Budget under ₹60L"];
