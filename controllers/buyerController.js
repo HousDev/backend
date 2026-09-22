@@ -118,7 +118,7 @@ exports.getAllBuyers = async (req, res) => {
       LEFT JOIN users u1 ON u1.id = b.created_by
       LEFT JOIN users u2 ON u2.id = b.assigned_executive
       LEFT JOIN (SELECT id, salutation, first_name, last_name, email, phone FROM users WHERE role LIKE '%admin%' OR role LIKE '%super%' ORDER BY id ASC LIMIT 1) adm ON 1=1
-      ORDER BY COALESCE(b.assigned_at, b.created_at) DESC, b.id DESC
+      ORDER BY b.created_at DESC, b.id DESC
     `);
 
     const makeName = (sal, first, last) =>
