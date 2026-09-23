@@ -1015,6 +1015,26 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
     const leadDateSql = ignoreDate ? "1=1" : "created_at BETWEEN ? AND ?";
     const dateArgs = ignoreDate ? [] : [startStr, endStr];
 
+    // Assignment and follow-up execution belong to the employee who received
+    // the work, not necessarily the record creator. Keep the query compatible
+    // with older installations where these newer columns may be absent.
+    const [[leadColumnRows], [followupColumnRows]] = await Promise.all([
+      db.query("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'client_leads'"),
+      db.query("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'fu_follow_ups'"),
+    ]).catch((err) => {
+      console.warn("Could not inspect report columns; using legacy report fields:", err.message);
+      return [[], []];
+    });
+    const leadColumns = new Set((leadColumnRows || []).map((row) => row.COLUMN_NAME));
+    const followupColumns = new Set((followupColumnRows || []).map((row) => row.COLUMN_NAME));
+    const leadAssignmentDate = leadColumns.has("assigned_at")
+      ? "COALESCE(assigned_at, updated_at, created_at)"
+      : "updated_at";
+    const followupOwner = followupColumns.has("assigned_to")
+      ? "COALESCE(assigned_to, created_by)"
+      : "created_by";
+    const followupDateSql = ignoreDate ? "1=1" : "COALESCE(updated_at, created_at) BETWEEN ? AND ?";
+
     // 2. Fetch Module Aggregates Parallelly
     const [
       [leadRows],
@@ -1038,7 +1058,7 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
           SUM(CASE WHEN transferred_to_seller = 1 THEN 1 ELSE 0 END) AS transferred_seller,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('lost', 'unqualified', 'rejected', 'junk') THEN 1 ELSE 0 END) AS lost_leads
         FROM client_leads
-        WHERE ${leadDateSql} AND assigned_executive IS NOT NULL AND assigned_executive != ''
+        WHERE ${ignoreDate ? "1=1" : `${leadAssignmentDate} BETWEEN ? AND ?`} AND assigned_executive IS NOT NULL AND assigned_executive != ''
         GROUP BY assigned_executive
       `, dateArgs).catch((err) => {
         console.error("Error in leadRows query:", err);
@@ -1128,14 +1148,14 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
 
       db.query(`
         SELECT 
-          created_by AS user_id,
+          ${followupOwner} AS user_id,
           COUNT(*) AS followups_assigned,
           SUM(CASE WHEN is_complete = 1 THEN 1 ELSE 0 END) AS followups_completed,
           SUM(CASE WHEN is_complete = 0 OR is_complete IS NULL THEN 1 ELSE 0 END) AS followups_pending,
           SUM(CASE WHEN (is_complete = 0 OR is_complete IS NULL) AND scheduled_date < CURDATE() THEN 1 ELSE 0 END) AS followups_overdue
         FROM fu_follow_ups
-        WHERE entity_code = 'LEAD' AND ${leadDateSql} AND created_by IS NOT NULL
-        GROUP BY created_by
+        WHERE entity_code IN ('LEAD', 'CLIENT_LEAD') AND ${followupDateSql} AND ${followupOwner} IS NOT NULL
+        GROUP BY ${followupOwner}
       `, dateArgs).catch((err) => {
         console.error("Error in followupRows query:", err);
         return [[]];
