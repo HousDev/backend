@@ -1216,20 +1216,20 @@ exports.getAgentLeadExecutionReport = async (req, res) => {
       const v = visitMap.get(uId) || {};
       const r = receiptMap.get(uId) || {};
 
-      const buyerCount = Number(b.buyers_created || b.buyers_assigned || 0);
+      const buyerCount = Number(b.buyers_created) || Number(b.buyers_assigned) || 0;
       const buyerClosed = Number(b.buyers_closed || 0);
       const buyerContacted = Number(b.buyers_contacted || 0);
 
-      const sellerCount = Number(sel.sellers_created || sel.sellers_assigned || 0);
+      const sellerCount = Number(sel.sellers_created) || Number(sel.sellers_assigned) || 0;
       const sellerSold = Number(sel.sellers_sold || 0);
       const sellerContacted = Number(sel.sellers_contacted || 0);
       const sellerInterested = Number(sel.sellers_interested || 0);
 
-      const ownerCount = Number(o.owners_created || o.owners_assigned || 0);
+      const ownerCount = Number(o.owners_created) || Number(o.owners_assigned) || 0;
       const ownerRented = Number(o.owners_rented || 0);
       const ownerContacted = Number(o.owners_contacted || 0);
 
-      const tenantCount = Number(t.tenants_created || t.tenants_assigned || 0);
+      const tenantCount = Number(t.tenants_created) || Number(t.tenants_assigned) || 0;
       const tenantClosed = Number(t.tenants_closed || 0);
 
       const generalAssigned = Number(l.assigned_leads || 0);
