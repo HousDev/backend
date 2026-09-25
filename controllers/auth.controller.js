@@ -1007,7 +1007,7 @@ exports.verifyOTPAndRegister = async (req, res) => {
         try {
           const dynExec = await resolveDynamicExecutive();
           if (dynExec && dynExec.id) assignedExecutiveId = dynExec.id;
-        } catch (e) {}
+        } catch (e) { }
 
         const fullName = `${safeFirstName} ${safeLastName}`.trim() || 'New Registered User';
         await Lead.create({
@@ -1166,7 +1166,7 @@ exports.googleAuth = async (req, res) => {
           try {
             const dynExec = await resolveDynamicExecutive();
             if (dynExec && dynExec.id) assignedExecutiveId = dynExec.id;
-          } catch (e) {}
+          } catch (e) { }
 
           await Lead.create({
             salutation: safeSalutation,
